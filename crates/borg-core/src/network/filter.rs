@@ -18,12 +18,13 @@ enum Field {
     Interface,
     Mac,
     Vendor,
+    Network,
 }
 
 const MAC_DASH: char = '-';
 const MAC_COLON: char = ':';
 
-const FIELDS: [(&str, Field); 11] = [
+const FIELDS: [(&str, Field); 12] = [
     ("port", Field::Port),
     ("proc", Field::Process),
     ("process", Field::Process),
@@ -35,6 +36,7 @@ const FIELDS: [(&str, Field); 11] = [
     ("interface", Field::Interface),
     ("mac", Field::Mac),
     ("vendor", Field::Vendor),
+    ("net", Field::Network),
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -80,6 +82,7 @@ impl Term {
                 .as_deref()
                 .is_some_and(|mac| mac.contains(&self.value.replace(MAC_DASH, &MAC_COLON.to_string()))),
             Some(Field::Vendor) => row.vendor.is_some_and(contains),
+            Some(Field::Network) => row.network.as_deref().is_some_and(contains),
         };
         found != self.negated
     }
@@ -97,6 +100,10 @@ impl NetworkFilter {
 
     pub(crate) fn matches(&self, row: &Haystack) -> bool {
         self.terms.iter().all(|term| term.matches(row))
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.terms.is_empty()
     }
 }
 
@@ -116,6 +123,8 @@ pub(crate) struct Haystack {
     pub(crate) labels: Vec<String>,
     pub(crate) mac: Option<String>,
     pub(crate) vendor: Option<&'static str>,
+    /// The network a host is on or reached through, or the one a heading names.
+    pub(crate) network: Option<String>,
 }
 
 impl Haystack {
@@ -133,6 +142,7 @@ impl Haystack {
             .chain(self.labels.iter().cloned())
             .chain(self.mac.iter().cloned())
             .chain(self.vendor.map(str::to_owned))
+            .chain(self.network.iter().cloned())
     }
 }
 

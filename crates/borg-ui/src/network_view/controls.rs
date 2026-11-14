@@ -15,6 +15,7 @@ use ratatui::{
 use unicode_width::UnicodeWidthStr;
 
 const SCAN_KEY: char = 's';
+const DISCOVER_KEY: char = 'd';
 const PORTS_KEY: char = 'p';
 
 fn buttons(network: &Network, gives_back: bool, area: Rect) -> Vec<(Rect, &'static str, KeyCode)> {
@@ -55,6 +56,7 @@ fn buttons(network: &Network, gives_back: bool, area: Rect) -> Vec<(Rect, &'stat
         [
             ports.then_some((tr!(network_scan_ports_button), KeyCode::Char(PORTS_KEY))),
             scan.then_some((tr!(network_scan_button), KeyCode::Char(SCAN_KEY))),
+            scan.then_some((tr!(network_discover_button), KeyCode::Char(DISCOVER_KEY))),
             process.then_some((tr!(network_show_button), KeyCode::Enter)),
             process.then_some((tr!(activity_signal_button), KeyCode::Char('k'))),
             network.loaded.then_some((capture, KeyCode::Char('r'))),
@@ -163,10 +165,13 @@ pub(crate) fn status(network: &Network) -> String {
         NetworkPage::Interfaces => network.interface().map_or_else(String::new, |(interface, _)| {
             format!("{} · {}", interface.name, borg_core::kind_label(interface.kind))
         }),
-        NetworkPage::Neighbors => network.neighbor().map_or_else(String::new, |(neighbor, _)| {
-            let parts = [Some(neighbor.address.to_string()), neighbor.mac.map(|mac| mac.to_string())];
-            parts.into_iter().flatten().chain([neighbor.interface.clone()]).collect::<Vec<_>>().join(" · ")
-        }),
+        NetworkPage::Neighbors => match network.neighbor() {
+            Some((neighbor, _)) => {
+                let parts = [Some(neighbor.address.to_string()), neighbor.mac.map(|mac| mac.to_string())];
+                parts.into_iter().flatten().chain([neighbor.interface.clone()]).collect::<Vec<_>>().join(" · ")
+            }
+            None => network.entry().map_or_else(String::new, |_| super::map::status(network)),
+        },
     }
 }
 

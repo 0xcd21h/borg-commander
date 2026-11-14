@@ -402,8 +402,16 @@ pub enum Effect {
     },
     /// Looks up the names of addresses, in the background.
     ResolveHosts(Vec<std::net::IpAddr>),
-    /// Probes each address with ping and connections to the scanned ports, a few at a time.
+    /// Probes each address with ping and connections to the scanned ports, a few at a time,
+    /// with a `nudge` that makes the system ask each one on the link for its MAC address.
     ScanSubnet {
+        id: u64,
+        addresses: Vec<std::net::Ipv4Addr>,
+        nudge: bool,
+    },
+    /// Pings each address, or connects where ping is not allowed, many at a time, and traces the
+    /// way to each one that answers.
+    Discover {
         id: u64,
         addresses: Vec<std::net::Ipv4Addr>,
     },

@@ -12,8 +12,8 @@ use crate::{
     spinner::Spinner,
 };
 use borg_core::{
-    AppState, CaptureLimit, CaptureRequest, Exposure, Network, NetworkPage, PortRow, Presence, Recording, ScanRun,
-    exposure_label, kind_label, neighbor_notes,
+    AppState, CaptureLimit, CaptureRequest, Exposure, Network, NetworkPage, PortRow, Presence, Recording, ScanKind,
+    ScanRun, exposure_label, kind_label, neighbor_notes, way_label,
 };
 use borg_i18n::tr;
 use jiff::Zoned;
@@ -68,7 +68,7 @@ pub(super) fn draw_list(
     let line = FilterLine {
         filter: &network.filter,
         filtering: network.filtering,
-        shown: network.len(network.page),
+        shown: network.shown(network.page),
         total: network.totals[network.page.index()],
         placeholder: if network.page == NetworkPage::Neighbors {
             tr!(network_neighbors_filter_placeholder)
@@ -124,6 +124,13 @@ pub(super) fn draw_list(
         };
         buf.set_style(line, base);
         let selected = index == network.cursor();
+        let heading =
+            (network.page == NetworkPage::Neighbors).then(|| super::map::heading_line(network, index, clock)).flatten();
+        if let Some(heading) = heading {
+            let style = super::map::heading_style(look, base, selected);
+            text(buf, line, format::truncate_end(&heading, usize::from(line.width)), style);
+            continue;
+        }
         for (column, cell) in columns.iter().zip(cells(&columns, line)) {
             let (value, style) = value(network, index, column.field, look, clock, base, selected);
             Line::from(Span::styled(format::truncate_end(&value, usize::from(cell.width)), style)).render(cell, buf);
@@ -147,12 +154,19 @@ pub(super) fn draw_list(
     }
 }
 
-/// How far a subnet scan got, and how many hosts answered.
+/// How far a scan got: how many hosts answered a subnet scan, or how many networks a discovery
+/// found.
 fn scan_note(scan: &ScanRun) -> String {
-    if scan.stopping {
-        return tr!(network_scan_stopping, subnet = scan.subnet);
+    match (&scan.kind, scan.stopping) {
+        (ScanKind::Subnet { subnet }, true) => tr!(network_scan_stopping, subnet = subnet),
+        (ScanKind::Subnet { subnet }, false) => {
+            tr!(network_scanning, subnet = subnet, done = scan.done, total = scan.total, answered = scan.answered)
+        }
+        (ScanKind::Discovery { way }, true) => tr!(network_discover_stopping, way = way_label(way)),
+        (ScanKind::Discovery { way }, false) => {
+            tr!(network_discovering, way = way_label(way), done = scan.done, total = scan.total, found = scan.answered)
+        }
     }
-    tr!(network_scanning, subnet = scan.subnet, done = scan.done, total = scan.total, answered = scan.answered)
 }
 
 /// How a capture is going: where it runs, what it has so far, the time it has left, and how
@@ -289,7 +303,7 @@ fn value(
             }
         }
         NetworkPage::Neighbors => {
-            let row = network.neighbors[index];
+            let Some(row) = network.neighbors[index].host() else { return (String::new(), base) };
             let neighbor = &network.neighborhood.neighbors[row.neighbor];
             let warned = row.shared || row.changed.is_some();
             let gone = match row.presence {
@@ -306,7 +320,10 @@ fn value(
             let probe = network.probes.get(&neighbor.address).map(|probed| &probed.probe);
             match field {
                 Field::Address => (neighbor.address.to_string(), style),
-                Field::Mac => (neighbor.mac.map_or_else(String::new, |mac| mac.to_string()), style),
+                Field::Mac => match neighbor.mac {
+                    Some(mac) => (mac.to_string(), style),
+                    None => (super::map::via(network, neighbor).unwrap_or_default(), quiet),
+                },
                 Field::Vendor => (neighbor.mac.and_then(borg_core::vendor).unwrap_or_default().to_owned(), quiet),
                 Field::Name => (neighbor_label(network, neighbor), style),
                 Field::Host => (network.host(neighbor.address).unwrap_or(UNKNOWN).to_owned(), style),

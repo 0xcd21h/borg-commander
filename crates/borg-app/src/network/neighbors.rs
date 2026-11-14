@@ -29,9 +29,10 @@ fn collect() -> Result<Neighborhood> {
     };
     let mut neighbors = darwin::arp(&run(darwin::ARP, &darwin::ARP_ARGUMENTS)?);
     neighbors.extend(darwin::ndp(&run(darwin::NDP, &darwin::NDP_ARGUMENTS)?));
-    let gateways = darwin::gateways(&run(darwin::NETSTAT, &darwin::NETSTAT_ARGUMENTS)?);
+    let table = run(darwin::NETSTAT, &darwin::NETSTAT_ARGUMENTS)?;
+    let (gateways, routes) = (darwin::gateways(&table), darwin::routes(&table));
     let dns = resolv::nameservers(&std::fs::read_to_string(RESOLV_CONF).unwrap_or_default());
-    Ok(Neighborhood { neighbors, gateways, dns, ..Neighborhood::default() })
+    Ok(Neighborhood { neighbors, gateways, routes, dns, ..Neighborhood::default() })
 }
 
 #[cfg(target_os = "linux")]
@@ -42,11 +43,12 @@ fn collect() -> Result<Neighborhood> {
         Ok(neighbors) => neighbors,
         Err(_) => linux::proc_arp(&read_to_string(linux::PROC_ARP)?),
     };
-    let mut gateways = linux::routes_v4(&read_to_string(linux::PROC_ROUTE)?);
+    let table = read_to_string(linux::PROC_ROUTE)?;
+    let (mut gateways, routes) = (linux::routes_v4(&table), linux::network_routes(&table));
     gateways.extend(linux::routes_v6(&read_to_string(linux::PROC_ROUTE_V6).unwrap_or_default()));
     let mut dns = resolv::nameservers(&read_to_string(RESOLV_CONF).unwrap_or_default());
     if resolv::only_stub(&dns) {
         dns = resolv::nameservers(&read_to_string(resolv::RESOLVED_CONF).unwrap_or_default());
     }
-    Ok(Neighborhood { neighbors, gateways, dns, ..Neighborhood::default() })
+    Ok(Neighborhood { neighbors, gateways, routes, dns, ..Neighborhood::default() })
 }

@@ -5,8 +5,9 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, ensure};
 use borg_core::{
-    Effect, Gateway, Interface, InterfaceKind, KnownHost, KnownNetwork, Mac, Msg, NEIGHBORS_FORMAT, Neighbor,
-    NeighborMemory, NeighborState, Neighborhood, NetworkSample, SavedNeighbors, Socket, TcpState, Transport,
+    Effect, Gateway, Interface, InterfaceKind, KnownHost, KnownNetwork, KnownRoute, Mac, Msg, NEIGHBORS_FORMAT,
+    Neighbor, NeighborMemory, NeighborState, Neighborhood, NetworkSample, Origin, Route, SavedNeighbors, Socket,
+    TcpState, Trace, Transport,
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
@@ -200,8 +201,9 @@ pub const LAST_EVENING: u64 = 1_768_415_400;
 pub const EARLY_JANUARY: u64 = 1_767_344_700;
 
 /// What Borg remembers of the made-up home network from earlier visits: the storage box with
-/// the ports an earlier scan found, a light bridge that is off now, and a small computer that
-/// answered a scan and has not been seen since.
+/// the ports an earlier scan found, a light bridge that is off now, a small computer that
+/// answered a scan and has not been seen since, and a camera on a network a discovery found on
+/// the gateway.
 pub fn remembered() -> NeighborMemory {
     let host = |address: &str, mac: Option<&str>, seen, ports: &[u16]| KnownHost {
         address: address.parse().unwrap(),
@@ -221,7 +223,16 @@ pub fn remembered() -> NeighborMemory {
                 host("192.0.2.60", Some("00:11:32:aa:00:60"), LAST_EVENING, &[80, 443]),
                 host("192.0.2.70", Some("ec:b5:fa:12:00:70"), LAST_EVENING, &[80]),
                 host("192.0.2.88", Some("b8:27:eb:3f:00:88"), EARLY_JANUARY, &[22]),
+                host("203.0.113.40", None, LAST_EVENING, &[443]),
             ],
+            routes: vec![KnownRoute {
+                network: "203.0.113.0".parse().unwrap(),
+                prefix: 24,
+                gateway: "192.0.2.1".parse().ok(),
+                trace: Trace { hops: Some(1), path: Vec::new() },
+                origin: Origin::Discovery,
+                seen: LAST_EVENING,
+            }],
         }],
     };
     NeighborMemory::restore(saved).expect("the made-up memory keeps the rules")
@@ -229,7 +240,8 @@ pub fn remembered() -> NeighborMemory {
 
 /// A made-up home network around the machine: a router, a printer, a phone with a private
 /// address, a small computer, a storage box answering on two addresses, a device that does not
-/// answer, and the broadcast and own entries the screen leaves out.
+/// answer, and the broadcast and own entries the screen leaves out. A work network lies behind
+/// the tunnel.
 pub fn neighborhood() -> Neighborhood {
     let neighbor = |address: &str, mac: Option<&str>, state, router| Neighbor {
         address: address.parse().unwrap(),
@@ -255,6 +267,10 @@ pub fn neighborhood() -> Neighborhood {
         gateways: vec![
             Gateway { address: "192.0.2.1".parse().unwrap(), interface: "en0".into() },
             Gateway { address: "fe80::1".parse().unwrap(), interface: "en0".into() },
+        ],
+        routes: vec![
+            Route { network: "10.20.0.0".parse().unwrap(), prefix: 16, gateway: None, interface: "utun3".into() },
+            Route { network: "192.0.2.0".parse().unwrap(), prefix: 24, gateway: None, interface: "en0".into() },
         ],
         dns: vec!["192.0.2.1".parse().unwrap(), "198.51.100.53".parse().unwrap()],
         error: None,

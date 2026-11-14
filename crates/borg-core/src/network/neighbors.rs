@@ -10,9 +10,17 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 
 use super::{Interface, InterfaceKind};
 
+mod map;
 mod memory;
+mod routes;
 
-pub use memory::{KnownHost, KnownNetwork, NEIGHBORS_FORMAT, NeighborMemory, Noted, SavedNeighbors};
+pub use map::{MapParts, NeighborEntry, entries};
+pub use memory::{KnownHost, KnownNetwork, KnownRoute, NEIGHBORS_FORMAT, NeighborMemory, Noted, SavedNeighbors};
+pub(crate) use routes::network_part;
+pub use routes::{
+    Discovery, InternetRoute, MAX_HOPS, Origin, ROUTER_HOSTS, Route, Routed, Trace, WIDEST_NETWORK, Way, attached,
+    discovery, holding, inside, internet, routed, shows, table_networks,
+};
 
 const MAC_OCTETS: usize = 6;
 const MAC_SEPARATORS: [char; 2] = [':', '-'];
@@ -26,7 +34,7 @@ const VENDORS: &str = include_str!("neighbors/vendors.tsv");
 const VENDOR_SEPARATOR: char = '\t';
 const IPV4_BITS: u8 = 32;
 const IPV6_BITS: u8 = 128;
-const SCAN_PREFIX: u8 = 24;
+pub(crate) const SCAN_PREFIX: u8 = 24;
 const POINT_TO_POINT_PREFIX: u8 = 31;
 const SCANNED_KINDS: [InterfaceKind; 3] = [InterfaceKind::Ethernet, InterfaceKind::WiFi, InterfaceKind::Bridge];
 const INVALID_MAC: &str = "invalid MAC address";
@@ -155,6 +163,8 @@ pub struct Gateway {
 pub struct Neighborhood {
     pub neighbors: Vec<Neighbor>,
     pub gateways: Vec<Gateway>,
+    /// The IPv4 routes to networks other than the default ones.
+    pub routes: Vec<Route>,
     pub dns: Vec<IpAddr>,
     pub error: Option<String>,
     /// When the tables were read, in seconds since the epoch.
@@ -262,7 +272,7 @@ fn broadcasts(interfaces: &[Interface]) -> HashSet<IpAddr> {
         .collect()
 }
 
-fn mask(prefix: u8) -> u32 {
+pub(crate) fn mask(prefix: u8) -> u32 {
     u32::MAX.checked_shl(u32::from(IPV4_BITS.saturating_sub(prefix))).unwrap_or(0)
 }
 
@@ -323,13 +333,15 @@ pub(crate) fn rows(
 }
 
 /// A scanned address: whether it answered ping and how fast, which of the scanned ports took
-/// the connection, and whether one refused it, which a host that is up does too.
+/// the connection, whether one refused it, which a host that is up does too, and for a discovery
+/// the way to it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Probe {
     pub address: Ipv4Addr,
     pub ping: Option<Duration>,
     pub open: Vec<u16>,
     pub refused: bool,
+    pub trace: Option<Trace>,
 }
 
 impl Probe {
@@ -509,6 +521,42 @@ pub struct SubnetScan {
     pub network: Ipv4Addr,
     pub prefix: u8,
     pub addresses: Vec<Ipv4Addr>,
+    /// Whether the network is on the interface's own link, where the system asks each host for
+    /// its MAC address.
+    pub on_link: bool,
+}
+
+/// Why a typed network cannot be scanned.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScanProblem {
+    Unreadable,
+    TooWide,
+    NoRoute,
+}
+
+const PREFIX_SEPARATOR: char = '/';
+const NARROWEST_SCAN: u8 = 30;
+
+/// Reads `a.b.c.d/prefix`, or an address alone as the /24 holding it.
+pub fn typed_network(text: &str) -> Result<(Ipv4Addr, u8), ScanProblem> {
+    let text = text.trim();
+    let (address, prefix) = match text.split_once(PREFIX_SEPARATOR) {
+        Some((address, prefix)) => (address, prefix.parse::<u8>().map_err(|_| ScanProblem::Unreadable)?),
+        None => (text, SCAN_PREFIX),
+    };
+    let address: Ipv4Addr = address.parse().map_err(|_| ScanProblem::Unreadable)?;
+    match prefix {
+        prefix if prefix < SCAN_PREFIX => Err(ScanProblem::TooWide),
+        prefix if prefix > NARROWEST_SCAN => Err(ScanProblem::Unreadable),
+        prefix => Ok((Ipv4Addr::from(u32::from(address) & mask(prefix)), prefix)),
+    }
+}
+
+fn host_addresses(network: Ipv4Addr, prefix: u8, own: &HashSet<IpAddr>) -> Vec<Ipv4Addr> {
+    let mask = mask(prefix);
+    let network = u32::from(network) & mask;
+    let broadcast = network | !mask;
+    (network + 1..broadcast).map(Ipv4Addr::from).filter(|address| !own.contains(&IpAddr::V4(*address))).collect()
 }
 
 impl SubnetScan {
@@ -519,11 +567,39 @@ impl SubnetScan {
     pub fn of(interface: &Interface) -> Option<Self> {
         let (own, prefix) = home_address(interface)?;
         let prefix = prefix.max(SCAN_PREFIX);
-        let mask = mask(prefix);
-        let network = u32::from(own) & mask;
-        let broadcast = network | !mask;
-        let addresses = (network + 1..broadcast).map(Ipv4Addr::from).filter(|address| *address != own).collect();
-        Some(Self { interface: interface.name.clone(), network: Ipv4Addr::from(network), prefix, addresses })
+        let network = Ipv4Addr::from(u32::from(own) & mask(prefix));
+        let own = HashSet::from([IpAddr::V4(own)]);
+        let addresses = host_addresses(network, prefix, &own);
+        Some(Self { interface: interface.name.clone(), network, prefix, addresses, on_link: true })
+    }
+
+    /// The scan of a typed network: on the link of the interface whose subnet holds it, else
+    /// through the routed network holding it, else the way internet traffic leaves.
+    pub fn typed(
+        text: &str,
+        interfaces: &[Interface],
+        routed: &[Routed],
+        internet: &[InternetRoute],
+    ) -> Result<Self, ScanProblem> {
+        let (network, prefix) = typed_network(text)?;
+        let linked = interfaces.iter().filter(|interface| interface.up).find(|interface| {
+            interface.addresses.iter().any(|(own, own_prefix)| match own {
+                IpAddr::V4(own) => {
+                    *own_prefix < POINT_TO_POINT_PREFIX && inside(network, network_part(*own, *own_prefix), *own_prefix)
+                }
+                IpAddr::V6(_) => false,
+            })
+        });
+        let (interface, on_link) = match linked {
+            Some(interface) => (interface.name.clone(), true),
+            None => {
+                let through = holding(routed, network).map(|index| routed[index].interface.clone());
+                let exit = || internet.iter().find(|route| route.in_use).map(|route| route.interface.clone());
+                (through.or_else(exit).ok_or(ScanProblem::NoRoute)?, false)
+            }
+        };
+        let addresses = host_addresses(network, prefix, &own_addresses(interfaces));
+        Ok(Self { interface, network, prefix, addresses, on_link })
     }
 }
 

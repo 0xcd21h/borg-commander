@@ -49,7 +49,10 @@ impl App {
             Effect::StartupItems { id } => self.startup_items.request(id),
             Effect::Alerts { id, request } => self.alerts.request(id, request),
             Effect::ResolveHosts(addresses) => self.network.resolve(addresses),
-            Effect::ScanSubnet { id, addresses } => self.network.scan(id, addresses),
+            Effect::ScanSubnet { id, addresses, nudge } => {
+                self.network.scan(id, addresses, crate::network::Plan::Subnet { nudge });
+            }
+            Effect::Discover { id, addresses } => self.network.scan(id, addresses, crate::network::Plan::Discovery),
             Effect::StopScan { id } => self.network.stop_scan(id),
             Effect::SaveNeighbors => self.save_neighbors(),
             Effect::ResolveScanTarget(name) => self.resolve_scan_target(name),

@@ -9,7 +9,10 @@ use super::{
     HostFlag, NeighborsReport, ReportFormat, ReportHost, ReportPresence, ReportSource,
     text::{csv, table},
 };
-use crate::{Ending, Mac, NeighborState, PortChoice, PortRange, PortScanRecord, ScanNetwork, ScanSpeed};
+use crate::{
+    Ending, InternetRoute, Mac, NeighborState, Origin, PortChoice, PortRange, PortScanRecord, Routed, ScanNetwork,
+    ScanSpeed, Trace,
+};
 
 const SCANNED_AT: u64 = 1_768_471_200;
 const DAY: u64 = 86_400;
@@ -80,6 +83,8 @@ fn host(text: &str, mac_text: Option<&str>) -> ReportHost {
         vendor: None,
         name: None,
         interface: "en0".into(),
+        network: None,
+        via: None,
         state: None,
         presence: ReportPresence::Listed,
         last_seen: None,
@@ -90,11 +95,32 @@ fn host(text: &str, mac_text: Option<&str>) -> ReportHost {
     }
 }
 
-/// A router, the storage box with its scan, and a phone that went offline the day before.
+/// A network a discovery found three hops away behind the gateway.
+fn routed() -> Routed {
+    Routed {
+        network: Ipv4Addr::new(198, 51, 100, 0),
+        prefix: 24,
+        interface: "en0".into(),
+        gateway: Some(Ipv4Addr::new(192, 0, 2, 1)),
+        trace: Trace { hops: Some(3), path: vec![Ipv4Addr::new(192, 0, 2, 1), Ipv4Addr::new(203, 0, 113, 1)] },
+        origin: Origin::Discovery,
+        remembered: None,
+    }
+}
+
+/// A router, the storage box with its scan, a phone that went offline the day before, and a
+/// camera on a network behind the gateway.
 fn neighbors() -> NeighborsReport {
     NeighborsReport {
         read_at: SCANNED_AT,
         networks: vec![network()],
+        routes: vec![routed()],
+        internet: vec![InternetRoute {
+            interface: "en0".into(),
+            gateways: vec![address("192.0.2.1")],
+            wide: Vec::new(),
+            in_use: true,
+        }],
         dns: vec![address("192.0.2.1")],
         hosts: vec![
             ReportHost {
@@ -120,6 +146,13 @@ fn neighbors() -> NeighborsReport {
                 last_seen: Some(SCANNED_AT - DAY),
                 flags: vec![HostFlag::Randomized],
                 ..host("192.0.2.77", Some(PHONE_MAC))
+            },
+            ReportHost {
+                network: Some("198.51.100.0/24".into()),
+                via: Some(Ipv4Addr::new(192, 0, 2, 1)),
+                presence: ReportPresence::Answered,
+                ports: Some(vec![443]),
+                ..host("198.51.100.40", None)
             },
         ],
     }
@@ -249,6 +282,8 @@ fn the_neighbors_in_markdown_list_every_host_and_then_their_port_scans() {
 - **Subnet:** 192.0.2.0/24 · this machine 192.0.2.10
 - **Interface:** en0
 - **Gateway:** 192.0.2.1 · 00:27:22:4c:01:01
+- **Route:** 198.51.100.0/24 · via 192.0.2.1 › 203.0.113.1 · 3 hops · en0
+- **Internet:** en0 · via 192.0.2.1 · in use
 - **DNS:** 192.0.2.1
 
 | Address | MAC | Vendor | Name | State | Ports | Ping | Note |
@@ -256,6 +291,7 @@ fn the_neighbors_in_markdown_list_every_host_and_then_their_port_scans() {
 | 192.0.2.1 | 00:27:22:4c:01:01 |  | router.home.arpa | REACHABLE | 53, 80 | 2 ms | Gateway |
 | 192.0.2.60 | 00:11:32:aa:00:60 | Example Storage | nas.home.arpa | STALE | 22, 445 | 1 ms |  |
 | 192.0.2.77 | da:a1:19:12:34:56 |  |  | Offline |  |  | Randomized, Seen 2026-01-14 10:00 UTC |
+| 198.51.100.40 |  |  |  |  | 443 |  | via 192.0.2.1 |
 
 ## Port scans
 
@@ -271,8 +307,21 @@ fn the_neighbors_in_json_name_each_host_s_flags_and_keep_its_scan() {
     assert_eq!(document["read_at"], "2026-01-15T10:00:00Z");
     assert_eq!(document["networks"][0]["subnet"], "192.0.2.0/24");
     assert_eq!(document["dns"], json!(["192.0.2.1"]));
+    assert_eq!(
+        document["routes"],
+        json!([{
+            "network": "198.51.100.0/24",
+            "interface": "en0",
+            "gateway": "192.0.2.1",
+            "path": ["192.0.2.1", "203.0.113.1"],
+            "hops": 3,
+            "source": "discovery",
+        }])
+    );
+    assert_eq!(document["internet"], json!([{"interface": "en0", "gateways": ["192.0.2.1"], "in_use": true}]));
     let hosts = document["hosts"].as_array().unwrap();
-    assert_eq!(hosts.len(), 3);
+    assert_eq!(hosts.len(), 4);
+    assert_eq!((&hosts[3]["network"], &hosts[3]["via"]), (&json!("198.51.100.0/24"), &json!("192.0.2.1")));
     assert_eq!(
         hosts[0],
         json!({
@@ -300,10 +349,11 @@ fn the_neighbors_in_csv_have_a_row_for_each_host() {
     assert_eq!(
         page(ReportFormat::Csv),
         "\
-address,mac,vendor,name,interface,state,presence,last_seen,ports,ping_ms,flags,port_scan_at,port_scan_mode,port_scan_open
-192.0.2.1,00:27:22:4c:01:01,,router.home.arpa,en0,REACHABLE,listed,,53 80,2,gateway,,,
-192.0.2.60,00:11:32:aa:00:60,Example Storage,nas.home.arpa,en0,STALE,answered,,22 445,1,,2026-01-15T10:00:00Z,fast,22 80 445
-192.0.2.77,da:a1:19:12:34:56,,,en0,,offline,2026-01-14T10:00:00Z,,,randomized,,,
+address,mac,vendor,name,interface,network,via,state,presence,last_seen,ports,ping_ms,flags,port_scan_at,port_scan_mode,port_scan_open
+192.0.2.1,00:27:22:4c:01:01,,router.home.arpa,en0,,,REACHABLE,listed,,53 80,2,gateway,,,
+192.0.2.60,00:11:32:aa:00:60,Example Storage,nas.home.arpa,en0,,,STALE,answered,,22 445,1,,2026-01-15T10:00:00Z,fast,22 80 445
+192.0.2.77,da:a1:19:12:34:56,,,en0,,,,offline,2026-01-14T10:00:00Z,,,randomized,,,
+198.51.100.40,,,,en0,198.51.100.0/24,192.0.2.1,,answered,,443,,,,,
 "
     );
 }

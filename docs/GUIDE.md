@@ -513,9 +513,11 @@ What the menu offers depends on the row:
 - **Network** rows: **Copy address**, **Copy remote address** or **Copy PID**, whichever the row is
   reached by. A row with a process adds **Copy PID**, **Show in activity monitor** and
   **Signal or priority…**. A neighbor offers **Copy IP address**, **Copy MAC address**,
-  **Scan ports…** (P), **Port scans…** (O), **Scan subnet** (S) and **Save report…** (Ctrl-S), and a
-  host that is offline adds **Forget host** (F8). **Port scans…** is dimmed until the host has a
-  scan.
+  **Scan ports…** (P), **Port scans…** (O), **Scan network…** (S), **Discover networks…** (D) and
+  **Save report…** (Ctrl-S), and a host that is offline adds **Forget host** (F8). **Port scans…**
+  is dimmed until the host has a scan. A heading of the Neighbors page offers **Copy address** or
+  **Copy network**, **Scan network…**, **Discover networks…** and **Save report…**, and a network
+  Borg remembers adds **Forget network** (F8).
 - **Alerts**: **Copy PID**, **Copy program path** and **Copy command**, then
   **Show in activity monitor**, **Resume**, **Kill** and **Allow**.
 - **Startup items**: **Copy path**, **Copy program path** and **Copy command**, then
@@ -2463,9 +2465,10 @@ Press **1** to **5**, or click a tab, to switch pages:
   **Loopback**, **Tunnel**, **Bridge** or **Virtual**), first address, and rates. ● marks an
   interface that is up. The details add every address, the MTU, the bytes and packets the
   interface received and sent so far, and its errors.
-- **5 Neighbors** lists the devices on the local network that this machine knows the MAC address of,
-  with their vendor, name and state, and marks the gateway and anything suspicious. See
-  [Neighbors](#neighbors) and [Scanning ports](#scanning-ports).
+- **5 Neighbors** maps each interface, tunnel and VPN with the devices on its link, the networks
+  it reaches through routers, and its way to the internet. It lists each device's vendor, name and
+  state, and marks the gateway and anything suspicious. See [Neighbors](#neighbors),
+  [Routed networks](#routed-networks) and [Scanning ports](#scanning-ports).
 
 The footer shows the machine's total download and upload rate over every interface except
 loopback. Borg looks up the names of remote addresses in the background and shows a name in
@@ -2481,10 +2484,11 @@ place of the address once it is known.
 | R | Capture the selected row's traffic, or stop the capture that runs |
 | P | Scan the selected neighbor's ports (**5 Neighbors**) |
 | O | Show the selected neighbor's port scans (**5 Neighbors**) |
-| S | Scan the selected neighbor's subnet (**5 Neighbors**) |
+| S | Scan the selected row's network, or another one you type (**5 Neighbors**) |
+| D | Look for networks behind the router internet traffic goes to (**5 Neighbors**) |
 | Ctrl-S | Save a report of every neighbor (**5 Neighbors**) |
-| F8 / Delete | Forget the selected host that is offline (**5 Neighbors**) |
-| Ctrl-C | Copy the port's address, the PID, the other end, or the interface's or neighbor's address |
+| F8 / Delete | Forget the selected host that is offline, or a network Borg remembers (**5 Neighbors**) |
+| Ctrl-C | Copy the port's address, the PID, the other end, the interface's or neighbor's address, or the network |
 | Tab | Move between the list and the details |
 | Space | Pause or resume sampling |
 | Alt-W | Maximize the focused pane |
@@ -2505,13 +2509,27 @@ back to the monitor. A process without connections or open ports gets a notice t
 
 ### Neighbors
 
-**5 Neighbors** shows the system's ARP table (IPv4) and NDP table (IPv6): every device on the local
+**5 Neighbors** maps where this machine sits on the network and what it reaches from there. Each
+interface that is up and has an address beyond its own link gets a heading row with its name, kind
+and address. Tunnels and VPNs get one too, so a work VPN shows beside the Wi-Fi with the networks
+it leads to. Under each heading come the devices on the interface's link, then the networks the
+interface reaches through a router or a tunnel, each on a row that starts with › and followed by
+the hosts Borg found there, and last an **Internet** row when internet traffic can leave through
+the interface. [Routed networks](#routed-networks) explains those rows.
+
+The interface that internet traffic leaves through at the moment comes first, then the other
+interfaces with a way to the internet, then the Wi-Fi, Ethernet and bridge interfaces, then the
+tunnels. The cursor
+stops on the headings as well, and their details describe the interface, the network or the way
+out.
+
+The devices come from the system's ARP table (IPv4) and NDP table (IPv6): every device on the local
 network that this machine talked to lately, with its address, MAC address, name and state. The
 state is the system's own word for the entry: **REACHABLE** answered recently, **STALE** has not
 been checked for a while, **DELAY** and **PROBE** are being checked, **INCOMPLETE** asked and got
-no answer yet, **FAILED** never answered, and **PERMANENT** never expires. Hosts that only answered
-a scan come after the entries with a MAC address, then the remembered hosts that are offline, and
-entries without a MAC address sort last. This machine's own addresses, broadcast and multicast
+no answer yet, **FAILED** never answered, and **PERMANENT** never expires. Under each heading, hosts
+that only answered a scan come after the entries with a MAC address, then the remembered hosts that
+are offline, and entries without a MAC address sort last. This machine's own addresses, broadcast and multicast
 entries stay out of the list. A wide pane adds the vendor, the open ports and ping time a scan
 found, and a note.
 
@@ -2540,11 +2558,18 @@ MAC address, the **Open ports** and **Ping** a scan found, and a sentence for ea
 **This network** they list the gateways on the neighbor's interface and the DNS servers.
 
 The tables only hold devices this machine talked to, and some devices stay quiet until something
-knocks. Press **S**, or choose **Scan subnet** in the context menu, to find them. Borg asks first
-and names the subnet, the interface and the number of addresses. Then it probes 16 addresses at a
-time. Each one gets a ping, TCP connections to ports 22, 80 and 443, and an empty UDP datagram to
-port 9 that makes the system ask for the address's MAC address, and Borg waits up to 1 second for
-the answers. A host that answers ping, takes a connection or refuses one joins the list right
+knocks. Press **S**, or choose **Scan network…** in the context menu, to find them.
+**Scan network** asks for the **Network** and starts with the one of the selected row: a host's or
+an interface's subnet, or the routed network under the cursor. ↑ and ↓ step through the subnets
+this machine is on and the networks it reaches, and you can type any other, such as
+192.168.20.0/24, or an address alone for the /24 around it. Under the field Borg counts the
+addresses and names the interface the scan goes out of. Enter starts the scan. A network outside
+the private ranges and outside every network this machine reaches gets a question first, and the
+question starts on **No**.
+
+Borg probes 16 addresses at a time. Each one gets a ping and TCP connections to ports 22, 80 and
+443, and an address on the interface's own link also gets an empty UDP datagram to port 9 that
+makes the system ask for its MAC address. Borg waits up to 1 second for the answers. A host that answers ping, takes a connection or refuses one joins the list right
 away, and a wide pane shows its open ports in **Ports** and its ping time in **Ping**. Addresses
 that stay silent stay hidden. The footer counts the addresses probed and the hosts that answered,
 and Esc stops the scan. Closing the screen leaves the scan running, and a notice tells you when it
@@ -2552,12 +2577,13 @@ is done.
 
 Ping goes through an ICMP socket that needs no administrator rights. Linux grants that socket only
 to the groups in `net.ipv4.ping_group_range`, and where the system refuses it, Borg skips ping and
-goes by the ports. A scan covers IPv4 subnets on Ethernet, Wi-Fi and bridge interfaces that are
-up, and at most 254 addresses: a larger subnet gets the /24 around this machine's address. It skips
-this machine, the network address and the broadcast address. With no row selected, S scans the
-subnet of the default gateway's interface. Scan only networks you are allowed to scan, since some
-networks treat a scan as an attack. Apart from scans and the name lookups, the page only reads
-tables the system keeps.
+goes by the ports. A scan covers an IPv4 network from /24 to /30, at most 254 addresses. The form
+offers a larger subnet as the /24 around this machine's address, and a wide routed network as the
+/24 of the first router Borg found inside it, or else its first /24. A scan skips this machine's
+addresses, the network address and the broadcast address. With no row selected, the form starts on
+the subnet of the interface internet traffic leaves through. Scan only networks you are allowed to
+scan, since some networks treat a scan as an attack. Apart from scans, discoveries and the name
+lookups, the page only reads tables the system keeps.
 
 Borg remembers the hosts it finds, from the tables and from scans, in `neighbors.json` in its state
 folder, readable by you alone. It keeps them per network, which it knows by the subnet and the
@@ -2567,6 +2593,67 @@ that is gone shows as **Offline**, dimmed, with **Seen** and the time it was las
 in the filter to keep only those hosts. Press F8 or Delete on one, or choose **Forget host** in the
 context menu, and Borg asks before it drops the host from the file. Borg keeps up to 1,024 hosts
 for each network and 32 networks, and lets the ones seen longest ago go first.
+
+### Routed networks
+
+A router often leads to more networks than the one this machine is on. The gateway at 192.168.1.1
+may also route 192.168.2.0/24 to another floor, and a VPN leads to the networks at work.
+**5 Neighbors** lists each such network under the interface that reaches it, on a heading row that
+starts with ›. The row gives the network, how it is reached and the number of hosts Borg found
+there:
+
+- **on gateway** names a gateway that answered for the network itself, one hop away. The network
+  hangs off one of the gateway's own ports.
+- **via** names the routers on the way, from the gateway on, joined by ›, and the row adds the
+  number of hops.
+- A network behind a tunnel shows its address alone, since its traffic goes straight into the
+  tunnel.
+
+Borg learns these networks in two ways. The system's route table lists the networks a VPN or a
+router announces, and Borg reads it with the neighbor tables. The others it finds when you press
+**D**, or choose **Discover networks…** in the context menu. Borg asks first, naming the router
+internet traffic goes to and the number of addresses it will try. Then it tries the two addresses
+routers take most often, .1 and .254, in these /24 networks:
+
+- Every /24 of the /16 around each private address of this machine's Wi-Fi, Ethernet and bridge
+  interfaces. An address of 192.168.1.20 brings 192.168.0.0/24 to 192.168.255.0/24.
+- The /24 networks inside the routes the table sends through the same interface, up to 256 for
+  each route.
+- Seven networks that routers hand out by default, such as 10.0.0.0/24 and 192.168.0.0/24.
+
+It leaves out the networks this machine is on and the ones another interface's routes take, so a
+VPN's networks stay inside the VPN. A discovery tries at most 512 networks, 64 addresses at a time,
+each with a ping and TCP connections to ports 80 and 443 that get 1 second to answer. Each address
+that answers gets a trace: echoes whose time to live grows from 1 to 8 hops. The first echo that
+comes back tells how far away the network is, and the routers that drop the shorter ones name
+themselves on the way. Where ping is not allowed, connections with a growing time to live count the
+hops. The footer counts the addresses tried and the networks found, and Esc stops the discovery.
+
+An address that answers adds its /24 under the interface the discovery went out of, unless a route
+from the table covers it already. A scan of a typed network that no route covers does the same for
+each host that answers. Hosts in a routed network show no MAC address, so the **MAC** column shows
+**via** and the router they are reached through, and their details add **Route**. **S** on a
+routed network or one of its hosts starts **Scan network** on that network, and the scan goes out
+of the interface that reaches it. The details of a routed network give the **Route** with every
+router and the interface, the **Hops**, the **Source**, which is **Route table** or **Discovery**,
+and the number of **Hosts**.
+
+The **Internet** row under an interface names its gateway. A VPN that takes all traffic adds two
+routes that cover half the address space each, 0.0.0.0/1 and 128.0.0.0/1, and they win over the
+default route because they are more specific. Borg counts each route from /1 to /7 as a way to the
+internet, marks the most specific one **in use**, and without one marks the default route the
+system lists first. With Wi-Fi and a cable, or a VPN on top of either, the map shows each way out
+and the one traffic takes. The details list the **Interface**, the **Gateway** addresses and the
+**Routes** that take most addresses.
+
+Borg remembers the networks a discovery found and the hosts behind them in `neighbors.json`, under
+the local network it reached them from, so they come back when you join that network again. It
+keeps up to 16 for each network. One that did not answer on this visit shows **Seen** and the time
+on its heading, and its details add **Last seen**. Press F8 or Delete on it, or choose
+**Forget network** in the context menu, and Borg asks before it drops the network and its hosts.
+Networks from the route table come and go with the table, so F8 leaves them alone. What Borg finds
+behind a tunnel lasts for the session, because a tunnel has no gateway MAC address to tell its
+networks apart.
 
 ### Scanning ports
 
@@ -2650,16 +2737,17 @@ to the dialog. Esc goes back to where you were.
 A scan's report has the time, the mode, the ports asked for and how many there were, the open ports
 with their service names, the number of closed and filtered ports, and the subnet, interface and
 gateway the scan ran from. When the host limited the scan or you cancelled it, the report says so
-and lists the ports it did not reach. The page's report has the subnets, the gateways and the DNS
-servers, then each host with its MAC address, vendor, name, state, the ports and ping time a subnet
-scan found and its notes, an offline host with when it was last seen, and the last port scan of each
+and lists the ports it did not reach. The page's report has the subnets, the gateways, the DNS
+servers, the routed networks with their way and hops, and each interface's way to the internet.
+Then comes each host with its network, the router it is reached through, its MAC address, vendor,
+name, state, the ports and ping time a scan found and its notes, an offline host with when it was last seen, and the last port scan of each
 host. Times are in UTC, and so is the date in the file name. What Borg did not learn stays out of
 the report.
 
 ### Filtering
 
 The filter keeps the rows that match every word you type. A plain word matches the process, PID,
-port, service, address, host name, state, protocol, MAC address, vendor, or a label the row shows, so `postgres`,
+port, service, address, host name, state, protocol, MAC address, vendor, network, or a label the row shows, so `postgres`,
 `5432`, `https` and `example.com` all work. A word with a field name looks in that field only:
 
 | Word | Keeps |
@@ -2673,10 +2761,12 @@ port, service, address, host name, state, protocol, MAC address, vendor, or a la
 | `if:en0`, `interface:en0` | Interfaces and neighbors whose interface name contains the text |
 | `mac:3c:22`, `mac:3c-22` | Neighbors and interfaces whose MAC address contains the text |
 | `vendor:synology` | Neighbors whose vendor contains the text |
+| `net:10.20` | Neighbors on a network whose address contains the text, and that network's heading |
 
 Put `!` before a word to drop the rows it matches: `!state:time_wait` hides closing connections,
 and `!proc:browser` hides one program. The filter applies to every page, and while you type it
-says how many of the page's rows it keeps.
+says how many of the page's rows it keeps. On **5 Neighbors** a heading stays while a row under it
+matches.
 
 ### Capturing traffic
 
@@ -2959,12 +3049,15 @@ other users' sockets show **Unknown process**. TCP byte counts come from `ss` wh
 installed; UDP sockets and machines without `ss` show **—** for rates, and the details say
 **The system reports no byte counts here**. Interface totals and rates always work.
 
-On macOS, the neighbors come from `arp -anl` and `ndp -an`, the gateways from `netstat -rn`, and
-the DNS servers from `/etc/resolv.conf`. `arp` reports no state, so an IPv4 entry whose timer runs
+On macOS, the neighbors come from `arp -anl` and `ndp -an`, the gateways and the other routes from
+`netstat -rn`, and the DNS servers from `/etc/resolv.conf`. `arp` reports no state, so an IPv4 entry whose timer runs
 shows **REACHABLE** and an expired one **STALE**. On Linux, Borg reads the kernel's neighbor table
-over netlink, or `/proc/net/arp` when netlink is closed to it, and the gateways from
+over netlink, or `/proc/net/arp` when netlink is closed to it, and the gateways and routes from
 `/proc/net/route` and `/proc/net/ipv6_route`. The DNS servers come from `/etc/resolv.conf`, or
-from `/run/systemd/resolve/resolv.conf` when the first lists only the systemd-resolved stub.
+from `/run/systemd/resolve/resolv.conf` when the first lists only the systemd-resolved stub. macOS
+hands the reports of routers that drop a discovery's echoes to the socket Borg pings with, so a
+routed network lists every router on the way. Linux keeps those reports from that socket, so there
+a discovery counts the hops and names the gateway alone.
 
 ## Startup items
 
