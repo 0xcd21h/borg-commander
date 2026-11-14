@@ -53,6 +53,7 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<
         Some(Overlay::PortScan(form)) => crate::port_scan::on_form_key(state, *form, key),
         Some(Overlay::PortScanDone(record)) => crate::port_scan::on_done_key(state, *record, key),
         Some(Overlay::PortScanResult(view)) => crate::port_scan::on_result_key(state, *view, key),
+        Some(Overlay::SaveReport(form)) => crate::report::on_key(state, *form, key),
         None => Vec::new(),
     }
 }
@@ -76,6 +77,10 @@ pub(crate) fn on_paste(state: &mut AppState, text: &str) -> Vec<Effect> {
         Some(Overlay::Folders(dialog)) => &mut dialog.filter,
         Some(Overlay::PortScan(form)) => {
             crate::port_scan::paste(form, line);
+            return Vec::new();
+        }
+        Some(Overlay::SaveReport(form)) => {
+            crate::report::paste(form, line);
             return Vec::new();
         }
         Some(Overlay::Find(find)) => &mut find.input,
@@ -396,6 +401,7 @@ fn on_confirm(state: &mut AppState, confirm: Confirm, key: &KeyEvent, now: Insta
         (Some(true), ConfirmPurpose::Scan(scan)) => crate::network::start_scan(state, *scan),
         (Some(true), ConfirmPurpose::ForgetNeighbor(address)) => crate::network::forget_host(state, address, now),
         (Some(true), ConfirmPurpose::ScanPorts(request)) => crate::port_scan::start(state, *request, now),
+        (answer, ConfirmPurpose::ReplaceReport(form)) => crate::report::replace(state, *form, answer == Some(true)),
         (Some(true), ConfirmPurpose::Quit | ConfirmPurpose::ShellExit { .. }) => {
             let mut effects = jobs::cancel_all(state, now);
             effects.push(Effect::Quit);

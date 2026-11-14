@@ -21,7 +21,7 @@ expression: describe(&buffer)
  -rw-r--r--     310  2026-01-10 09:30  build.sh
 $
 F1H…F2F…F3V…F4E…F5C…F6M…F7M…F8D…F9M…F10…^OS…
-Alt-H Remote hosts       ◈ Borg Commander v0.11.0
+Alt-H Remote hosts       ◈ Borg Commander v0.11.1
 --- styles ---
   0: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-1 Rgb(255, 255, 255) Rgb(30, 30, 30) BOLD | 2-2 Rgb(255, 255, 255) Rgb(30, 30, 30) NONE | 3-5 Rgb(88, 88, 88) Rgb(30, 30, 30) NONE | 6-13 Rgb(255, 255, 255) Rgb(30, 30, 30) NONE | 14-16 Rgb(88, 88, 88) Rgb(30, 30, 30) NONE | 17-21 Rgb(255, 255, 255) Rgb(30, 30, 30) BOLD | 22-24 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 25-25 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 26-27 Rgb(169, 169, 169) Rgb(30, 30, 30) NONE | 28-30 Rgb(71, 71, 71) Rgb(30, 30, 30) NONE | 31-33 Rgb(169, 169, 169) Rgb(30, 30, 30) NONE | 34-36 Rgb(71, 71, 71) Rgb(30, 30, 30) NONE | 37-40 Rgb(169, 169, 169) Rgb(30, 30, 30) NONE | 41-49 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE
   1: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-1 Reset Rgb(30, 30, 30) NONE | 2-5 Rgb(59, 142, 234) Rgb(30, 30, 30) BOLD | 6-23 Reset Rgb(30, 30, 30) NONE | 24-24 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 25-25 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 26-26 Rgb(43, 43, 43) Rgb(30, 30, 30) NONE | 27-30 Rgb(56, 114, 178) Rgb(48, 48, 48) BOLD | 31-47 Rgb(157, 157, 157) Rgb(48, 48, 48) NONE | 48-48 Rgb(43, 43, 43) Rgb(30, 30, 30) NONE | 49-49 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE

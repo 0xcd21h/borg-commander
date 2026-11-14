@@ -318,13 +318,20 @@ Port scans: `borg-core::port_scan` holds the pure parts. `ports.rs` reads the po
 which `scripts/update-port-names.py` regenerates from the CSV you pass or the one it downloads. The
 common list is every named port from 1 to 1023 plus the registered ports the script lists. The
 module also holds the form, the `Watch` that picks the canary port and spots a sudden run of
-silence, the `Tally` of answers and the `PortScanMemory` saved owner-only as `port-scans.json`.
-`borg-app::port_scan::run` drives a `Prober`, a TCP connect with a timeout in the app, through a
-`JoinSet` at the mode's `ScanPace`. It asks the canary every `canary_every`, reads the job's
-`Control` for pause and cancel, and reports progress every 250 ms. Its tests use a fake host under
-tokio's paused clock, and one connects to a listener it starts on 127.0.0.1. Each scan is a
-`JobKind::PortScan` job, and the finish dialog waits, like the update offer, for the panels and 2
-seconds without a key.
+silence, the `Tally` of answers and the `PortScanMemory`, which keeps the last `HOST_HISTORY` scans
+of each host and is saved owner-only as `port-scans.json`. `borg-app::port_scan::run` drives a
+`Prober`, a TCP connect with a timeout in the app, through a `JoinSet` at the mode's `ScanPace`. It
+asks the canary every `canary_every`, reads the job's `Control` for pause and cancel, and reports
+progress every 250 ms. Its tests use a fake host under tokio's paused clock, and one connects to a
+listener it starts on 127.0.0.1. Each scan is a `JobKind::PortScan` job, and the finish dialog
+waits, like the update offer, for the panels and 2 seconds without a key.
+
+Reports: `borg-core::report` renders a `ReportSource`, one `PortScanRecord` or a `NeighborsReport`
+built from every neighbor row, as Markdown, JSON or CSV with pure functions, and its tests compare
+whole documents. The save dialog is a `ReportForm` that sends `Effect::SaveReport`.
+`borg-app::report::save` reads a leading `~` as the home folder and creates the file with mode 0600
+and `create_new`, so a file that is there comes back as `ReportError::Exists` and the core asks
+before it sends the effect again with `replace`, which writes through `store::write_privately`.
 
 Captures: `borg-core::capture` reads pcap and pcapng into packets with pure functions. It decodes
 Ethernet, loopback, Linux cooked and raw links, IPv4 and IPv6, TCP, UDP and ICMP, and recognizes

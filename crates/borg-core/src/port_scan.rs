@@ -17,14 +17,14 @@ use std::{
 };
 
 use borg_i18n::tr;
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use serde::{Deserialize, Serialize};
 
 use crate::{AppState, Confirm, ConfirmPurpose, Effect, Mac, Overlay, View};
 
 pub use form::{FormField, PortScanForm, PortsKind};
-pub(crate) use form::{on_key as on_form_key, paste};
-pub use memory::{MAX_TARGET, PORT_SCANS_FORMAT, PortScanMemory, SavedPortScans};
+pub(crate) use form::{cycled, on_key as on_form_key, paste};
+pub use memory::{HOST_HISTORY, MAX_TARGET, PORT_SCANS_FORMAT, PortScanMemory, SavedPortScans};
 pub use ports::{
     FIRST_PORT, LAST_PORT, PortChoice, PortListError, PortRange, common_ports, describe, parse_ports, port_name, ranges,
 };
@@ -33,6 +33,8 @@ pub use watch::{Canary, SILENT_RUN, Tally, Watch};
 /// How long the keyboard and mouse rest before a finished scan's dialog opens.
 const QUIET: Duration = crate::update_offer::QUIET;
 const PAGE_ROWS: usize = 10;
+/// Ctrl with this key saves a report.
+pub(crate) const SAVE_KEY: char = 's';
 
 /// How a port answered a connection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -102,6 +104,25 @@ impl ScanSpeed {
     }
 }
 
+/// The network a scan ran from: the attached subnet the target is on, or else the one the default
+/// gateway is on.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScanNetwork {
+    pub interface: String,
+    pub subnet: Ipv4Addr,
+    pub prefix: u8,
+    /// This machine's address on the subnet.
+    pub own: Ipv4Addr,
+    pub gateway: Option<IpAddr>,
+    pub gateway_mac: Option<Mac>,
+}
+
+impl ScanNetwork {
+    pub fn cidr(&self) -> String {
+        format!("{}/{}", self.subnet, self.prefix)
+    }
+}
+
 /// A scan the confirmation asks about, and the job runs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PortScanRequest {
@@ -110,6 +131,7 @@ pub struct PortScanRequest {
     pub address: IpAddr,
     /// The gateway of the attached network the address is on, when it is on one.
     pub gateway: Option<Mac>,
+    pub network: Option<ScanNetwork>,
     pub choice: PortChoice,
     pub ports: Vec<u16>,
     pub speed: ScanSpeed,
@@ -173,6 +195,7 @@ pub struct PortScanRecord {
     pub filtered: usize,
     pub not_scanned: Vec<PortRange>,
     pub ending: Ending,
+    pub network: Option<ScanNetwork>,
 }
 
 impl PortScanRecord {
@@ -212,11 +235,28 @@ impl PortScans {
     }
 }
 
-/// The result dialog over a finished scan, scrolled to `top`.
+/// The result dialog over a host's scans, newest first, showing `shown` scrolled to `top`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PortScanView {
-    pub record: PortScanRecord,
+    pub scans: Vec<PortScanRecord>,
+    pub shown: usize,
     pub top: usize,
+}
+
+impl PortScanView {
+    /// The dialog over `record`, in its place among the host's scans Borg remembers, or in front
+    /// of them when Borg no longer keeps it.
+    pub fn of(record: PortScanRecord, memory: &PortScanMemory) -> Self {
+        let scans: Vec<PortScanRecord> = memory.history(record.address, record.gateway).cloned().collect();
+        match scans.iter().position(|scan| *scan == record) {
+            Some(shown) => Self { scans, shown, top: 0 },
+            None => Self { scans: std::iter::once(record).chain(scans).collect(), shown: 0, top: 0 },
+        }
+    }
+
+    pub fn record(&self) -> &PortScanRecord {
+        &self.scans[self.shown.min(self.scans.len().saturating_sub(1))]
+    }
 }
 
 /// Whether an address belongs to a private, loopback or link-local range, or to the shared range
@@ -255,6 +295,33 @@ fn is_link_local_v6(address: Ipv6Addr) -> bool {
 fn gateway_of(state: &AppState, address: IpAddr) -> Option<Mac> {
     let IpAddr::V4(address) = address else { return None };
     state.network.places.iter().find(|place| place.contains(address)).and_then(|place| place.gateway)
+}
+
+/// The network a scan of `address` runs from: the attached subnet it is on, or the default
+/// gateway's.
+fn network_of(state: &AppState, address: IpAddr) -> Option<ScanNetwork> {
+    let network = &state.network;
+    let gateway_interface = network.neighborhood.first_gateway().map(|gateway| gateway.interface.as_str());
+    let place = match address {
+        IpAddr::V4(address) => network.places.iter().find(|place| place.contains(address)),
+        IpAddr::V6(_) => None,
+    }
+    .or_else(|| network.places.iter().find(|place| Some(place.interface.as_str()) == gateway_interface))?;
+    Some(scan_network(network, place))
+}
+
+/// An attached network with the address of the gateway on its interface.
+pub(crate) fn scan_network(network: &crate::Network, place: &crate::LocalNetwork) -> ScanNetwork {
+    let gateways = || network.neighborhood.gateways.iter().filter(|gateway| gateway.interface == place.interface);
+    let gateway = gateways().find(|gateway| gateway.address.is_ipv4()).or_else(|| gateways().next());
+    ScanNetwork {
+        interface: place.interface.clone(),
+        subnet: place.network,
+        prefix: place.prefix,
+        own: place.own,
+        gateway: gateway.map(|gateway| gateway.address),
+        gateway_mac: place.gateway,
+    }
 }
 
 /// Whether an address is on one of the attached networks Borg knows.
@@ -317,6 +384,7 @@ fn confirm(state: &mut AppState, form: &PortScanForm, target: String, address: I
         target,
         address,
         gateway: gateway_of(state, address),
+        network: network_of(state, address),
         choice: form.choice(),
         ports,
         speed: form.speed,
@@ -376,6 +444,7 @@ fn finished(state: &mut AppState, id: u64, result: PortScanResult, at: u64, now:
         filtered: result.filtered,
         not_scanned: result.not_scanned,
         ending: result.ending,
+        network: request.network,
     };
     crate::jobs::end_port_scan(state, id, &record, now);
     let scans = &mut state.port_scans;
@@ -424,30 +493,56 @@ pub(crate) fn wake_at(state: &AppState) -> Option<Instant> {
 /// The finished scan's dialog: Enter shows the ports, Esc closes it.
 pub(crate) fn on_done_key(state: &mut AppState, record: PortScanRecord, key: &KeyEvent) -> Vec<Effect> {
     match crate::keyboard::latin(key).code {
-        KeyCode::Enter => state.overlay = Some(Overlay::PortScanResult(Box::new(PortScanView { record, top: 0 }))),
+        KeyCode::Enter => {
+            let view = PortScanView::of(record, &state.port_scans.memory);
+            state.overlay = Some(Overlay::PortScanResult(Box::new(view)));
+        }
         KeyCode::Esc | KeyCode::F(10) => state.overlay = None,
         _ => {}
     }
     Vec::new()
 }
 
-/// The result dialog scrolls through the open ports.
+/// The result dialog scrolls through the open ports, steps to the host's earlier and later scans,
+/// and saves the shown scan as a report.
 pub(crate) fn on_result_key(state: &mut AppState, mut view: PortScanView, key: &KeyEvent) -> Vec<Effect> {
-    let last = view.record.open.len().saturating_sub(1);
-    view.top = match crate::keyboard::latin(key).code {
+    let key = crate::keyboard::latin(key);
+    if key.code == KeyCode::Char(SAVE_KEY) && key.modifiers == KeyModifiers::CONTROL {
+        let source = crate::report::ReportSource::PortScan(Box::new(view.record().clone()));
+        return crate::report::open(state, source, Some(Overlay::PortScanResult(Box::new(view))));
+    }
+    let last = view.record().open.len().saturating_sub(1);
+    let older = (view.shown + 1).min(view.scans.len().saturating_sub(1));
+    match key.code {
         KeyCode::Esc | KeyCode::Enter | KeyCode::F(10) => {
             state.overlay = None;
             return Vec::new();
         }
-        KeyCode::Up => view.top.saturating_sub(1),
-        KeyCode::Down => (view.top + 1).min(last),
-        KeyCode::PageUp => view.top.saturating_sub(PAGE_ROWS),
-        KeyCode::PageDown => (view.top + PAGE_ROWS).min(last),
-        KeyCode::Home => 0,
-        KeyCode::End => last,
-        _ => view.top,
-    };
+        KeyCode::Left if older != view.shown => (view.shown, view.top) = (older, 0),
+        KeyCode::Right if view.shown > 0 => (view.shown, view.top) = (view.shown - 1, 0),
+        KeyCode::Up => view.top = view.top.saturating_sub(1),
+        KeyCode::Down => view.top = (view.top + 1).min(last),
+        KeyCode::PageUp => view.top = view.top.saturating_sub(PAGE_ROWS),
+        KeyCode::PageDown => view.top = (view.top + PAGE_ROWS).min(last),
+        KeyCode::Home => view.top = 0,
+        KeyCode::End => view.top = last,
+        _ => {}
+    }
     state.overlay = Some(Overlay::PortScanResult(Box::new(view)));
+    Vec::new()
+}
+
+/// O on the Neighbors page: the selected host's scans, or a notice that it has none yet.
+pub(crate) fn show_scans(state: &mut AppState) -> Vec<Effect> {
+    let Some((neighbor, _)) = state.network.neighbor() else { return Vec::new() };
+    let address = neighbor.address;
+    match scan_of(state, address).cloned() {
+        Some(record) => {
+            let view = PortScanView::of(record, &state.port_scans.memory);
+            state.overlay = Some(Overlay::PortScanResult(Box::new(view)));
+        }
+        None => state.notice = Some(tr!(port_scan_none_yet, address = address)),
+    }
     Vec::new()
 }
 

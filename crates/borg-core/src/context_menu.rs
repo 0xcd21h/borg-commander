@@ -137,7 +137,11 @@ fn for_screen(state: &AppState) -> Option<Menu<ContextCommand>> {
         return screens::activity(&state.activity);
     }
     if state.network.is_open() {
-        return screens::network(&state.network);
+        let scanned = state
+            .network
+            .neighbor()
+            .is_some_and(|(neighbor, _)| crate::port_scan::scan_of(state, neighbor.address).is_some());
+        return screens::network(&state.network, scanned);
     }
     if state.alerts.is_open() {
         return screens::alert(&state.alerts);

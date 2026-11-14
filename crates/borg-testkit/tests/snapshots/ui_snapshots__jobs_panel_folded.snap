@@ -31,7 +31,7 @@ expression: describe(&buffer)
  /home/me/projects/borg/build.log
 $
 F1Help    F2File    F3View    F4Edit    F5Copy    F6Move    F7Mkdir   F8Delete  F9Menu    F10Quit   ^OShell
-Alt-H Remote hosts  Alt-J Jobs · 2 running  Alt-I Stop sizes  Ctrl-F Search  Esc Hide          ◈ Borg Commander v0.11.0
+Alt-H Remote hosts  Alt-J Jobs · 2 running  Alt-I Stop sizes  Ctrl-F Search  Esc Hide          ◈ Borg Commander v0.11.1
 --- styles ---
   0: 0-51 Rgb(23, 106, 126) Rgb(30, 30, 30) NONE | 52-54 Rgb(8, 76, 92) Rgb(17, 168, 205) NONE | 55-55 Rgb(23, 106, 126) Rgb(30, 30, 30) NONE | 56-58 Rgb(8, 76, 92) Rgb(17, 168, 205) NONE | 59-59 Rgb(23, 106, 126) Rgb(30, 30, 30) NONE | 60-119 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE
   1: 0-0 Rgb(23, 106, 126) Rgb(30, 30, 30) NONE | 1-58 Rgb(70, 70, 70) Rgb(30, 30, 30) NONE | 59-59 Rgb(23, 106, 126) Rgb(30, 30, 30) NONE | 60-60 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 61-118 Rgb(0, 0, 0) Rgb(17, 168, 205) BOLD | 119-119 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE

@@ -29,7 +29,7 @@ expression: describe(&buffer)
  Up to the parent directory
 $
 F1Help   F2File   F3View   F4Edit   F5Copy   F6Move   F7Mkdir  F8Delete F9Menu   F10Quit  ^OShell
-Alt-H Remote hosts  Alt-I Count sizes  Ctrl-F Search  Alt-M Activity       ◈ Borg Commander v0.11.0
+Alt-H Remote hosts  Alt-I Count sizes  Ctrl-F Search  Alt-M Activity       ◈ Borg Commander v0.11.1
 --- styles ---
   0: 0-0 Rgb(23, 106, 126) Rgb(30, 30, 30) NONE | 1-1 Rgb(154, 154, 154) Rgb(30, 30, 30) BOLD | 2-2 Rgb(154, 154, 154) Rgb(30, 30, 30) NONE | 3-5 Rgb(62, 62, 62) Rgb(30, 30, 30) NONE | 6-13 Rgb(154, 154, 154) Rgb(30, 30, 30) NONE | 14-16 Rgb(62, 62, 62) Rgb(30, 30, 30) NONE | 17-21 Rgb(154, 154, 154) Rgb(30, 30, 30) BOLD | 22-49 Rgb(23, 106, 126) Rgb(30, 30, 30) NONE | 50-50 Rgb(58, 58, 58) Rgb(30, 30, 30) NONE | 51-52 Rgb(106, 106, 106) Rgb(30, 30, 30) NONE | 53-55 Rgb(53, 53, 53) Rgb(30, 30, 30) NONE | 56-58 Rgb(106, 106, 106) Rgb(30, 30, 30) NONE | 59-61 Rgb(53, 53, 53) Rgb(30, 30, 30) NONE | 62-65 Rgb(106, 106, 106) Rgb(30, 30, 30) NONE | 66-99 Rgb(58, 58, 58) Rgb(30, 30, 30) NONE
   1: 0-0 Rgb(23, 106, 126) Rgb(30, 30, 30) NONE | 1-1 Rgb(14, 66, 88) Rgb(30, 30, 30) NONE | 2-5 Rgb(140, 183, 201) Rgb(0, 95, 135) BOLD | 6-47 Rgb(140, 183, 201) Rgb(0, 95, 135) NONE | 48-48 Rgb(14, 66, 88) Rgb(30, 30, 30) NONE | 49-49 Rgb(23, 106, 126) Rgb(30, 30, 30) NONE | 50-50 Rgb(58, 58, 58) Rgb(30, 30, 30) NONE | 51-51 Rgb(37, 37, 37) Rgb(30, 30, 30) NONE | 52-55 Rgb(52, 84, 120) Rgb(48, 48, 48) BOLD | 56-78 Rgb(108, 108, 108) Rgb(48, 48, 48) NONE | 79-84 Rgb(69, 69, 69) Rgb(48, 48, 48) NONE | 85-97 Rgb(108, 108, 108) Rgb(48, 48, 48) NONE | 98-98 Rgb(37, 37, 37) Rgb(30, 30, 30) NONE | 99-99 Rgb(58, 58, 58) Rgb(30, 30, 30) NONE

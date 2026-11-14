@@ -53,6 +53,7 @@ fn request(ports: Vec<u16>) -> PortScanRequest {
         target: LOOPBACK.into(),
         address: LOOPBACK.parse().unwrap(),
         gateway: None,
+        network: None,
         choice: PortChoice::Custom(String::new()),
         ports,
         speed: ScanSpeed::Fast,

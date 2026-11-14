@@ -4797,6 +4797,54 @@ fn network_scans_a_hosts_ports_in_the_background_and_reports_when_done() -> Resu
     check("network_neighbor_port_scan", &stage, buffer)
 }
 
+/// O on a host scanned twice shows its newest scan with ← to the earlier one, Ctrl-S there asks
+/// where to save that scan and in which format, and Ctrl-S on the Neighbors page does the same for
+/// every host.
+#[test]
+fn network_saves_a_scan_or_the_neighbors_page_as_a_report() -> Result<()> {
+    use borg_core::{Effect, Ending, PortScanEvent, PortScanResult};
+    let storage_box: std::net::IpAddr = "192.0.2.60".parse()?;
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    let now = borg_testkit::network::open(&mut stage)?;
+    stage.send(key(KeyCode::Char('5')));
+    select_neighbor(&mut stage, storage_box)?;
+    for (open, closed) in [(vec![22], 719), (vec![22, 80, 445], 717)] {
+        stage.send(key(KeyCode::Char('p'))).send(key(KeyCode::Enter));
+        let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), now);
+        let id = effects
+            .into_iter()
+            .find_map(|effect| match effect {
+                Effect::ScanPorts { id, .. } => Some(id),
+                _ => None,
+            })
+            .context("Yes starts the scan")?;
+        let result = PortScanResult { open, closed, filtered: 0, not_scanned: Vec::new(), ending: Ending::Done };
+        let at = borg_testkit::network::NEIGHBORS_READ_AT;
+        stage.send(Msg::PortScan { id, event: PortScanEvent::Finished { result, at } });
+    }
+
+    stage.send(key(KeyCode::Char('o')));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Scan 1 of 2, newest first.")?;
+    ensure_text(&buffer, "Other scans")?;
+    check("network_port_scan_history", &stage, buffer)?;
+
+    stage.send(ctrl('s'));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Save report")?;
+    ensure_text(&buffer, "projects/borg/port-scan-192.0.2.60-2026-01-15.md")?;
+    ensure_text(&buffer, "Text with tables")?;
+    check("network_port_scan_save", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Esc)).send(key(KeyCode::Esc));
+    anyhow::ensure!(stage.state.overlay.is_none(), "Esc goes back to the scan, then closes it");
+    stage.send(ctrl('s')).send(key(KeyCode::Tab)).send(key(KeyCode::Left));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "neighbors-")?;
+    ensure_text(&buffer, "One row per host")?;
+    check("network_neighbors_save", &stage, buffer)
+}
+
 /// R on the browser's row asks what to capture; the capture opens in the traffic viewer on
 /// the browser, where Enter goes from the process to its connections, whose bytes ] steps
 /// through by turn and F3 shows as hex rows, and on to one connection's packets, and Esc comes

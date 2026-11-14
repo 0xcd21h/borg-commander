@@ -70,6 +70,12 @@ pub enum Msg {
         probe: crate::Probe,
         at: u64,
     },
+    /// The report asked for at `path` was written, at the path the result names with the home
+    /// folder spelled out, or why it was not.
+    ReportSaved {
+        path: PathBuf,
+        result: Result<PathBuf, crate::ReportError>,
+    },
     /// The name of a host to scan for open ports was looked up.
     ScanTargetResolved {
         name: String,
@@ -416,6 +422,13 @@ pub enum Effect {
     },
     /// Saves the remembered port scans.
     SavePortScans,
+    /// Writes a report readable by its owner alone, with a leading `~` read as the home folder.
+    /// Without `replace`, a file that is there already is left alone and reported as such.
+    SaveReport {
+        path: PathBuf,
+        text: String,
+        replace: bool,
+    },
     /// Runs `tcpdump` for the network screen's capture.
     Capture {
         id: u64,

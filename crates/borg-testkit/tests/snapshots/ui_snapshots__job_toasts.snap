@@ -31,7 +31,7 @@ expression: describe(&buffer)
  /home/me/projects/borg/build.log
 $
 F1Help    F2File    F3View    F4Edit    F5Copy    F6Move    F7Mkdir   F8Delete  F9Menu    F10Quit   ^OShell
-Alt-H Remote hosts  Alt-J Jobs · 2 running  Alt-I Stop sizes  Ctrl-F Search  Esc Hide          ◈ Borg Commander v0.11.0
+Alt-H Remote hosts  Alt-J Jobs · 2 running  Alt-I Stop sizes  Ctrl-F Search  Esc Hide          ◈ Borg Commander v0.11.1
 --- styles ---
   0: 0-51 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 52-54 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 55-55 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 56-58 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 59-59 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 60-60 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 61-62 Rgb(169, 169, 169) Rgb(30, 30, 30) NONE | 63-65 Rgb(71, 71, 71) Rgb(30, 30, 30) NONE | 66-68 Rgb(169, 169, 169) Rgb(30, 30, 30) NONE | 69-71 Rgb(71, 71, 71) Rgb(30, 30, 30) NONE | 72-75 Rgb(169, 169, 169) Rgb(30, 30, 30) NONE | 76-119 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE
   1: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-58 Rgb(102, 102, 102) Rgb(30, 30, 30) NONE | 59-59 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 60-60 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 61-61 Rgb(43, 43, 43) Rgb(30, 30, 30) NONE | 62-65 Rgb(56, 114, 178) Rgb(48, 48, 48) BOLD | 66-98 Rgb(157, 157, 157) Rgb(48, 48, 48) NONE | 99-104 Rgb(86, 86, 86) Rgb(48, 48, 48) NONE | 105-117 Rgb(157, 157, 157) Rgb(48, 48, 48) NONE | 118-118 Rgb(43, 43, 43) Rgb(30, 30, 30) NONE | 119-119 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE

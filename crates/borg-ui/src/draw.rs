@@ -393,6 +393,7 @@ fn paint_overlay(
         Overlay::PortScanResult(view) => {
             (crate::port_scan_view::draw_result(view, theme, scene.clock, screen, buf), None, Unfold::FromCenter)
         }
+        Overlay::SaveReport(form) => (crate::report_view::draw(form, theme, screen, buf), None, Unfold::FromCenter),
         Overlay::Storage(window) => {
             (crate::storage_view::draw(state, window, scene.clock, theme, screen, buf), None, Unfold::FromCenter)
         }

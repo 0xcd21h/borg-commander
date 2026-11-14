@@ -31,7 +31,7 @@ expression: describe(&buffer)
     handle(request, 58);                                              │ “todo” in /workspace · 0:00          │
     handle(request, 59);                                              ╰──────────────────────────────────────╯
     handle(request, 60);
- Find  todo                         Aa  ab  .*   1 of 2                              ◈ Borg Commander v0.11.0
+ Find  todo                         Aa  ab  .*   1 of 2                              ◈ Borg Commander v0.11.1
 --- styles ---
   0: 0-109 Rgb(229, 229, 229) Rgb(30, 30, 30) NONE
   1: 0-109 Rgb(229, 229, 229) Rgb(30, 30, 30) NONE

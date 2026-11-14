@@ -559,8 +559,9 @@ O que o menu oferece depende da linha:
 - Linhas da **Rede**: **Copiar endereço**, **Copiar endereço remoto** ou **Copiar PID**, conforme
   aquilo por que a linha é alcançada. Uma linha com um processo acrescenta **Copiar PID**,
   **Mostrar no monitor de atividade** e **Sinal ou prioridade…**. Um vizinho oferece
-  **Copiar endereço IP**, **Copiar endereço MAC**, **Analisar portas…** (P) e **Analisar sub-rede**
-  (S), e um host desligado acrescenta **Esquecer host** (F8).
+  **Copiar endereço IP**, **Copiar endereço MAC**, **Analisar portas…** (P), **Análises de portas…**
+  (O), **Analisar sub-rede** (S) e **Guardar relatório…** (Ctrl-S), e um host desligado acrescenta
+  **Esquecer host** (F8). **Análises de portas…** fica esbatido até o host ter uma análise.
 - **Alertas**: **Copiar PID**, **Copiar caminho do programa** e **Copiar comando**, depois
   **Mostrar no monitor de atividade**, **Retomar**, **Terminar** e **Permitir**.
 - **Itens de arranque**: **Copiar caminho**, **Copiar caminho do programa** e **Copiar comando**,
@@ -1854,8 +1855,8 @@ cada um e onde fica:
   [Análises de tamanho guardadas](#saved-size-scans)).
 - **Sessões e histórico**: sessões, saída da shell, registo remoto, histórico de pesquisas e de
   pastas, coleções, computadores emparelhados com as suas chaves, o que o Borg aprendeu sobre os
-  seus discos (`drives.json`), os vizinhos de rede que guarda (`neighbors.json`) e a última análise
-  de portas de cada host (`port-scans.json`), na pasta de estado.
+  seus discos (`drives.json`), os vizinhos de rede que guarda (`neighbors.json`) e as últimas 10
+  análises de portas de cada host (`port-scans.json`), na pasta de estado.
 - **Definições**: `config.toml` e os seus temas.
 - **Capturas**: as capturas de tráfego que o Borg guardou, onde quer que estejam.
 
@@ -2667,7 +2668,9 @@ endereço assim que o conhece.
 | K | Mostrar o processo com **Sinal ou prioridade** aberto |
 | R | Capturar o tráfego da linha selecionada ou parar a captura em curso |
 | P | Analisar as portas do vizinho selecionado (**5 Vizinhos**) |
+| O | Mostrar as análises de portas do vizinho selecionado (**5 Vizinhos**) |
 | S | Analisar a sub-rede do vizinho selecionado (**5 Vizinhos**) |
+| Ctrl-S | Guardar um relatório de todos os vizinhos (**5 Vizinhos**) |
 | F8 / Delete | Esquecer o host selecionado que está desligado (**5 Vizinhos**) |
 | Ctrl-C | Copiar o endereço da porta, o PID, a outra extremidade, ou o endereço da interface ou do vizinho |
 | Tab | Alternar entre a lista e os detalhes |
@@ -2793,9 +2796,10 @@ Quando a análise termina, **Análise de portas concluída** abre assim que os p
 atividade ou o ecrã de rede estiverem à vista sem nenhum diálogo aberto e não tiver premido nenhuma
 tecla durante 2 segundos, por isso nunca apanha teclas destinadas à consola ou ao editor. Indica o
 host e conta as portas abertas, fechadas e filtradas. Enter lista as portas abertas com o nome de
-serviço que a IANA dá a cada uma, e ↑ e ↓ percorrem uma lista longa. Se cancelar uma análise, um
-aviso indica quantas portas abertas encontrou. A análise terminada fica em Alt-J, onde **O Abrir**
-volta a listar as portas abertas, tal como Alt-G nos painéis.
+serviço que a IANA dá a cada uma, ↑ e ↓ percorrem uma lista longa, e Ctrl-S guarda a análise como
+relatório (consulte [Guardar relatórios](#saving-reports)). Se cancelar uma análise, um aviso indica
+quantas portas abertas encontrou. A análise terminada fica em Alt-J, onde **O Abrir** volta a listar
+as portas abertas, tal como Alt-G nos painéis.
 
 Alguns hosts e firewalls deixam de responder a uma análise demasiado rápida. Para dar por isso, o
 Borg vigia a primeira porta que respondeu, de preferência uma aberta, e volta a perguntar-lhe a cada
@@ -2804,12 +2808,48 @@ em que pelo menos metade respondeu. Quando essa porta fica calada duas vezes seg
 análise e guarda o que encontrou. O diálogo diz então que o host ou uma firewall parece limitar a
 análise, conta as portas a que não chegou e sugere o modo Lento.
 
-O Borg guarda a última análise de cada host em `port-scans.json` na sua pasta de estado, num
+O Borg guarda as últimas 10 análises de cada host em `port-scans.json` na sua pasta de estado, num
 ficheiro que só o utilizador pode ler, com a hora, o modo, as portas abertas e as contagens. Tal
-como nos vizinhos, os hosts da rede ligada ficam separados pelo endereço MAC do gateway. O Borg
-guarda as 256 análises mais recentes. Os detalhes de um vizinho mostram a última análise em
+como nos vizinhos, os hosts da rede ligada ficam separados pelo endereço MAC do gateway. Ao todo, o
+Borg guarda as 256 análises mais recentes. Os detalhes de um vizinho mostram a última análise em
 **Análise de portas**: **Analisado** com a hora, o modo e o número de portas, e depois as portas
 **Abertas** com os seus nomes.
+
+Prima **O** num vizinho, ou escolha **Análises de portas…** no seu menu de contexto, para abrir a
+última análise com as portas abertas. Quando o Borg tem análises anteriores do host, o diálogo
+indica qual está a ver, como **Análise 2 de 3, da mais recente para a mais antiga.**, e ← e → passam
+para uma mais antiga ou mais recente. Ctrl-S guarda a análise que está a ver.
+
+### Guardar relatórios
+
+Ctrl-S guarda o que o Borg encontrou num ficheiro para mais tarde. Prima-o na lista de portas
+abertas de uma análise para guardar essa análise, ou na página **5 Vizinhos**, ou escolha
+**Guardar relatório…** no menu de contexto de um vizinho, para guardar todos os hosts que a página
+conhece, incluindo os que o filtro esconde.
+
+**Guardar relatório** pede o **Caminho** e o **Formato**. O caminho começa na pasta de um painel
+desta máquina, de preferência o que o ecrã de rede cobre, ou então na sua pasta pessoal, com um nome
+como `port-scan-192.0.2.60-2026-11-14.md` ou `neighbors-2026-11-14.md`. Um caminho relativo começa
+nessa pasta, e um que comece por `~/` começa na sua pasta pessoal. Tab passa de um campo para outro,
+e ← e → mudam o formato:
+
+- **Markdown**: texto com tabelas, fácil de ler e de colar em notas.
+- **JSON**: tudo o que o relatório contém, para scripts e outras ferramentas.
+- **CSV**: uma linha por porta aberta numa análise, ou uma linha por host na página.
+
+Mudar o formato muda a extensão no fim do caminho, a menos que tenha escrito outra. Enter grava o
+ficheiro, que só o utilizador pode ler, e um aviso indica o seu nome. Quando já existe um ficheiro
+com esse nome, o Borg pergunta antes de o substituir. A pergunta abre com **Não** selecionado, que o
+leva de volta ao diálogo. Esc volta para onde estava.
+
+O relatório de uma análise tem a hora, o modo, as portas pedidas e quantas eram, as portas abertas
+com os nomes dos serviços, o número de portas fechadas e filtradas, e a sub-rede, a interface e o
+gateway de onde a análise partiu. Quando o host limitou a análise ou quando a cancelou, o relatório
+di-lo e indica as portas a que não chegou. O relatório da página tem as sub-redes, os gateways e os
+servidores DNS, depois cada host com o endereço MAC, o fabricante, o nome, o estado, as portas e o
+tempo de ping que uma análise da sub-rede encontrou e as suas notas, um host desligado com a hora em
+que foi visto pela última vez, e a última análise de portas de cada host. As horas estão em UTC, tal
+como a data no nome do ficheiro. O que o Borg não apurou fica fora do relatório.
 
 ### Filtrar
 

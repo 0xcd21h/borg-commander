@@ -35,7 +35,7 @@ expression: describe(&buffer)
 blog_uploads
 $
 Enter Files  F8 Clean up  Ins Mark  R Refresh  / Filter  D Containers  Esc Back
-↑↓ Move · ←→ Fold · Space Mark · * Invert · F8 types the command at the prompt, where Enter runs it        ◈ Borg Commander v0.11.0
+↑↓ Move · ←→ Fold · Space Mark · * Invert · F8 types the command at the prompt, where Enter runs it        ◈ Borg Commander v0.11.1
 --- styles ---
   0: 0-0 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 1-10 Rgb(255, 255, 255) Rgb(38, 38, 38) BOLD | 11-123 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 124-126 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 127-127 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 128-130 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 131-131 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE
   1: 0-131 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE

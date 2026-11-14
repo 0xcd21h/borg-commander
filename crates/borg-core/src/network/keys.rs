@@ -48,6 +48,12 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
     if code == KeyCode::Char('c') && modifiers == KeyModifiers::CONTROL {
         return copy(state);
     }
+    if code == KeyCode::Char(crate::port_scan::SAVE_KEY)
+        && modifiers == KeyModifiers::CONTROL
+        && state.network.page == NetworkPage::Neighbors
+    {
+        return crate::report::save_neighbors(state);
+    }
     if !(modifiers.is_empty() || modifiers == KeyModifiers::SHIFT) {
         return Vec::new();
     }
@@ -66,6 +72,9 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
         KeyCode::Char('k' | 'K') => return show_process(state, true),
         KeyCode::Char('s' | 'S') if network.page == NetworkPage::Neighbors => return super::scan(state),
         KeyCode::Char('p' | 'P') if network.page == NetworkPage::Neighbors => return super::scan_ports(state),
+        KeyCode::Char('o' | 'O') if network.page == NetworkPage::Neighbors => {
+            return crate::port_scan::show_scans(state);
+        }
         KeyCode::F(8) | KeyCode::Delete if network.page == NetworkPage::Neighbors => return super::forget(state),
         KeyCode::Char(c) => {
             if let Some(page) = NetworkPage::from_key(c) {

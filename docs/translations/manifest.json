@@ -1,12 +1,12 @@
 {
   "locales": {
     "zh-CN": {
-      "source": "0ecf174045792416ca048095d7285c8dfa005ac3ab8b653293a06cae1432c8b1",
+      "source": "549a67d416a9ea9f08f0295c23dff022d52d528154760b90479dc6013f2e715c",
       "protected": {
         "code blocks": "dd7890253e2ce69c384b9fb772f3484524482de29b06b81a8df4e8ee4e62c850",
-        "inline code": "207a8ad03f0ceecb7d2ce81aa5c7d1b07fb9ead439c726b03013c3f21932c9b8",
+        "inline code": "7d9cee4fca34fb57ab48fb9f9c7487d1b5489efaa2274d45e823d3f71c148f30",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "9fda7918f1f004dc2ad1ca263b07cee2d4bdfabc33905f1bc328dae66b7a4e2e"
+        "heading levels": "1cae1b0239c47d377a899afcf575cdb92da92b3ba525ac7ad75368e382b1a635"
       },
       "headings": [
         {
@@ -260,6 +260,10 @@
         {
           "level": 3,
           "title": "Scanning ports"
+        },
+        {
+          "level": 3,
+          "title": "Saving reports"
         },
         {
           "level": 3,
@@ -296,12 +300,12 @@
       ]
     },
     "pt": {
-      "source": "0ecf174045792416ca048095d7285c8dfa005ac3ab8b653293a06cae1432c8b1",
+      "source": "549a67d416a9ea9f08f0295c23dff022d52d528154760b90479dc6013f2e715c",
       "protected": {
         "code blocks": "dd7890253e2ce69c384b9fb772f3484524482de29b06b81a8df4e8ee4e62c850",
-        "inline code": "207a8ad03f0ceecb7d2ce81aa5c7d1b07fb9ead439c726b03013c3f21932c9b8",
+        "inline code": "7d9cee4fca34fb57ab48fb9f9c7487d1b5489efaa2274d45e823d3f71c148f30",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "9fda7918f1f004dc2ad1ca263b07cee2d4bdfabc33905f1bc328dae66b7a4e2e"
+        "heading levels": "1cae1b0239c47d377a899afcf575cdb92da92b3ba525ac7ad75368e382b1a635"
       },
       "headings": [
         {
@@ -555,6 +559,10 @@
         {
           "level": 3,
           "title": "Scanning ports"
+        },
+        {
+          "level": 3,
+          "title": "Saving reports"
         },
         {
           "level": 3,
@@ -591,12 +599,12 @@
       ]
     },
     "es": {
-      "source": "0ecf174045792416ca048095d7285c8dfa005ac3ab8b653293a06cae1432c8b1",
+      "source": "549a67d416a9ea9f08f0295c23dff022d52d528154760b90479dc6013f2e715c",
       "protected": {
         "code blocks": "dd7890253e2ce69c384b9fb772f3484524482de29b06b81a8df4e8ee4e62c850",
-        "inline code": "207a8ad03f0ceecb7d2ce81aa5c7d1b07fb9ead439c726b03013c3f21932c9b8",
+        "inline code": "7d9cee4fca34fb57ab48fb9f9c7487d1b5489efaa2274d45e823d3f71c148f30",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "9fda7918f1f004dc2ad1ca263b07cee2d4bdfabc33905f1bc328dae66b7a4e2e"
+        "heading levels": "1cae1b0239c47d377a899afcf575cdb92da92b3ba525ac7ad75368e382b1a635"
       },
       "headings": [
         {
@@ -850,6 +858,10 @@
         {
           "level": 3,
           "title": "Scanning ports"
+        },
+        {
+          "level": 3,
+          "title": "Saving reports"
         },
         {
           "level": 3,
@@ -886,12 +898,12 @@
       ]
     },
     "ru": {
-      "source": "0ecf174045792416ca048095d7285c8dfa005ac3ab8b653293a06cae1432c8b1",
+      "source": "549a67d416a9ea9f08f0295c23dff022d52d528154760b90479dc6013f2e715c",
       "protected": {
         "code blocks": "dd7890253e2ce69c384b9fb772f3484524482de29b06b81a8df4e8ee4e62c850",
-        "inline code": "207a8ad03f0ceecb7d2ce81aa5c7d1b07fb9ead439c726b03013c3f21932c9b8",
+        "inline code": "7d9cee4fca34fb57ab48fb9f9c7487d1b5489efaa2274d45e823d3f71c148f30",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "9fda7918f1f004dc2ad1ca263b07cee2d4bdfabc33905f1bc328dae66b7a4e2e"
+        "heading levels": "1cae1b0239c47d377a899afcf575cdb92da92b3ba525ac7ad75368e382b1a635"
       },
       "headings": [
         {
@@ -1145,6 +1157,10 @@
         {
           "level": 3,
           "title": "Scanning ports"
+        },
+        {
+          "level": 3,
+          "title": "Saving reports"
         },
         {
           "level": 3,

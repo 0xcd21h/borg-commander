@@ -162,6 +162,8 @@ pub enum ConfirmPurpose {
     ForgetNeighbor(std::net::Ipv4Addr),
     /// Yes starts the port scan as a job.
     ScanPorts(Box<crate::PortScanRequest>),
+    /// Yes writes the report over the file that is there, and no goes back to the save dialog.
+    ReplaceReport(Box<crate::ReportForm>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -228,4 +230,6 @@ pub enum Overlay {
     PortScanDone(Box<crate::PortScanRecord>),
     /// The open ports a scan found.
     PortScanResult(Box<crate::PortScanView>),
+    /// Where to save a report, and in which format.
+    SaveReport(Box<crate::ReportForm>),
 }

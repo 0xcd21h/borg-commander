@@ -177,12 +177,12 @@ fn a_finished_scan_opens_its_dialog_once_the_panels_show_and_the_keys_rest() {
     assert_eq!((scan.at, scan.count, scan.open.len()), (HOME_READ_AT, 720, open.len()));
     press(&mut state, KeyCode::Char('g'), KeyModifiers::ALT);
     let Some(Overlay::PortScanResult(view)) = &state.overlay else { panic!("Alt-G lists the ports again") };
-    assert_eq!((view.record.open.len(), view.top), (open.len(), 0));
+    assert_eq!((view.record().open.len(), view.top), (open.len(), 0));
     tap(&mut state, KeyCode::Esc);
     press(&mut state, KeyCode::Char('j'), KeyModifiers::ALT);
     tap(&mut state, KeyCode::Char('o'));
     let Some(Overlay::PortScanResult(view)) = &state.overlay else { panic!("O in the jobs panel lists them") };
-    assert_eq!(view.record.open, open);
+    assert_eq!((view.shown, view.scans.len(), &view.record().open), (0, 1, &open));
 }
 
 #[test]
@@ -225,7 +225,7 @@ fn the_result_view_scrolls_within_the_open_ports() {
     let (id, _) = started(tap(&mut state, KeyCode::Enter));
     finish(&mut state, id, found(&[22, 80, 443], 717, Ending::Done), now);
     let record = state.port_scans.memory.last("192.0.2.60").cloned().unwrap();
-    state.overlay = Some(Overlay::PortScanResult(Box::new(PortScanView { record, top: 0 })));
+    state.overlay = Some(Overlay::PortScanResult(Box::new(PortScanView::of(record, &state.port_scans.memory))));
     tap(&mut state, KeyCode::PageDown);
     let Some(Overlay::PortScanResult(view)) = &state.overlay else { panic!("still open") };
     assert_eq!(view.top, 2);
@@ -233,4 +233,160 @@ fn the_result_view_scrolls_within_the_open_ports() {
     tap(&mut state, KeyCode::Home);
     let Some(Overlay::PortScanResult(view)) = &state.overlay else { panic!("still open") };
     assert_eq!(view.top, 0);
+}
+
+fn report_form(state: &AppState) -> &crate::ReportForm {
+    match &state.overlay {
+        Some(Overlay::SaveReport(form)) => form,
+        other => panic!("the save dialog is open: {other:?}"),
+    }
+}
+
+fn result_view(state: &AppState) -> &PortScanView {
+    match &state.overlay {
+        Some(Overlay::PortScanResult(view)) => view,
+        other => panic!("the scan is shown: {other:?}"),
+    }
+}
+
+fn save_asked(effects: Vec<Effect>) -> (std::path::PathBuf, String, bool) {
+    effects
+        .into_iter()
+        .find_map(|effect| match effect {
+            Effect::SaveReport { path, text, replace } => Some((path, text, replace)),
+            _ => None,
+        })
+        .expect("the report is written")
+}
+
+fn save_key(state: &mut AppState) -> Vec<Effect> {
+    press(state, KeyCode::Char('s'), KeyModifiers::CONTROL)
+}
+
+fn report_saved(
+    state: &mut AppState,
+    path: std::path::PathBuf,
+    result: Result<std::path::PathBuf, crate::ReportError>,
+    now: Instant,
+) -> Vec<Effect> {
+    update(state, Msg::ReportSaved { path, result }, now)
+}
+
+/// The storage box scanned twice, first finding SSH and then SSH and HTTP.
+fn scanned_twice() -> (AppState, Instant) {
+    let (mut state, now) = on_the_storage_box();
+    tap(&mut state, KeyCode::Enter);
+    let (id, _) = started(tap(&mut state, KeyCode::Enter));
+    finish(&mut state, id, found(&[22], 719, Ending::Done), now);
+    tap(&mut state, KeyCode::Char('p'));
+    tap(&mut state, KeyCode::Enter);
+    let (id, _) = started(tap(&mut state, KeyCode::Enter));
+    finish(&mut state, id, found(&[22, 80], 718, Ending::Done), now);
+    (state, now)
+}
+
+#[test]
+fn o_shows_a_host_s_scans_newest_first_and_the_arrows_go_through_them() {
+    let (mut state, _) = home_opened();
+    tap(&mut state, KeyCode::Down);
+    tap(&mut state, KeyCode::Down);
+    tap(&mut state, KeyCode::Char('o'));
+    assert_eq!(state.overlay, None);
+    assert_eq!(state.notice.as_deref(), Some("192.0.2.60 has no port scan yet. P scans its ports."));
+    let (mut state, _) = scanned_twice();
+    tap(&mut state, KeyCode::Char('o'));
+    assert_eq!(result_view(&state).scans.len(), 2);
+    assert_eq!(result_view(&state).record().open, vec![22, 80], "the newest first");
+    tap(&mut state, KeyCode::Left);
+    assert_eq!(result_view(&state).record().open, vec![22]);
+    tap(&mut state, KeyCode::Left);
+    assert_eq!(result_view(&state).shown, 1, "there is nothing older");
+    tap(&mut state, KeyCode::Right);
+    assert_eq!(result_view(&state).shown, 0);
+}
+
+#[test]
+fn an_earlier_scan_s_job_opens_it_in_its_place_among_the_host_s_scans() {
+    let (mut state, now) = on_the_storage_box();
+    tap(&mut state, KeyCode::Enter);
+    let (id, _) = started(tap(&mut state, KeyCode::Enter));
+    finish(&mut state, id, found(&[22], 719, Ending::Done), now);
+    tap(&mut state, KeyCode::Char('p'));
+    tap(&mut state, KeyCode::Enter);
+    let (id, _) = started(tap(&mut state, KeyCode::Enter));
+    finish(&mut state, id, found(&[22, 80], 718, Ending::Done), now + Duration::from_secs(1));
+    tap(&mut state, KeyCode::Esc);
+    press(&mut state, KeyCode::Char('j'), KeyModifiers::ALT);
+    tap(&mut state, KeyCode::End);
+    tap(&mut state, KeyCode::Char('o'));
+    assert_eq!((result_view(&state).shown, result_view(&state).scans.len()), (1, 2));
+    assert_eq!(result_view(&state).record().open, vec![22]);
+    tap(&mut state, KeyCode::Right);
+    assert_eq!(result_view(&state).record().open, vec![22, 80], "the later scan is to the right");
+}
+
+#[test]
+fn ctrl_s_saves_the_scan_shown_and_asks_before_replacing_a_file() {
+    let (mut state, now) = scanned_twice();
+    tap(&mut state, KeyCode::Char('o'));
+    tap(&mut state, KeyCode::Left);
+    save_key(&mut state);
+    let form = report_form(&state);
+    assert_eq!(form.path.text(), "/work/port-scan-192.0.2.60-2027-01-15.md");
+    let crate::ReportSource::PortScan(record) = &form.source else { panic!("the scan is saved") };
+    assert_eq!(record.open, vec![22], "the scan on screen");
+    tap(&mut state, KeyCode::Tab);
+    tap(&mut state, KeyCode::Right);
+    assert_eq!(report_form(&state).format, crate::ReportFormat::Json);
+    assert_eq!(report_form(&state).path.text(), "/work/port-scan-192.0.2.60-2027-01-15.json");
+    let (path, text, replace) = save_asked(tap(&mut state, KeyCode::Enter));
+    assert_eq!(path.to_str(), Some("/work/port-scan-192.0.2.60-2027-01-15.json"));
+    assert!(text.contains("\"ports_asked\": 720"));
+    assert!(!replace);
+    tap(&mut state, KeyCode::Esc);
+    assert_eq!(report_form(&state).saving.as_ref(), Some(&path), "the dialog waits for the file");
+    report_saved(&mut state, path.clone(), Err(crate::ReportError::Exists), now);
+    let Some(Overlay::Confirm(confirm)) = &state.overlay else { panic!("asks first") };
+    assert_eq!(confirm.message, "port-scan-192.0.2.60-2027-01-15.json already exists. Replace it?");
+    assert!(!confirm.accept, "no is the default");
+    tap(&mut state, KeyCode::Enter);
+    assert_eq!(report_form(&state).saving, None, "no goes back to the dialog");
+    assert_eq!(report_form(&state).format, crate::ReportFormat::Json);
+    let (path, _, replace) = save_asked(tap(&mut state, KeyCode::Enter));
+    assert!(!replace);
+    report_saved(&mut state, path.clone(), Err(crate::ReportError::Exists), now);
+    let (path, _, replace) = save_asked(tap(&mut state, KeyCode::Char('y')));
+    assert!(replace, "yes writes over it");
+    report_saved(&mut state, path.clone(), Ok(path), now);
+    assert_eq!(state.notice.as_deref(), Some("Saved the report to /work/port-scan-192.0.2.60-2027-01-15.json."));
+    assert_eq!(result_view(&state).shown, 1, "back to the scan it came from");
+}
+
+#[test]
+fn ctrl_s_on_the_neighbors_page_saves_every_host_where_the_path_says() {
+    let (mut state, now) = home_opened();
+    save_key(&mut state);
+    let form = report_form(&state);
+    assert_eq!(form.path.text(), "/work/neighbors-2027-01-15.md");
+    let crate::ReportSource::Neighbors(report) = &form.source else { panic!("the page is saved") };
+    assert_eq!(report.hosts.len(), 5);
+    tap(&mut state, KeyCode::Down);
+    tap(&mut state, KeyCode::Left);
+    assert_eq!(report_form(&state).path.text(), "/work/neighbors-2027-01-15.csv");
+    tap(&mut state, KeyCode::Up);
+    press(&mut state, KeyCode::Char('u'), KeyModifiers::CONTROL);
+    tap(&mut state, KeyCode::Enter);
+    assert_eq!(report_form(&state).error.as_deref(), Some("Type the path of the file to save."));
+    typed(&mut state, "reports/hosts.txt");
+    tap(&mut state, KeyCode::Tab);
+    tap(&mut state, KeyCode::Right);
+    assert_eq!(report_form(&state).format, crate::ReportFormat::Markdown);
+    assert_eq!(report_form(&state).path.text(), "reports/hosts.txt", "a name of your own stays");
+    let (path, text, _) = save_asked(tap(&mut state, KeyCode::Enter));
+    assert_eq!(path.to_str(), Some("/work/reports/hosts.txt"));
+    assert!(text.starts_with("# Neighbors\n"), "the format you left it at");
+    report_saved(&mut state, path, Err(crate::ReportError::Failed("Permission denied".into())), now);
+    assert_eq!(report_form(&state).error.as_deref(), Some("Could not save the report: Permission denied"));
+    tap(&mut state, KeyCode::Esc);
+    assert_eq!(state.overlay, None);
 }
