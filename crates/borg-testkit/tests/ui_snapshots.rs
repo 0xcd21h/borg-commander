@@ -2768,9 +2768,22 @@ fn size_tree_loading_and_cached_folder_listing() -> Result<()> {
     check("folder_sizes_cached_listing", &stage, buffer)
 }
 
+/// How long the made-up system of the activity snapshots has been up.
+const UPTIME: Duration = Duration::from_secs(3 * 86_400 + 4 * 3_600 + 12 * 60 + 9);
+
 fn activity_stage() -> Result<Stage> {
-    use borg_core::{ActivityData, ActivityRequest, ProcessInfo, ProcessKey, SystemSample};
-    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    activity_stage_with(GridSize { cols: 132, rows: 34 }, |sample| sample)
+}
+
+/// The activity monitor at `size`, with each made-up sample passed through `system` first.
+fn activity_stage_with(
+    size: GridSize,
+    system: impl Fn(borg_core::SystemSample) -> borg_core::SystemSample,
+) -> Result<Stage> {
+    use borg_core::{
+        ActivityData, ActivityRequest, DiskActivity, LoadAverage, ProcessInfo, ProcessKey, SystemSample, Threads,
+    };
+    let mut stage = stage(size, Motion::STILL)?;
     let theme = stage.state.appearance.choices().iter().position(|c| c.id == "neon").unwrap();
     stage.state.appearance.select(theme, stage.started, Duration::ZERO);
     stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('m'), KeyModifiers::ALT)));
@@ -2802,7 +2815,7 @@ fn activity_stage() -> Result<Stage> {
             .collect();
         stage.send(Msg::Activity {
             id,
-            result: Ok(ActivityData::Sample(SystemSample {
+            result: Ok(ActivityData::Sample(system(SystemSample {
                 processes,
                 total: 32_000_000_000,
                 used: 18_000_000_000,
@@ -2811,7 +2824,11 @@ fn activity_stage() -> Result<Stage> {
                 cpu: vec![7500, 4400, 2100, 1200],
                 administrator: false,
                 own: Some(413),
-            })),
+                disk: Some(DiskActivity { read: 12_400_000, written: 3_100_000, busy: Some(1_400) }),
+                load: Some(LoadAverage { one: 214, five: 187, fifteen: 120 }),
+                uptime: Some(UPTIME),
+                threads: Some(Threads { total: 412, running: 3 }),
+            }))),
         });
         if tick < 9 {
             let next = stage.state.activity.pending.as_ref().map(|p| p.0).unwrap_or(id + 1);
@@ -3317,6 +3334,94 @@ fn activity_files_tabs_and_scrolled_regions_keep_selection_visible() -> Result<(
         stage.render(stage.started)?;
     }
     Ok(())
+}
+
+/// Made-up use for each of `count` cores, uneven so the bars differ.
+fn busy_cores(count: u32) -> Vec<u32> {
+    (0..count).map(|core| (core * 3_700 + 900) % 10_100).collect()
+}
+
+#[test]
+fn activity_summary_shows_each_core_beside_memory_disks_load_and_uptime() -> Result<()> {
+    let mut stage = activity_stage_with(GridSize { cols: 132, rows: 34 }, |sample| borg_core::SystemSample {
+        cpu: busy_cores(16),
+        ..sample
+    })?;
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "16 ")?;
+    ensure_text(&buffer, "13%, steady")?;
+    ensure_text(&buffer, "Processes 5 ")?;
+    ensure_text(&buffer, "Threads   412 · 3 running")?;
+    ensure_text(&buffer, "Up        3 days, 4 hours")?;
+    ensure_text(&buffer, "Disk      read 12M/s")?;
+    ensure_text(&buffer, "          write 3.0M/s")?;
+    anyhow::ensure!(!describe(&buffer).contains("waiting"), "the cores keep up");
+    check("activity_summary_wide", &stage, buffer)?;
+    stage.send(key(KeyCode::Char('s')));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "│CPU 46.6% · RAM 17G/30G · Swap 244M/3.7G · 5 processes          ││CPU 46.6%")?;
+    anyhow::ensure!(!describe(&buffer).contains("Threads"), "the summary is hidden");
+    check("activity_summary_hidden", &stage, buffer)
+}
+
+#[test]
+fn activity_summary_in_a_narrow_pane_stacks_its_figures_and_shows_cores_as_a_strip() -> Result<()> {
+    let mut stage = activity_stage_with(GridSize { cols: 84, rows: 34 }, |sample| borg_core::SystemSample {
+        cpu: busy_cores(16),
+        disk: sample.disk.map(|disk| borg_core::DiskActivity { busy: None, ..disk }),
+        threads: None,
+        ..sample
+    })?;
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Cores")?;
+    ensure_text(&buffer, "Processes 5 ")?;
+    anyhow::ensure!(!describe(&buffer).contains("Threads"), "a system that does not count threads");
+    check("activity_summary_narrow", &stage, buffer)?;
+    let mut stage = activity_stage_with(GridSize { cols: 84, rows: 34 }, |sample| borg_core::SystemSample {
+        cpu: busy_cores(16),
+        ..sample
+    })?;
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Threads   412 · 3 running")?;
+    ensure_text(&buffer, "Disk      read 12M/s · write 3.0M/s")?;
+    Ok(())
+}
+
+/// More work than the cores can run fills the load bar in the notice color and says about how
+/// many processes wait for a core, in a wide pane and a narrow one.
+#[test]
+fn activity_summary_flags_load_above_what_the_cores_can_run() -> Result<()> {
+    let overloaded = |sample: borg_core::SystemSample| borg_core::SystemSample {
+        cpu: busy_cores(16),
+        load: Some(borg_core::LoadAverage { one: 2_214, five: 1_890, fifteen: 1_420 }),
+        ..sample
+    };
+    let mut stage = activity_stage_with(GridSize { cols: 132, rows: 34 }, overloaded)?;
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Load   ~7 waiting       ")?;
+    ensure_text(&buffer, "138%, rising")?;
+    check("activity_summary_overloaded", &stage, buffer)?;
+    let mut stage = activity_stage_with(GridSize { cols: 84, rows: 40 }, overloaded)?;
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Load       ~7 waiting   ")?;
+    check("activity_summary_overloaded_narrow", &stage, buffer)?;
+    let mut stage = activity_stage_with(GridSize { cols: 84, rows: 30 }, overloaded)?;
+    let buffer = stage.render(stage.started)?;
+    let short = "│CPU 46.6% · RAM 17G/30G · … · ~7 waiting│";
+    ensure_text(&buffer, short)?;
+    stage.send(key(KeyCode::Char('s')));
+    ensure_text(&stage.render(stage.started)?, short)
+}
+
+#[test]
+fn activity_summary_shows_many_cores_as_a_strip() -> Result<()> {
+    let mut stage = activity_stage_with(GridSize { cols: 132, rows: 34 }, |sample| borg_core::SystemSample {
+        cpu: busy_cores(96),
+        ..sample
+    })?;
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Cores")?;
+    check("activity_summary_many_cores", &stage, buffer)
 }
 
 #[test]
