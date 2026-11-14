@@ -1,5 +1,5 @@
-//! The dialog that offers a newer Borg: the version, the command that installs it, what
-//! happens to open sessions, and how to skip the version or stop the daily check.
+//! The dialog that offers a newer Borg: the version, the command that installs it and what
+//! happens to open sessions.
 
 use crate::{
     Theme,
@@ -23,7 +23,6 @@ fn parts(offer: &UpdateOffer, width: u16) -> Vec<Part> {
         Part::Text(message_lines(&question(offer), width)),
         Part::Command(vec![offer.command()]),
         Part::Text(message_lines(consequence(offer), width)),
-        Part::Note(message_lines(tr!(update_note), width)),
     ]
 }
 

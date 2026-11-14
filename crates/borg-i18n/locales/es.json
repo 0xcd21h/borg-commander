@@ -1518,7 +1518,6 @@
   "update_question": "Ya salió Borg {version}, y esta computadora ejecuta la versión {current}. ¿Instalarla ahora?",
   "update_moves_sessions": "El comando se ejecuta en el shell de Borg. Las sesiones abiertas pasan a la nueva versión cuando están inactivas y conservan sus shells.",
   "update_by_manager": "El comando se ejecuta en el shell de Borg con el gestor de paquetes que instaló Borg. Borg ejecuta la nueva versión cuando vuelve a iniciarse.",
-  "update_note": "S omite esta versión hasta que salga una más nueva. N desactiva la comprobación diaria, y update-check = true en la configuración la vuelve a activar. Después de Esc, Borg vuelve a preguntar un día después.",
   "update_skipped": "Borg omite la versión {version} y te ofrecerá la siguiente cuando salga.",
   "update_failed": "La actualización de Borg falló (salida {code}). Ctrl-O muestra la salida.",
   "update_finished": "La actualización de Borg terminó. Ctrl-O muestra la salida.",
