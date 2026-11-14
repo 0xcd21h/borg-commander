@@ -1715,17 +1715,33 @@ on one side and a preview of the selected region's bytes on the other. **Esc** c
 it is open and stops when you close it. Sampling pauses while a memory inspection runs and
 resumes when the result arrives.
 
+The top of the process list sums up the system. Each core has a bar and a percentage. Under the
+cores, the **CPU**, **Load**, **RAM** and **Swap** bars stand beside **Processes**, **Up** and
+**Disk**: the number of processes, how long the system has been running, and what the disks read and
+write per second. **Load** is how much work wanted a core over the last minute, as a share of all
+the cores, so at 100% every core had work. The word after it compares the last minute with the last
+15 minutes: **rising**, **falling** or **steady**. Above 100% the cores cannot keep up: the bar
+turns to the warning color and says about how many processes wait for a core, such as
+**~7 waiting**. On Linux, **Threads** counts threads and how many of them are running, a **Disk**
+bar shows how busy the busiest disk was, and processes waiting for a disk count toward the load. On
+macOS the summary leaves out the threads and the disk bar. In a narrow pane the figures go under the
+bars. With many cores, or in a short pane, the cores turn into a strip labeled **Cores** with one
+cell per core. The summary takes at most a third of the pane's height. When it does not fit even
+without the cores, when the pane is narrower than 30 columns, or when **S** hides it, a single line
+shows CPU, RAM, swap and the number of processes instead. While the cores cannot keep up, that line
+ends with the waiting count. **S** shows the summary again.
+
 The list shows CPU, resident memory, memory growth, and disk read and write rates. CPU 100% means
 one fully busy core. Resident pages shared between processes count toward each of them, so adding
 up the RAM of all processes does not give the system total. CPU and disk rates appear from the
 second sample on.
 
 CPU is an average of the last few seconds in which older use fades out, as in `top`, so a list
-sorted by CPU holds still while a process works in short bursts. The overview and the system CPU
-at the top of the monitor are averaged the same way. **H** hides the processes that used no CPU
-in that time, and the filter row says how many are hidden. A process that goes quiet stays listed
-until its average falls to 0.0. In the tree, the processes a busy one descends from stay listed
-with it. Press H again to show them all.
+sorted by CPU holds still while a process works in short bursts. The overview, the system CPU
+and each core's bar at the top of the monitor are averaged the same way. **H** hides the
+processes that used no CPU in that time, and the filter row says how many are hidden. A process
+that goes quiet stays listed until its average falls to 0.0. In the tree, the processes a busy one
+descends from stay listed with it. Press H again to show them all.
 
 | Key | Action |
 | --- | --- |
@@ -1735,6 +1751,7 @@ with it. Press H again to show them all.
 | I / O | Sort by read / write rate |
 | T | Show or hide the process tree |
 | H | Hide or show the processes that used no CPU in the last few seconds |
+| S | Hide or show the system summary |
 | Left / Right | In the tree, fold the selected process's branch or unfold it |
 | K | Send a signal or change the priority, also from the process window |
 | E | Scan every process for high entropy |

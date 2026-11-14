@@ -2,7 +2,7 @@
 
 use super::processes::{columns, pid_width};
 use super::search::{form_field, results_list};
-use super::{SEARCH_HEADER, body, by_rules, inner, row, tabs, text};
+use super::{SEARCH_HEADER, below, body, by_rules, inner, row, summary_rows, tabs, text};
 use crate::Theme;
 use borg_core::{Activity, ActivityPage, AppState, EntropyScan, FINDING_NOTE, Msg, Pointer};
 use borg_i18n::tr;
@@ -242,21 +242,22 @@ pub(crate) fn panel_mouse(
         if event.kind != MouseEventKind::Down(MouseButton::Left) {
             return None;
         }
-        let body = body(rect);
+        let extra = if preview { 0 } else { summary_rows(activity, activity.list, rect) };
+        let (inner, body) = (below(inner(rect), extra), below(body(rect), extra));
         if !preview
             && !matches!(activity.list, ActivityPage::Processes | ActivityPage::Entropy)
-            && row(inner(rect), 1).contains(point)
+            && row(inner, 1).contains(point)
         {
-            return tabs(row(inner(rect), 1))
+            return tabs(row(inner, 1))
                 .into_iter()
                 .find(|(r, _, _)| r.contains(point))
                 .map(|(_, _, code)| Msg::Pointer(Pointer::ActivityControl { preview: false, code }));
         }
-        if !preview && activity.list == ActivityPage::Processes && row(inner(rect), 1).contains(point) {
+        if !preview && activity.list == ActivityPage::Processes && row(inner, 1).contains(point) {
             return Some(Msg::Pointer(Pointer::ActivityControl { preview: false, code: KeyCode::Char('/') }));
         }
-        if !preview && activity.list == ActivityPage::Processes && row(inner(rect), 2).contains(point) {
-            return columns(row(inner(rect), 2), pid_width(activity))
+        if !preview && activity.list == ActivityPage::Processes && row(inner, 2).contains(point) {
+            return columns(row(inner, 2), pid_width(activity))
                 .into_iter()
                 .find(|(_, r)| r.contains(point))
                 .map(|(sort, _)| Msg::Pointer(Pointer::ActivitySort(sort)));

@@ -32,7 +32,7 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
         return Vec::new();
     }
 
-    let rows = usize::from(rect.height.saturating_sub(chrome_rows(activity.page))).max(1);
+    let rows = usize::from(rect.height.saturating_sub(chrome_rows(activity, activity.page, rect))).max(1);
     let width = usize::from(rect.width.saturating_sub(2));
     if activity.page == ActivityPage::Snapshot
         && activity.map
@@ -190,11 +190,15 @@ fn export(activity: &Activity, folder: &Path) -> Vec<Effect> {
 }
 
 /// The processes' keys: a column's key sorts by it, again turns the order round, T shows the
-/// processes as a tree, and H hides the idle ones.
+/// processes as a tree, H hides the idle ones, and S hides the system summary.
 fn sort_key(activity: &mut Activity, c: char) {
     let sort = match c.to_ascii_lowercase() {
         'h' => {
             activity.hide_idle = !activity.hide_idle;
+            None
+        }
+        's' => {
+            activity.hide_summary = !activity.hide_summary;
             None
         }
         'm' => Some(ActivitySort::Memory),
