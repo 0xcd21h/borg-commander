@@ -52,7 +52,7 @@ fn row(state: &mut AppState, index: usize, open: bool, preview: bool, now: Insta
     let rect = state.layout(now).panels[if preview { side.other() } else { side }.index()];
     state.activity.move_by(
         index as isize - cursor as isize,
-        usize::from(rect.height.saturating_sub(crate::activity::chrome_rows(context))),
+        usize::from(rect.height.saturating_sub(crate::activity::chrome_rows(&state.activity, context, rect))),
         usize::from(rect.width.saturating_sub(2)),
     );
     state.activity.page = page;
