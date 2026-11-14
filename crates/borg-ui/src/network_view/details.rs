@@ -13,8 +13,8 @@ use crate::{
     port_scan_view::{limited, port_row, when},
 };
 use borg_core::{
-    AppState, Interface, Meter, Neighbor, NeighborRow, Network, NetworkPage, PortRow, PortScanRecord, Presence,
-    ProcessRow, Rate, Socket, kind_label, scanned_ports, service,
+    AppState, Interface, Meter, Neighbor, NeighborEntry, NeighborRow, Network, NetworkPage, PortRow, PortScanRecord,
+    Presence, ProcessRow, Rate, Socket, kind_label, scanned_ports, service,
 };
 use borg_i18n::{Count, count, tr};
 use jiff::Zoned;
@@ -86,11 +86,21 @@ pub(super) fn draw_details(state: &AppState, look: &Look<'_>, rect: Rect, clock:
                 )
             }
         },
-        NetworkPage::Neighbors => match network.neighbor() {
-            Some((neighbor, entry)) => {
+        NetworkPage::Neighbors => match network.entry() {
+            Some(NeighborEntry::Host(entry)) => {
+                let neighbor = &network.neighborhood.neighbors[entry.neighbor];
                 let scan = borg_core::scan_of(state, neighbor.address);
                 neighbor_details(network, (neighbor, entry), scan, look, rect, clock, buf)
             }
+            Some(NeighborEntry::Interface(at)) => {
+                let interface = &network.sample.interfaces[at];
+                let rate = network.interfaces.iter().find(|row| row.interface == at).map(|row| row.rate);
+                interface_details(network, interface, rate.unwrap_or_default(), look, rect, buf)
+            }
+            Some(NeighborEntry::Network(at)) => {
+                super::map::network_details(network, network.cursor(), at, look, rect, clock, buf)
+            }
+            Some(NeighborEntry::Internet(at)) => super::map::internet_details(network, at, look, rect, buf),
             None => {
                 _ = crate::results_view::pane_frame(
                     network.expanded,
@@ -294,7 +304,7 @@ fn connection(network: &Network, socket: &Socket, rate: Rate, look: &Look<'_>, r
     draw_charts(&downloads, &uploads, left, look, buf);
 }
 
-fn interface_details(
+pub(super) fn interface_details(
     network: &Network,
     interface: &Interface,
     rate: Rate,
@@ -375,6 +385,7 @@ fn neighbor_details(
         tr!(network_dns_label),
         tr!(network_port_scan_label),
         tr!(network_open_ports_label),
+        tr!(network_route_label),
     ];
     let mut facts = facts(body, 0, &labels, look);
     facts.add(buf, labels[0], neighbor.mac.map_or_else(String::new, |mac| mac.to_string()));
@@ -389,7 +400,11 @@ fn neighbor_details(
     let subnet = borg_core::subnet(&network.sample.interfaces, neighbor).map(|subnet| {
         tr!(network_subnet_value, subnet = format!("{}/{}", subnet.network, subnet.prefix), address = subnet.own)
     });
-    facts.add(buf, labels[4], subnet.unwrap_or_default());
+    match (subnet, super::map::route_of(network, neighbor)) {
+        (Some(subnet), _) => facts.add(buf, labels[4], subnet),
+        (None, Some(route)) => facts.add(buf, labels[13], route),
+        (None, None) => facts.add(buf, labels[4], String::new()),
+    }
     let same: Vec<String> = network.same_mac(neighbor).iter().map(ToString::to_string).collect();
     facts.add(buf, labels[5], same.join(LIST_SEPARATOR));
     let ports = open_ports(network, neighbor)

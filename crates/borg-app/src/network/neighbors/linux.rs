@@ -3,7 +3,7 @@ use std::{
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
 };
 
-use borg_core::{Gateway, Mac, Neighbor, NeighborState};
+use borg_core::{Gateway, Mac, Neighbor, NeighborState, Route};
 
 #[cfg(target_os = "linux")]
 pub(super) const PROC_ARP: &str = "/proc/net/arp";
@@ -56,6 +56,7 @@ const IPV6_BYTES: usize = 16;
 const HEX: u32 = 16;
 const ROUTE_UP: u32 = 0x1;
 const ROUTE_GATEWAY: u32 = 0x2;
+const ROUTE_HOST: u32 = 0x4;
 const ROUTE_INTERFACE: usize = 0;
 const ROUTE_DESTINATION: usize = 1;
 const ROUTE_NEXT_HOP: usize = 2;
@@ -186,6 +187,25 @@ pub(super) fn routes_v4(table: &str) -> Vec<Gateway> {
         .collect();
     found.sort_by_key(|(metric, _)| *metric);
     found.into_iter().map(|(_, gateway)| gateway).collect()
+}
+
+/// The IPv4 routes to networks other than the default ones.
+pub(super) fn network_routes(table: &str) -> Vec<Route> {
+    table
+        .lines()
+        .filter_map(|line| {
+            let words: Vec<&str> = line.split_whitespace().collect();
+            let flags = hex(words.get(ROUTE_FLAGS)?)?;
+            let network = Ipv4Addr::from(hex(words.get(ROUTE_DESTINATION)?)?.to_ne_bytes());
+            let mask = u32::from(Ipv4Addr::from(hex(words.get(ROUTE_MASK)?)?.to_ne_bytes()));
+            let prefix = u8::try_from(mask.leading_ones()).ok()?;
+            let contiguous = mask.count_ones() == mask.leading_ones();
+            (flags & ROUTE_UP != 0 && flags & ROUTE_HOST == 0 && prefix > 0 && contiguous).then_some(())?;
+            let next_hop = Ipv4Addr::from(hex(words.get(ROUTE_NEXT_HOP)?)?.to_ne_bytes());
+            let gateway = (flags & ROUTE_GATEWAY != 0 && !next_hop.is_unspecified()).then_some(next_hop);
+            Some(Route { network, prefix, gateway, interface: (*words.get(ROUTE_INTERFACE)?).to_owned() })
+        })
+        .collect()
 }
 
 pub(super) fn routes_v6(table: &str) -> Vec<Gateway> {
@@ -397,6 +417,43 @@ mod tests {
         let found: Vec<(String, String)> =
             routes_v4(&table).into_iter().map(|g| (g.address.to_string(), g.interface)).collect();
         assert_eq!(found, [("192.0.2.1".into(), "eth0".into()), ("198.51.100.1".into(), "wlan0".into())]);
+    }
+
+    #[test]
+    fn network_routes_keep_their_prefix_and_router_and_leave_out_defaults_and_hosts() {
+        let row = |interface: &str, destination: [u8; 4], gateway: [u8; 4], flags: &str, mask: [u8; 4]| {
+            format!(
+                "{interface}\t{}\t{}\t{flags}\t0\t0\t0\t{}\t0\t0\t0\n",
+                hex_address(destination),
+                hex_address(gateway),
+                hex_address(mask)
+            )
+        };
+        let table = [
+            "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n".to_owned(),
+            row("eth0", [0, 0, 0, 0], [192, 0, 2, 1], "0003", [0, 0, 0, 0]),
+            row("eth0", [192, 0, 2, 0], [0, 0, 0, 0], "0001", [255, 255, 255, 0]),
+            row("eth0", [203, 0, 113, 0], [192, 0, 2, 1], "0003", [255, 255, 255, 0]),
+            row("wg0", [10, 20, 0, 0], [0, 0, 0, 0], "0001", [255, 255, 0, 0]),
+            row("wg0", [0, 0, 0, 0], [0, 0, 0, 0], "0001", [128, 0, 0, 0]),
+            row("eth0", [198, 51, 100, 7], [192, 0, 2, 1], "0007", [255, 255, 255, 255]),
+            row("eth0", [198, 51, 100, 0], [192, 0, 2, 1], "0002", [255, 255, 255, 0]),
+            row("eth0", [198, 51, 0, 0], [192, 0, 2, 1], "0003", [255, 0, 255, 0]),
+        ]
+        .concat();
+        let found: Vec<(String, Option<Ipv4Addr>, String)> = network_routes(&table)
+            .into_iter()
+            .map(|route| (format!("{}/{}", route.network, route.prefix), route.gateway, route.interface))
+            .collect();
+        assert_eq!(
+            found,
+            [
+                ("192.0.2.0/24".into(), None, "eth0".into()),
+                ("203.0.113.0/24".into(), Some(Ipv4Addr::new(192, 0, 2, 1)), "eth0".into()),
+                ("10.20.0.0/16".into(), None, "wg0".into()),
+                ("0.0.0.0/1".into(), None, "wg0".into()),
+            ]
+        );
     }
 
     #[test]

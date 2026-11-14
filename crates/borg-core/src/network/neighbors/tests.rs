@@ -46,6 +46,7 @@ fn neighborhood(neighbors: Vec<Neighbor>) -> Neighborhood {
         neighbors,
         gateways: vec![Gateway { address: ip("192.0.2.1"), interface: "en0".into() }],
         dns: vec![ip("192.0.2.1")],
+        routes: Vec::new(),
         error: None,
         read_at: READ_AT,
     }
@@ -60,7 +61,13 @@ fn v4(text: &str) -> Ipv4Addr {
 }
 
 fn probed(address: &str, ping: Option<u64>, open: &[u16], refused: bool) -> (IpAddr, Probed) {
-    let probe = Probe { address: v4(address), ping: ping.map(Duration::from_millis), open: open.to_vec(), refused };
+    let probe = Probe {
+        address: v4(address),
+        ping: ping.map(Duration::from_millis),
+        open: open.to_vec(),
+        refused,
+        trace: None,
+    };
     (ip(address), Probed { interface: "en0".into(), probe })
 }
 
@@ -270,8 +277,8 @@ fn scanned_hosts_that_answered_join_the_table_and_remembered_ones_show_offline()
 fn offline_hosts_keep_their_remembered_ports_and_do_not_count_as_sharing_a_mac() {
     let places = [home_place()];
     let mut memory = NeighborMemory::default();
-    let probe = Probe { address: v4("192.0.2.61"), ping: None, open: vec![80, 443], refused: false };
-    memory.note_probe(&places, &probe, EARLIER);
+    let probe = Probe { address: v4("192.0.2.61"), ping: None, open: vec![80, 443], refused: false, trace: None };
+    memory.note_probe(&places, &[], &probe, EARLIER);
     memory.note_listed(&places, &[neighbor("192.0.2.61", Some(NAS))], EARLIER);
     let table = neighborhood(vec![neighbor("192.0.2.1", Some(ROUTER)), neighbor("192.0.2.60", Some(NAS))]);
     let (merged, presence) = merge(&table, &HashMap::new(), &memory, &places);

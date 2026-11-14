@@ -217,9 +217,11 @@ pub use network::{
     TcpState, Traffic, Transport, exposure_label, kind_label, service,
 };
 pub use network::{
-    Gateway, GatewayWatch, KnownHost, KnownNetwork, LocalNetwork, Mac, MacChange, NEIGHBORS_FORMAT, Neighbor,
-    NeighborMemory, NeighborRow, NeighborState, Neighborhood, Presence, Probe, Probed, SCAN_PORTS, SavedNeighbors,
-    ScanRun, Subnet, SubnetScan, neighbor_notes, places, scanned_ports, subnet, vendor,
+    Discovery, Gateway, GatewayWatch, InternetRoute, KnownHost, KnownNetwork, KnownRoute, LocalNetwork, MAX_HOPS, Mac,
+    MacChange, NEIGHBORS_FORMAT, Neighbor, NeighborEntry, NeighborMemory, NeighborRow, NeighborState, Neighborhood,
+    Origin, Presence, Probe, Probed, ROUTER_HOSTS, Route, Routed, SCAN_PORTS, SavedNeighbors, ScanForm, ScanKind,
+    ScanProblem, ScanRun, Subnet, SubnetScan, Trace, Way, neighbor_notes, places, route_way, scanned_ports, subnet,
+    vendor, way_label,
 };
 pub use port_scan::{
     Canary, Ending, FIRST_PORT, FormField, HOST_HISTORY, LAST_PORT, MAX_TARGET, PORT_SCANS_FORMAT, PortAnswer,

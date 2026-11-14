@@ -6,7 +6,7 @@ use std::{net::SocketAddr, time::Instant};
 use borg_i18n::tr;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use super::{Exposure, FILTER_LIMIT, Network, NetworkPage, NetworkSort, Order, PAGE, close, leave};
+use super::{Exposure, FILTER_LIMIT, NeighborEntry, Network, NetworkPage, NetworkSort, Order, PAGE, close, leave};
 use crate::{Action, AppState, Effect};
 
 const LOCALHOST: &str = "localhost";
@@ -72,6 +72,7 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
         KeyCode::Char('k' | 'K') => return show_process(state, true),
         KeyCode::Char('s' | 'S') if network.page == NetworkPage::Neighbors => return super::scan(state),
         KeyCode::Char('p' | 'P') if network.page == NetworkPage::Neighbors => return super::scan_ports(state),
+        KeyCode::Char('d' | 'D') if network.page == NetworkPage::Neighbors => return super::discover(state),
         KeyCode::Char('o' | 'O') if network.page == NetworkPage::Neighbors => {
             return crate::port_scan::show_scans(state);
         }
@@ -255,6 +256,18 @@ pub(crate) fn copied_text(network: &Network) -> Option<String> {
                 .map(|(address, _)| address.to_string());
             Some(address.unwrap_or_else(|| interface.name.clone()))
         }
-        NetworkPage::Neighbors => network.neighbor().map(|(neighbor, _)| neighbor.address.to_string()),
+        NetworkPage::Neighbors => match network.entry()? {
+            NeighborEntry::Host(row) => Some(network.neighborhood.neighbors[row.neighbor].address.to_string()),
+            NeighborEntry::Network(index) => Some(network.routed.get(index)?.cidr()),
+            NeighborEntry::Interface(index) => {
+                let interface = network.sample.interfaces.get(index)?;
+                let address = interface.addresses.iter().find(|(address, _)| address.is_ipv4()).map(|(a, _)| a);
+                Some(address.map_or_else(|| interface.name.clone(), ToString::to_string))
+            }
+            NeighborEntry::Internet(index) => {
+                let route = network.internet.get(index)?;
+                Some(route.gateways.first().map_or_else(|| route.interface.clone(), ToString::to_string))
+            }
+        },
     }
 }
