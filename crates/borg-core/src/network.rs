@@ -16,6 +16,7 @@ use crate::{AppState, Capture, Effect, Side, View};
 mod capture;
 mod filter;
 mod keys;
+mod listen;
 mod model;
 mod neighbors;
 mod rows;
@@ -33,6 +34,15 @@ pub use capture::{
 use filter::Haystack;
 pub use filter::NetworkFilter;
 pub(crate) use keys::{click, copied_text, paste, route_key, show_page, sort_by};
+pub use listen::{
+    Announced, Announcement, Heard, HeardHost, HeardSwitch, Hearing, LISTEN_DURATIONS, LISTEN_FILTER, LONGEST_TEXT,
+    ListenEvent, ListenField, ListenForm, ListenProtocol, ListenRequest, Listening, MOST_KINDS, Said, SwitchPort, hear,
+    heard_line, listen_interfaces, switch_line,
+};
+pub(crate) use listen::{
+    as_administrator as listen_as_administrator, listen_key, on_event as listen_event, on_form_key as on_listen_key,
+    pick as pick_listen_field, show_neighbors,
+};
 pub use model::{Interface, InterfaceKind, NetworkSample, PortKey, Socket, SocketKey, TcpState, Transport, service};
 pub use neighbors::{
     Discovery, Gateway, GatewayWatch, InternetRoute, KnownHost, KnownNetwork, KnownRoute, LocalNetwork, MAX_HOPS, Mac,
@@ -227,6 +237,10 @@ pub struct Network {
     revealing: Option<u32>,
     /// The capture `tcpdump` is taking.
     pub recording: Option<Recording>,
+    /// What listening heard this session.
+    pub hearing: Hearing,
+    /// The listen under way.
+    pub listening: Option<Listening>,
     /// What capturing as administrator can do here.
     pub access: CaptureAccess,
     /// The variables Borg's shell gets around captures that keep TLS keys.
@@ -289,6 +303,8 @@ impl Default for Network {
             back: None,
             revealing: None,
             recording: None,
+            hearing: Hearing::default(),
+            listening: None,
             access: CaptureAccess::default(),
             shell_variables: ShellVariables::default(),
             authority: Authority::default(),
@@ -469,7 +485,31 @@ impl Network {
     }
 
     pub fn neighbor_name(&self, neighbor: &Neighbor) -> Option<String> {
-        self.host(neighbor.address).or_else(|| neighbor.mac.and_then(vendor)).map(str::to_owned)
+        self.host_name(neighbor.address).or_else(|| neighbor.mac.and_then(vendor)).map(str::to_owned)
+    }
+
+    /// What a host announced of itself, this session and before, as Borg remembers it.
+    pub fn announced(&self, address: IpAddr) -> Option<Announced> {
+        let announced = announced(&self.hearing, &self.memory, &self.places, address);
+        (!announced.is_empty()).then_some(announced)
+    }
+
+    /// The name a host announced, this session or before.
+    pub fn announced_name(&self, address: IpAddr) -> Option<&str> {
+        let heard = self.hearing.host(address).and_then(|host| host.announced.name());
+        let remembered = || self.memory.host(&self.places, address).and_then(|host| host.announced.name());
+        heard.or_else(remembered).map(|name| name.text.as_str())
+    }
+
+    /// The name to show for a host: the one it announced, else the one its address resolves to.
+    pub fn host_name(&self, address: IpAddr) -> Option<&str> {
+        self.announced_name(address).or_else(|| self.host(address))
+    }
+
+    /// When a host was last heard, in seconds since the epoch.
+    pub fn last_heard(&self, address: IpAddr) -> Option<u64> {
+        let heard = self.hearing.host(address).map(|host| host.last);
+        heard.or_else(|| self.memory.host(&self.places, address).and_then(|host| host.heard))
     }
 
     pub fn same_mac(&self, neighbor: &Neighbor) -> Vec<IpAddr> {
@@ -560,8 +600,16 @@ impl Network {
         self.places = neighbors::places(interfaces, &self.table);
         self.internet = neighbors::internet(&self.table, interfaces);
         self.reroute();
-        (self.neighborhood, self.presence) = neighbors::merge(&self.table, &self.probes, &self.memory, &self.places);
+        self.hearing.place(&self.table.neighbors);
+        (self.neighborhood, self.presence) =
+            neighbors::merge(&self.table, &self.probes, &self.hearing.hosts, &self.memory, &self.places);
         self.rebuild();
+    }
+
+    /// Keeps the hosts listening heard on the networks Borg remembers, and whether to save now.
+    fn note_hearing(&mut self, now: Instant) -> bool {
+        let noted = self.memory.note_heard(&self.places, &self.hearing.hosts);
+        self.save_due(noted, now)
     }
 
     fn reroute(&mut self) {
@@ -653,6 +701,7 @@ impl Network {
             places: &self.places,
             routed: &self.routed,
             internet: &self.internet,
+            hearing: &self.hearing,
             filter,
         }
     }
@@ -777,7 +826,7 @@ impl Network {
             let (p, q) = (&labels[&a.neighbor], &labels[&b.neighbor]);
             let rank = |row: &NeighborRow, neighbor: &Neighbor| match row.presence {
                 Presence::Listed if neighbor.mac.is_some() => 0,
-                Presence::Answered => 1,
+                Presence::Answered | Presence::Heard => 1,
                 Presence::Offline(_) => 2,
                 Presence::Listed => 3,
             };
@@ -835,7 +884,8 @@ impl Network {
             .chain(
                 self.neighbor_rows()
                     .filter(|row| {
-                        self.neighborhood.neighbors[row.neighbor].mac.is_some() || row.presence == Presence::Answered
+                        self.neighborhood.neighbors[row.neighbor].mac.is_some()
+                            || matches!(row.presence, Presence::Answered | Presence::Heard)
                     })
                     .map(|row| self.neighborhood.neighbors[row.neighbor].address),
             )
@@ -1008,8 +1058,9 @@ pub(crate) fn receive(
             if let Some(table) = table {
                 network.table = table;
                 network.places = neighbors::places(&network.sample.interfaces, &network.table);
-                let noted =
+                let listed =
                     network.memory.note_listed(&network.places, &network.table.neighbors, network.table.read_at);
+                let noted = listed.with(network.memory.note_heard(&network.places, &network.hearing.hosts));
                 save = network.save_due(noted, now);
             }
             network.merge();
@@ -1325,8 +1376,8 @@ pub(crate) fn scan_ports(state: &mut AppState) -> Vec<Effect> {
     crate::port_scan::open_form(state, target)
 }
 
-/// F8 on a host that is gone, or on a routed network the route table does not list, asks before
-/// Borg forgets it.
+/// F8 on a host that is gone or that only listening heard, or on a routed network the route
+/// table does not list, asks before Borg forgets it.
 pub(crate) fn forget(state: &mut AppState) -> Vec<Effect> {
     let network = &state.network;
     if let Some(NeighborEntry::Network(index)) = network.entry() {
@@ -1344,10 +1395,11 @@ pub(crate) fn forget(state: &mut AppState) -> Vec<Effect> {
         return Vec::new();
     }
     let Some((neighbor, row)) = network.neighbor() else { return Vec::new() };
-    let (IpAddr::V4(address), Presence::Offline(_)) = (neighbor.address, row.presence) else {
+    let address = neighbor.address;
+    if !matches!(row.presence, Presence::Offline(_) | Presence::Heard) {
         state.notice = Some(tr!(network_forget_present).into());
         return Vec::new();
-    };
+    }
     state.overlay = Some(crate::Overlay::Confirm(crate::Confirm {
         title: tr!(network_forget_title),
         message: tr!(network_forget_question, address = address),
@@ -1378,13 +1430,26 @@ impl Network {
     }
 }
 
-pub(crate) fn forget_host(state: &mut AppState, address: Ipv4Addr, now: Instant) -> Vec<Effect> {
+/// What a host announced of itself, this session and before, as Borg remembers it.
+fn announced(hearing: &Hearing, memory: &NeighborMemory, places: &[LocalNetwork], address: IpAddr) -> Announced {
+    let mut announced = memory.host(places, address).map(|host| host.announced.clone()).unwrap_or_default();
+    if let Some(host) = hearing.host(address) {
+        announced.merge(&host.announced);
+    }
+    announced
+}
+
+pub(crate) fn forget_host(state: &mut AppState, address: IpAddr, now: Instant) -> Vec<Effect> {
     let network = &mut state.network;
-    let Some(place) = network.holder(address) else { return Vec::new() };
-    if !network.memory.forget(&place, address) {
+    let heard = network.hearing.forget(address);
+    let remembered = match address {
+        IpAddr::V4(v4) => network.holder(v4).is_some_and(|place| network.memory.forget(&place, v4)),
+        IpAddr::V6(_) => false,
+    };
+    if !heard && !remembered {
         return Vec::new();
     }
-    network.memory_changed = true;
+    network.memory_changed |= remembered;
     network.merge();
     state.notice = Some(tr!(network_forgot, address = address));
     network.flush(true, now).then_some(Effect::SaveNeighbors).into_iter().collect()

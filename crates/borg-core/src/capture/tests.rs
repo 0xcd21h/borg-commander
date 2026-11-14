@@ -665,3 +665,31 @@ fn a_capture_keeps_the_key_log_lines_of_its_connections() {
     added.add_keys(&key_log());
     assert_eq!(added.keys.len(), 2);
 }
+
+#[test]
+fn live_frames_come_whole_however_the_stream_is_cut() {
+    let frames = vec![ethernet(0x0806, &[1; 28]), ethernet(0x0800, &[2; 40])];
+    let expected: Vec<LiveFrame> = frames.iter().map(|data| LiveFrame { link: ETHERNET, data: data.clone() }).collect();
+    let stream = pcap(&frames);
+    for cut in 0..stream.len() {
+        let mut live = LiveFrames::default();
+        let mut found = live.feed(&stream[..cut]);
+        found.extend(live.feed(&stream[cut..]));
+        assert_eq!(found, expected, "cut at {cut}");
+    }
+}
+
+#[test]
+fn live_frames_read_pcapng_with_the_link_of_each_interface() {
+    let frame = ethernet(0x0806, &[1; 28]);
+    let stream = [section(), interface(&[]), enhanced(1, &frame, &[])].concat();
+    let mut live = LiveFrames::default();
+    assert_eq!(live.feed(&stream), vec![LiveFrame { link: ETHERNET, data: frame }]);
+}
+
+#[test]
+fn live_frames_pass_bytes_that_are_no_capture() {
+    let mut live = LiveFrames::default();
+    assert!(live.feed(b"tcpdump: listening on en0, link-type EN10MB (Ethernet)").is_empty());
+    assert!(live.feed(&pcap(&[ethernet(0x0806, &[1; 28])])).is_empty());
+}

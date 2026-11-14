@@ -113,6 +113,8 @@ pub enum Pointer {
     DialogMark(usize),
     /// A field of the capture dialog: picked by the first click, changed by the next.
     CaptureField(usize),
+    /// A field of the listen form, as a capture dialog's field.
+    ListenField(usize),
     /// A click beside a dialog that closes on one, as Esc does.
     DismissDialog,
     /// A row of that list: a switch, a pattern or the row for adding one.

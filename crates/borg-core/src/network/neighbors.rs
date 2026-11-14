@@ -8,7 +8,7 @@ use std::{
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 
-use super::{Interface, InterfaceKind};
+use super::{HeardHost, Interface, InterfaceKind};
 
 mod map;
 mod memory;
@@ -231,12 +231,14 @@ impl GatewayWatch {
     }
 }
 
-/// How Borg knows of a host: the neighbor tables list it, a scan found it, or it is remembered
-/// from an earlier visit and was last seen at a time in seconds since the epoch.
+/// How Borg knows of a host: the neighbor tables list it, a scan found it, listening heard it,
+/// or it is remembered from an earlier visit and was last seen at a time in seconds since the
+/// epoch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Presence {
     Listed,
     Answered,
+    Heard,
     Offline(u64),
 }
 
@@ -247,6 +249,8 @@ pub struct NeighborRow {
     pub shared: bool,
     pub changed: Option<MacChange>,
     pub presence: Presence,
+    /// Listening heard what the host announced, this session or before.
+    pub heard: bool,
 }
 
 impl NeighborRow {
@@ -300,6 +304,7 @@ pub(crate) fn rows(
     interfaces: &[Interface],
     watch: &GatewayWatch,
     scanned: &HashSet<IpAddr>,
+    heard: &HashSet<IpAddr>,
 ) -> Vec<NeighborRow> {
     let excluded = Excluded { own: own_addresses(interfaces), broadcast: broadcasts(interfaces) };
     let seen = |index: usize| presence.get(index).copied().unwrap_or(Presence::Listed);
@@ -328,6 +333,7 @@ pub(crate) fn rows(
                 }),
             changed: watch.change(neighbor),
             presence: seen(index),
+            heard: heard.contains(&neighbor.address),
         })
         .collect()
 }
@@ -435,6 +441,7 @@ pub fn places(interfaces: &[Interface], neighborhood: &Neighborhood) -> Vec<Loca
 pub(crate) fn merge(
     table: &Neighborhood,
     probes: &HashMap<IpAddr, Probed>,
+    hearing: &[HeardHost],
     memory: &NeighborMemory,
     places: &[LocalNetwork],
 ) -> (Neighborhood, Vec<Presence>) {
@@ -459,12 +466,37 @@ pub(crate) fn merge(
             }
         }
     }
+    for host in hearing {
+        match merged.neighbors.iter().position(|neighbor| neighbor.address == host.address) {
+            Some(index) => {
+                let neighbor = &mut merged.neighbors[index];
+                neighbor.router |= host.router;
+                if neighbor.mac.is_none() {
+                    neighbor.mac = host.mac;
+                    if presence[index] == Presence::Listed {
+                        presence[index] = Presence::Heard;
+                    }
+                }
+            }
+            None => {
+                merged.neighbors.push(Neighbor {
+                    address: host.address,
+                    mac: host.mac,
+                    interface: host.interface.clone(),
+                    state: None,
+                    router: host.router,
+                });
+                presence.push(Presence::Heard);
+            }
+        }
+    }
     let here: HashSet<IpAddr> = table
         .neighbors
         .iter()
         .filter(|neighbor| neighbor.mac.is_some())
         .map(|neighbor| neighbor.address)
         .chain(answered.iter().map(|probed| IpAddr::V4(probed.probe.address)))
+        .chain(hearing.iter().map(|host| host.address))
         .collect();
     for place in places {
         for host in memory.hosts(place).iter().filter(|host| !here.contains(&IpAddr::V4(host.address))) {

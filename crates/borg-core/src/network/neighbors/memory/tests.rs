@@ -85,7 +85,9 @@ fn a_probe_that_answered_records_its_ports_and_ping_and_one_that_did_not_is_igno
             seen: EARLIER,
             scanned: Some(EARLIER),
             ports: vec![22, 443],
-            ping: true
+            ping: true,
+            heard: None,
+            announced: Announced::default(),
         }
     );
     let refused = memory.note_probe(&places, &[], &probe("192.0.2.90", None, &[], true), LATER);
@@ -184,6 +186,8 @@ fn a_stored_file_that_breaks_the_rules_is_refused() {
         scanned: None,
         ports: Vec::new(),
         ping: false,
+        heard: None,
+        announced: Announced::default(),
     };
     let network = KnownNetwork {
         network: v4("192.0.2.0"),
@@ -203,6 +207,12 @@ fn a_stored_file_that_breaks_the_rules_is_refused() {
     );
     let prefix = KnownNetwork { prefix: MAX_PREFIX + 1, ..network.clone() };
     assert_eq!(NeighborMemory::restore(saved(vec![prefix])), Err(BAD_PREFIX));
+    let shouting = Announced { client: Some("x".repeat(crate::LONGEST_TEXT + 1)), ..Announced::default() };
+    let loud = KnownHost { announced: shouting, ..host.clone() };
+    assert_eq!(
+        NeighborMemory::restore(saved(vec![KnownNetwork { hosts: vec![loud], ..network.clone() }])),
+        Err(BAD_ANNOUNCEMENT)
+    );
     let crowded = KnownNetwork { hosts: vec![host; MAX_HOSTS + 1], ..network.clone() };
     assert_eq!(NeighborMemory::restore(saved(vec![crowded])), Err(TOO_MANY_HOSTS));
     assert_eq!(NeighborMemory::restore(saved(vec![network; MAX_NETWORKS + 1])), Err(TOO_MANY_NETWORKS));
@@ -212,6 +222,54 @@ fn a_stored_file_that_breaks_the_rules_is_refused() {
         )
         .is_err()
     );
+}
+
+fn heard(address: &str, interface: &str, name: &str, at: u64) -> HeardHost {
+    let said = crate::Said { protocol: crate::ListenProtocol::Mdns, text: name.into() };
+    HeardHost {
+        address: IpAddr::V4(v4(address)),
+        mac: Some(mac(NAS)),
+        interface: interface.into(),
+        router: false,
+        announced: Announced {
+            names: vec![said],
+            protocols: vec![crate::ListenProtocol::Mdns],
+            ..Announced::default()
+        },
+        first: at,
+        last: at,
+    }
+}
+
+#[test]
+fn hosts_listening_heard_on_a_network_are_remembered_with_what_they_announced() {
+    let home = place(ROUTER);
+    let mut memory = NeighborMemory::default();
+    let hosts = [
+        heard("192.0.2.60", "en0", "nas.local", EARLIER),
+        heard("192.0.2.61", "en1", "elsewhere.local", EARLIER),
+        heard("198.51.100.4", "en0", "outside.local", EARLIER),
+    ];
+    let noted = memory.note_heard(std::slice::from_ref(&home), &hosts);
+    assert!(noted.learned && noted.refreshed);
+    assert_eq!(addresses(&memory, &home), ["192.0.2.60"], "only hosts on the interface's own network");
+    let known = &memory.hosts(&home)[0];
+    assert_eq!((known.heard, known.seen, known.mac), (Some(EARLIER), EARLIER, Some(mac(NAS))));
+    assert_eq!(known.announced.name().map(|name| name.text.as_str()), Some("nas.local"));
+
+    let noted = memory.note_heard(std::slice::from_ref(&home), &hosts[..1]);
+    assert!(!noted.learned && !noted.refreshed, "the same again tells nothing new");
+    let noted = memory.note_heard(std::slice::from_ref(&home), &[heard("192.0.2.60", "en0", "nas.local", LATER)]);
+    assert!(!noted.learned && noted.refreshed);
+    let json = serde_json::to_value(memory.saved()).unwrap();
+    let stored = &json["networks"][0]["hosts"][0];
+    assert_eq!(stored["heard"], LATER);
+    assert_eq!(
+        stored["announced"],
+        serde_json::json!({"names": [{"protocol": "mdns", "text": "nas.local"}], "protocols": ["mdns"]})
+    );
+    let read: SavedNeighbors = serde_json::from_value(json).unwrap();
+    assert_eq!(NeighborMemory::restore(read), Ok(memory));
 }
 
 fn behind(cidr: &str, hops: Option<u8>) -> Routed {

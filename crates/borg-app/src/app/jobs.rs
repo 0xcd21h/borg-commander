@@ -49,6 +49,12 @@ impl App {
         });
     }
 
+    /// Listens for neighbors as job `id`, which its control stops.
+    pub(super) fn listen(&mut self, id: u64, request: borg_core::ListenRequest) {
+        let control = self.control_for(id);
+        crate::network::listen(id, request, control, self.messages.clone());
+    }
+
     pub(super) fn start_docker_copy(&mut self, id: u64, job: crate::docker::CopyJob) {
         let control = self.control_for(id);
         let messages = self.messages.clone();

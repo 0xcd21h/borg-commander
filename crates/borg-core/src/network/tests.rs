@@ -1298,7 +1298,7 @@ fn a_remembered_host_that_is_gone_shows_offline_until_it_is_forgotten() {
     assert_eq!(presence_of(&state.network, "192.0.2.61"), Some(Presence::Offline(HOME_READ_AT + 1)));
     assert!(state.network.neighbor_rows().all(|row| !row.shared), "a host that is gone shares no MAC");
     press(&mut state, KeyCode::F(8), KeyModifiers::NONE);
-    assert_eq!(state.notice.as_deref(), Some("Borg forgets only hosts that are offline."));
+    assert_eq!(state.notice.as_deref(), Some("Borg forgets only hosts that are offline or that only listening heard."));
     let row = state
         .network
         .neighbors
@@ -1377,6 +1377,8 @@ fn ctrl_c_on_a_neighbor_copies_its_address() {
     press(&mut state, KeyCode::Char('c'), KeyModifiers::CONTROL);
     assert_eq!(state.notice.as_deref(), Some("Copied 192.0.2.1"));
 }
+
+mod listening;
 
 mod port_scans;
 

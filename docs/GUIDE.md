@@ -513,11 +513,13 @@ What the menu offers depends on the row:
 - **Network** rows: **Copy address**, **Copy remote address** or **Copy PID**, whichever the row is
   reached by. A row with a process adds **Copy PID**, **Show in activity monitor** and
   **Signal or priority…**. A neighbor offers **Copy IP address**, **Copy MAC address**,
-  **Scan ports…** (P), **Port scans…** (O), **Scan network…** (S), **Discover networks…** (D) and
-  **Save report…** (Ctrl-S), and a host that is offline adds **Forget host** (F8). **Port scans…**
-  is dimmed until the host has a scan. A heading of the Neighbors page offers **Copy address** or
-  **Copy network**, **Scan network…**, **Discover networks…** and **Save report…**, and a network
-  Borg remembers adds **Forget network** (F8).
+  **Scan ports…** (P), **Port scans…** (O), **Scan network…** (S), **Discover networks…** (D),
+  **Listen for neighbors…** (H) and **Save report…** (Ctrl-S), and a host that is offline or that
+  only listening heard adds **Forget host** (F8). **Port scans…** is dimmed until the host has a
+  scan, and while Borg listens, **Stop listening** takes the place of **Listen for neighbors…**. A
+  heading of the Neighbors page offers **Copy address** or **Copy network**, **Scan network…**,
+  **Discover networks…**, **Listen for neighbors…** and **Save report…**, and a network Borg
+  remembers adds **Forget network** (F8).
 - **Alerts**: **Copy PID**, **Copy program path** and **Copy command**, then
   **Show in activity monitor**, **Resume**, **Kill** and **Allow**.
 - **Startup items**: **Copy path**, **Copy program path** and **Copy command**, then
@@ -2486,8 +2488,9 @@ place of the address once it is known.
 | O | Show the selected neighbor's port scans (**5 Neighbors**) |
 | S | Scan the selected row's network, or another one you type (**5 Neighbors**) |
 | D | Look for networks behind the router internet traffic goes to (**5 Neighbors**) |
+| H | Listen for the neighbors that announce themselves, or stop listening (**5 Neighbors**) |
 | Ctrl-S | Save a report of every neighbor (**5 Neighbors**) |
-| F8 / Delete | Forget the selected host that is offline, or a network Borg remembers (**5 Neighbors**) |
+| F8 / Delete | Forget the selected host that is offline or that only listening heard, or a network Borg remembers (**5 Neighbors**) |
 | Ctrl-C | Copy the port's address, the PID, the other end, the interface's or neighbor's address, or the network |
 | Tab | Move between the list and the details |
 | Space | Pause or resume sampling |
@@ -2528,8 +2531,8 @@ network that this machine talked to lately, with its address, MAC address, name 
 state is the system's own word for the entry: **REACHABLE** answered recently, **STALE** has not
 been checked for a while, **DELAY** and **PROBE** are being checked, **INCOMPLETE** asked and got
 no answer yet, **FAILED** never answered, and **PERMANENT** never expires. Under each heading, hosts
-that only answered a scan come after the entries with a MAC address, then the remembered hosts that
-are offline, and entries without a MAC address sort last. This machine's own addresses, broadcast and multicast
+that only answered a scan or that only listening heard come after the entries with a MAC address,
+then the remembered hosts that are offline, and entries without a MAC address sort last. This machine's own addresses, broadcast and multicast
 entries stay out of the list. A wide pane adds the vendor, the open ports and ping time a scan
 found, and a note.
 
@@ -2655,6 +2658,73 @@ Networks from the route table come and go with the table, so F8 leaves them alon
 behind a tunnel lasts for the session, because a tunnel has no gateway MAC address to tell its
 networks apart.
 
+### Listening for neighbors
+
+Many devices announce themselves without being asked. Printers and speakers say their names and
+services over mDNS, smart TVs over SSDP, Windows machines over NetBIOS and LLMNR, and every device
+that joins asks DHCP for an address with its host name in the request. Listening collects those
+announcements. Borg sends nothing while it listens.
+
+Press **H** on **5 Neighbors**, or choose **Listen for neighbors…** in the context menu.
+**Listen for neighbors** asks for three things:
+
+- **Interface** starts on the selected row's interface, then the one internet traffic leaves
+  through. It offers the interfaces that are up and have an address, leaving out loopback and
+  tunnels, which have no link to hear on.
+- **Duration** is 30 s, 1 min or 5 min, or **Until stopped**. It starts on 1 min, long enough for
+  most devices to announce themselves.
+- **Run as** shows where Borg can ask the system for an administrator's password, as it does for
+  a capture.
+
+↑↓ pick a field, ←→ or Space change it, Enter starts and Esc cancels. Borg runs `tcpdump` with a
+filter that keeps only these packets:
+
+- ARP requests and announcements, and IPv6 neighbor discovery, which give an address with its MAC
+  address and mark the routers.
+- mDNS and Bonjour on UDP port 5353, with host names, the services a device offers, such as
+  `ipp` or `airplay`, and the model its records name.
+- SSDP and UPnP on UDP port 1900, with the server software and the UPnP device types and services.
+- The NetBIOS name service on UDP port 137 and LLMNR on UDP port 5355, with Windows and Samba
+  names.
+- DHCP on UDP ports 67 and 68, with the host name a client asks for and the vendor class it sends,
+  which often names its operating system.
+- LLDP and CDP, with the switch this machine is plugged into and the port.
+
+On a switched network or Wi-Fi you hear only broadcasts, multicasts and this machine's own
+traffic. The switch or the access point hands each unicast packet to the one device it is for, so
+the traffic between two other hosts never reaches you. A device that stays quiet stays out of the
+map, and **S** finds more of those (see [Neighbors](#neighbors)).
+
+Listening runs as a job, so you can close the network screen and keep working. Alt-J shows how far
+it got, and unfolding the job shows the interface, the duration, the number of hosts heard, the
+switch port and the 5 hosts heard last. C cancels it, and so does **H** on **5 Neighbors**, where
+the button reads **H Stop listening**. Listening cannot be paused. When it ends, a notice such as
+**Listening done · heard 4 hosts** says what it found, and **O Open** on the finished job opens
+**5 Neighbors**.
+
+Each host heard on the interface's own networks joins the map under the interface, and so do
+link-local addresses. Borg leaves out this machine's addresses and packets, and addresses from
+other networks. A host that only listening knows shows **Heard** in the **State** column, and
+typing **Heard** in the filter keeps every host listening heard. The name a host announced wins
+over the one a reverse DNS lookup gives, and when it announced several, mDNS comes first, then
+DHCP, NetBIOS and LLMNR. A host's details add a **Heard** section with each **Name** and the
+protocol it came in, the **Model**, the **Device types**, the **Services**, the **DHCP client**,
+the protocols under **Heard in** and the time under **Last heard**. The switch port shows at the
+end of the interface's heading and under **Switch** in its details.
+
+Borg remembers the IPv4 hosts it heard, with what they announced, in `neighbors.json` beside the
+hosts from the tables and scans. A heard host that is gone on a later visit shows **Offline**, with
+**Heard** in the **Note** column. IPv6 hosts and switch ports last for the session. F8 or Delete
+forgets a host that is offline or that only listening heard, after asking. One session keeps up to
+1,024 heard hosts and 16 device types and 16 services for each, and Borg cuts each name or other
+text a host announces at 80 characters.
+
+tcpdump needs access to the capture device, the same as for a capture, and
+[Capturing traffic](#capturing-traffic) explains how to give it once. Without access, Borg asks
+**Listen as administrator** where the system can ask for your password, and otherwise the job ends
+with **No permission to listen on** and the interface's name. When tcpdump is missing, Borg offers
+to install it.
+
 ### Scanning ports
 
 Press **P** on a neighbor, or choose **Scan ports…** in its context menu, to see which TCP ports a
@@ -2738,10 +2808,12 @@ A scan's report has the time, the mode, the ports asked for and how many there w
 with their service names, the number of closed and filtered ports, and the subnet, interface and
 gateway the scan ran from. When the host limited the scan or you cancelled it, the report says so
 and lists the ports it did not reach. The page's report has the subnets, the gateways, the DNS
-servers, the routed networks with their way and hops, and each interface's way to the internet.
-Then comes each host with its network, the router it is reached through, its MAC address, vendor,
-name, state, the ports and ping time a scan found and its notes, an offline host with when it was last seen, and the last port scan of each
-host. Times are in UTC, and so is the date in the file name. What Borg did not learn stays out of
+servers, the routed networks with their way and hops, each interface's way to the internet and the
+switch port listening heard it plugged into. Then comes each host with its network, the router it
+is reached through, its MAC address, vendor, name, state, the ports and ping time a scan found and
+its notes, an offline host with when it was last seen, and the last port scan of each host. A
+**Heard** table lists what each host announced: its name, model, device types, services, the
+protocols it was heard in and when it was heard last. Times are in UTC, and so is the date in the file name. What Borg did not learn stays out of
 the report.
 
 ### Filtering
