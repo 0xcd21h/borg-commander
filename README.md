@@ -56,6 +56,9 @@ F9 → Remote → **Background service…** sets it up later. Update with `borg 
 **macOS** (Apple Silicon or Intel) and **Linux** (ARM64 or x86-64) are on
 [Releases](https://github.com/0xcd21h/borg-commander/releases/latest).
 
+With Homebrew, run `brew install 0xcd21h/tap/borg-commander`. It also installs the command as
+`borgcmd`, which is the only name it gets where BorgBackup already owns `borg`.
+
 [Controls, settings, and source installation →](docs/GUIDE.md) ·
 [Build, test, and contribute →](DEVELOPMENT.md)
 

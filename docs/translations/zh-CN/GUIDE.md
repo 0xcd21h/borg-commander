@@ -31,11 +31,13 @@ cargo install --locked --git https://github.com/0xcd21h/borg-commander borg-app
 BORG_NO_EBPF=1 cargo install --locked --git https://github.com/0xcd21h/borg-commander borg-app
 ```
 
-Homebrew 支持已经就绪，tap 发布后即可使用：
+在 macOS 或 Linux 上使用 Homebrew 安装：
 
 ```sh
 brew install 0xcd21h/tap/borg-commander
 ```
+
+Homebrew 会把 Borg 安装为 `borg` 和 `borgcmd` 两个命令。BorgBackup 也提供 `borg` 命令，因此在已安装 BorgBackup 的系统上，Borg 只能以 `borgcmd` 运行。如果之后再安装 BorgBackup，请先运行 `brew reinstall borg-commander`，再运行 `brew link borgbackup`。
 
 在要浏览的文件夹中运行 `borg`。按 F10 退出，按 Ctrl-O 从控制台切回面板。如果是下载安装的，运行 `borg update` 即可更新；如果是通过 Homebrew 或 cargo 安装的，请用相应的工具更新。只有带有项目签名的版本，Borg 才会安装；签名缺失或不匹配时，现有的程序保持不变。`borg --version` 会显示已安装的版本。打开的会话会切换到新版本，并保留各自的 Shell（参见[在会话打开时更新](#updating-with-sessions-open)）。
 
