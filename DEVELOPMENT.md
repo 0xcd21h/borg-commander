@@ -1056,16 +1056,25 @@ borg uses semantic versioning. The version lives once, in `[workspace.package]` 
   attaches the result as `<archive>.tar.gz.sha256.sig` (`scripts/sign-release.sh`); the step
   fails when the secret is missing or its public half is not in `RELEASE_PUBLIC_KEYS`,
 - creates the GitHub release with generated notes and attaches everything,
-- renders the Homebrew formula from `packaging/homebrew/borg-commander.rb.in`
-  (`scripts/homebrew-formula.sh`) and, when the `HOMEBREW_TAP_TOKEN` secret is set, pushes it
-  to the tap repository (`vars.HOMEBREW_TAP`, default `0xcd21h/homebrew-tap`).
+- renders the Homebrew cask from `packaging/homebrew/borg-commander.rb.in`
+  (`scripts/homebrew-cask.sh`) and, when the `HOMEBREW_TAP_TOKEN` secret is set, pushes it
+  to `Casks/` in the tap repository (`vars.HOMEBREW_TAP`, default `0xcd21h/homebrew-tap`)
+  (`scripts/publish-cask.sh`).
+
+Borg ships to Homebrew as a cask because the archives hold prebuilt binaries: Homebrew installs
+a cask without the developer tools that a formula without bottles needs. The cask links the
+binary as `borg` and `borgcmd`; Homebrew skips the `borg` link where BorgBackup's formula owns
+it. Homebrew quarantines cask downloads, and the binary is signed ad hoc without notarization,
+so the cask's `postflight` removes the quarantine attribute from the binary. The publish script
+also deletes the old `Formula/borg-commander.rb` and writes `tap_migrations.json`, which moves
+anyone who installed the formula to the cask on their next upgrade.
 
 One-time setup for Homebrew: create the public repository `homebrew-tap` and add a
 fine-grained token with *Contents: read and write* on it as the `HOMEBREW_TAP_TOKEN` secret of
 this repository. Users then install with `brew install 0xcd21h/tap/borg-commander`.
 
-Without the tap token, GitHub Releases still publishes the binaries and the generated formula
-is saved as a workflow artifact. After adding the token, run the **Publish Homebrew formula**
+Without the tap token, GitHub Releases still publishes the binaries and the generated cask
+is saved as a workflow artifact. After adding the token, run the **Publish Homebrew cask**
 action with the released version (for example `0.2.0`) to publish it without making another tag.
 
 `borg update` and the daily check live in `crates/borg-update`: they read the latest release
