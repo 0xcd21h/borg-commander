@@ -3,6 +3,14 @@ use borg_core::{Heard, ListenProtocol};
 use std::{os::unix::fs::PermissionsExt, path::PathBuf, sync::Mutex};
 
 const ETHERNET: u32 = 1;
+/// The file the stand-in tcpdump creates at `$READY` once it wrote its packets.
+const READY: &str = "ready";
+/// How often a test looks whether the stand-in tcpdump wrote its packets.
+const READY_POLL: Duration = Duration::from_millis(10);
+/// How long the stand-in tcpdump has to write its packets, however busy the machine is.
+const READY_LIMIT: Duration = Duration::from_secs(60);
+/// How long a timed listen in these tests lasts.
+const WINDOW: Duration = Duration::from_secs(1);
 
 /// A pcap stream holding one ARP request from 192.0.2.31 at 02:00:00:00:00:31.
 fn arp_pcap() -> Vec<u8> {
@@ -26,14 +34,42 @@ fn arp_pcap() -> Vec<u8> {
     pcap
 }
 
-/// A stand-in for tcpdump that runs `script` with the pcap stream at `$PCAP`.
+/// A stand-in for tcpdump that runs `script` with the pcap stream at `$PCAP` and the file that
+/// says it wrote it at `$READY`.
 fn fake_tcpdump(folder: &Path, script: &str) -> PathBuf {
     let pcap = folder.join("heard.pcap");
     std::fs::write(&pcap, arp_pcap()).unwrap();
+    let ready = folder.join(READY);
     let program = folder.join("tcpdump");
-    std::fs::write(&program, format!("#!/bin/sh\nPCAP='{}'\n{script}\n", pcap.display())).unwrap();
+    let variables = format!("PCAP='{}'\nREADY='{}'", pcap.display(), ready.display());
+    std::fs::write(&program, format!("#!/bin/sh\n{variables}\n{script}\n")).unwrap();
     std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
     program
+}
+
+/// Keeps a paused clock still until what it gives is dropped, so only the test moves it,
+/// however long the stand-in tcpdump takes to start.
+fn hold_clock() -> std::sync::mpsc::Sender<()> {
+    let (release, held) = std::sync::mpsc::channel();
+    tokio::task::spawn_blocking(move || held.recv());
+    release
+}
+
+/// Waits until the stand-in tcpdump in `folder` says it wrote its packets, and tells whether
+/// it did within `READY_LIMIT`.
+async fn written(folder: &Path) -> bool {
+    let ready = folder.join(READY);
+    let waited = tokio::task::spawn_blocking(move || {
+        let started = std::time::Instant::now();
+        while !ready.exists() {
+            if started.elapsed() > READY_LIMIT {
+                return false;
+            }
+            std::thread::sleep(READY_POLL);
+        }
+        true
+    });
+    waited.await.unwrap()
 }
 
 fn request(seconds: Option<u64>) -> ListenRequest {
@@ -65,11 +101,17 @@ fn hosts(events: &[ListenEvent]) -> Vec<(ListenProtocol, Option<std::net::IpAddr
         .collect()
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn the_packets_tcpdump_keeps_are_heard_until_the_time_is_up() {
     let folder = tempfile::tempdir().unwrap();
-    let program = fake_tcpdump(folder.path(), "cat \"$PCAP\"\nexec sleep 30");
-    let (result, events) = listened(&program, request(Some(1)), Arc::default()).await;
+    let program = fake_tcpdump(folder.path(), "cat \"$PCAP\"\n: > \"$READY\"\nexec sleep 30");
+    let _held = hold_clock();
+    let time_is_up = async {
+        assert!(written(folder.path()).await, "the stand-in tcpdump never wrote its packets");
+        tokio::time::advance(WINDOW).await;
+    };
+    let listening = listened(&program, request(Some(WINDOW.as_secs())), Arc::default());
+    let ((result, events), ()) = tokio::join!(listening, time_is_up);
     assert_eq!(result, Ok(()));
     assert_eq!(events.first(), Some(&ListenEvent::Started));
     assert_eq!(hosts(&events), [(ListenProtocol::Arp, Some("192.0.2.31".parse().unwrap()))]);
