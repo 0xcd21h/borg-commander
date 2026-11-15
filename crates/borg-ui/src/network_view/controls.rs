@@ -17,6 +17,7 @@ use unicode_width::UnicodeWidthStr;
 const SCAN_KEY: char = 's';
 const DISCOVER_KEY: char = 'd';
 const PORTS_KEY: char = 'p';
+const LISTEN_KEY: char = 'h';
 
 fn buttons(network: &Network, gives_back: bool, area: Rect) -> Vec<(Rect, &'static str, KeyCode)> {
     let filtering = network.viewer.as_deref().map_or(network.filtering, |view| view.filtering);
@@ -45,6 +46,8 @@ fn buttons(network: &Network, gives_back: bool, area: Rect) -> Vec<(Rect, &'stat
         let copy = network.recording.as_ref().filter(|recording| recording.key_log.is_some()).map(|recording| {
             if recording.proxy.is_some() { tr!(network_copy_proxy_button) } else { tr!(network_copy_key_log_button) }
         });
+        let listen =
+            if network.listening.is_some() { tr!(network_stop_listen_button) } else { tr!(network_listen_button) };
         let scanning = network.scan.as_ref().is_some_and(|scan| !scan.stopping);
         let ports = network.loaded && network.page == NetworkPage::Neighbors;
         let scan = network.loaded && network.page == NetworkPage::Neighbors && network.scan.is_none();
@@ -57,6 +60,7 @@ fn buttons(network: &Network, gives_back: bool, area: Rect) -> Vec<(Rect, &'stat
             ports.then_some((tr!(network_scan_ports_button), KeyCode::Char(PORTS_KEY))),
             scan.then_some((tr!(network_scan_button), KeyCode::Char(SCAN_KEY))),
             scan.then_some((tr!(network_discover_button), KeyCode::Char(DISCOVER_KEY))),
+            ports.then_some((listen, KeyCode::Char(LISTEN_KEY))),
             process.then_some((tr!(network_show_button), KeyCode::Enter)),
             process.then_some((tr!(activity_signal_button), KeyCode::Char('k'))),
             network.loaded.then_some((capture, KeyCode::Char('r'))),

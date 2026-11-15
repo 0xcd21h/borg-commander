@@ -22,6 +22,7 @@ const FORGET_KEY: u8 = 8;
 const PORTS_KEY: char = 'p';
 const SCANS_KEY: char = 'o';
 const DISCOVER_KEY: char = 'd';
+const LISTEN_KEY: char = 'h';
 
 fn alt(letter: char) -> KeyEvent {
     KeyEvent::new(KeyCode::Char(letter), KeyModifiers::ALT)
@@ -112,7 +113,7 @@ pub(super) fn network(network: &Network, scanned: bool) -> Option<Menu<ContextCo
         return None;
     }
     if let Some((neighbor, row)) = network.neighbor() {
-        return Some(neighbor_menu(neighbor, row, scanned));
+        return Some(neighbor_menu(neighbor, row, scanned, network.listening.is_some()));
     }
     if let Some(entry) = network.entry() {
         return heading_menu(network, entry);
@@ -137,11 +138,11 @@ pub(super) fn network(network: &Network, scanned: bool) -> Option<Menu<ContextCo
     Some(Menu { title: text, entries })
 }
 
-fn neighbor_menu(neighbor: &Neighbor, row: NeighborRow, scanned: bool) -> Menu<ContextCommand> {
+fn neighbor_menu(neighbor: &Neighbor, row: NeighborRow, scanned: bool, listening: bool) -> Menu<ContextCommand> {
     let address = neighbor.address.to_string();
     let mac = neighbor.mac.map(|mac| mac.to_string());
-    let offline = matches!(row.presence, Presence::Offline(_));
-    let forget = offline.then(|| press(tr!(context_forget_host), "F8", KeyCode::F(FORGET_KEY)));
+    let gone = matches!(row.presence, Presence::Offline(_) | Presence::Heard);
+    let forget = gone.then(|| press(tr!(context_forget_host), "F8", KeyCode::F(FORGET_KEY)));
     let save = KeyEvent::new(KeyCode::Char(crate::port_scan::SAVE_KEY), KeyModifiers::CONTROL);
     Menu {
         title: address.clone(),
@@ -153,12 +154,19 @@ fn neighbor_menu(neighbor: &Neighbor, row: NeighborRow, scanned: bool) -> Menu<C
             when(press(tr!(context_port_scans), "O", KeyCode::Char(SCANS_KEY)), scanned),
             press(tr!(context_scan_network), "S", KeyCode::Char(SCAN_KEY)),
             press(tr!(context_discover), "D", KeyCode::Char(DISCOVER_KEY)),
+            listen(listening),
             press(tr!(context_save_report), "C-s", save),
         ]
         .into_iter()
         .chain(forget)
         .collect(),
     }
+}
+
+/// Listening for neighbors, or stopping the listen that runs.
+fn listen(listening: bool) -> MenuEntry<ContextCommand> {
+    let label = if listening { tr!(context_stop_listening) } else { tr!(context_listen) };
+    press(label, "H", KeyCode::Char(LISTEN_KEY))
 }
 
 /// A heading of the Neighbors page: what it names to copy, and the scans that start from it.
@@ -176,6 +184,7 @@ fn heading_menu(network: &Network, entry: NeighborEntry) -> Option<Menu<ContextC
         MenuEntry::Separator,
         press(tr!(context_scan_network), "S", KeyCode::Char(SCAN_KEY)),
         press(tr!(context_discover), "D", KeyCode::Char(DISCOVER_KEY)),
+        listen(network.listening.is_some()),
         press(tr!(context_save_report), "C-s", save),
     ]
     .into_iter()

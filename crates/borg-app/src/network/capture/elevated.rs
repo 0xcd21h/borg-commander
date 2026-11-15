@@ -8,7 +8,7 @@
 use super::{Tap, Tcpdump, interrupt, read_all};
 use crate::tools::SYSTEM_DIRS;
 use anyhow::{Context, Result, bail};
-use borg_core::{CaptureFailure, CaptureRequest, Tool};
+use borg_core::{CaptureFailure, Tool};
 use borg_i18n::tr;
 use std::{
     io::ErrorKind,
@@ -71,18 +71,18 @@ fn trusted(name: &str) -> Option<PathBuf> {
     })
 }
 
-/// The system's way to run `words` as root once you give your password.
+/// The system's way to run `words` as root once you give your password, saying `prompt` where
+/// the system's dialog shows why.
 #[cfg(target_os = "macos")]
-fn launcher(words: &[String], interface: &str) -> Option<Command> {
-    let prompt = tr!(capture_admin_prompt, interface = interface);
-    let script = crate::admin::apple_script_prompting(words.iter().map(String::as_str), &prompt).ok()?;
+fn launcher(words: &[String], prompt: &str) -> Option<Command> {
+    let script = crate::admin::apple_script_prompting(words.iter().map(String::as_str), prompt).ok()?;
     let mut command = Command::new(trusted(OSASCRIPT)?);
     command.arg("-e").arg(script);
     Some(command)
 }
 
 #[cfg(target_os = "linux")]
-fn launcher(words: &[String], _interface: &str) -> Option<Command> {
+fn launcher(words: &[String], _prompt: &str) -> Option<Command> {
     let (program, flag) = LAUNCHERS.iter().find_map(|(name, flag)| Some((trusted(name)?, *flag)))?;
     let mut command = Command::new(program);
     command.arg(flag).args(words);
@@ -180,9 +180,11 @@ enum Waited {
     Stopped,
 }
 
-/// Asks for your password and waits for the helper to connect; stopping first cancels.
+/// Asks for your password, with `prompt` saying why, and waits for the helper to connect;
+/// stopping first cancels.
 pub(super) async fn start(
-    request: &CaptureRequest,
+    tcpdump: &Tcpdump,
+    prompt: &str,
     stopped: &mut oneshot::Receiver<()>,
 ) -> Result<(Box<dyn AsyncRead + Unpin + Send>, Tap), CaptureFailure> {
     let failed = |error: std::io::Error| CaptureFailure::Failed(tr!(capture_failed, error = error));
@@ -196,8 +198,8 @@ pub(super) async fn start(
         .map(|word| word.map(str::to_owned))
         .collect::<Option<_>>()
         .ok_or_else(unavailable)?;
-    words.extend(Tcpdump::of(request).helper_args());
-    let mut launcher = launcher(&words, &request.interface).ok_or_else(unavailable)?;
+    words.extend(tcpdump.helper_args());
+    let mut launcher = launcher(&words, prompt).ok_or_else(unavailable)?;
     let mut launcher = launcher
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

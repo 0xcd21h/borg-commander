@@ -34,7 +34,7 @@ expression: describe(&buffer)
 ╰────────────────────────────────────────────────────────────────╯╰────────────────────────────────────────────────────────────────╯
 172.16.0.0/24 · en0
 $
-P Scan ports  S Scan network  D Discover  R Capture  / Filter  Space Pause  Tab Details  Esc Close
+P Scan ports  S Scan network  D Discover  H Listen  R Capture  / Filter  Space Pause  Tab Details  Esc Close
 A Address · M MAC · N Name · O Port scans · Ctrl-S Save report · Ctrl-C Copy address · Alt-W Maximize      ◈ Borg Commander v0.11.1
 --- styles ---
   0: 0-0 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 1-21 Rgb(255, 255, 255) Rgb(38, 38, 38) BOLD | 22-57 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 58-60 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 61-61 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 62-64 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 65-65 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 66-66 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE | 67-81 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE | 82-123 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE | 124-126 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 127-127 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE | 128-130 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 131-131 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE
@@ -69,5 +69,5 @@ A Address · M MAC · N Name · O Port scans · Ctrl-S Save report · Ctrl-C Cop
  29: 0-65 Rgb(17, 168, 205) Rgb(38, 38, 38) NONE | 66-131 Rgb(102, 102, 102) Rgb(38, 38, 38) NONE
  30: 0-131 Rgb(229, 229, 229) Rgb(38, 38, 38) NONE
  31: 0-131 Reset Reset NONE
- 32: 0-99 Rgb(255, 255, 255) Rgb(17, 168, 205) NONE | 100-131 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE
+ 32: 0-109 Rgb(255, 255, 255) Rgb(17, 168, 205) NONE | 110-131 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE
  33: 0-105 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 106-106 Rgb(0, 0, 0) Rgb(95, 175, 215) BOLD | 107-107 Rgb(0, 0, 0) Rgb(97, 172, 215) BOLD | 108-108 Rgb(0, 0, 0) Rgb(98, 169, 215) BOLD | 109-109 Rgb(0, 0, 0) Rgb(100, 165, 215) BOLD | 110-110 Rgb(0, 0, 0) Rgb(101, 162, 215) BOLD | 111-111 Rgb(0, 0, 0) Rgb(103, 159, 215) BOLD | 112-112 Rgb(0, 0, 0) Rgb(105, 156, 215) BOLD | 113-113 Rgb(0, 0, 0) Rgb(106, 153, 215) BOLD | 114-114 Rgb(0, 0, 0) Rgb(108, 149, 215) BOLD | 115-115 Rgb(0, 0, 0) Rgb(109, 146, 215) BOLD | 116-116 Rgb(0, 0, 0) Rgb(111, 143, 215) BOLD | 117-117 Rgb(0, 0, 0) Rgb(113, 140, 215) BOLD | 118-118 Rgb(255, 255, 255) Rgb(114, 137, 215) BOLD | 119-119 Rgb(255, 255, 255) Rgb(116, 133, 215) BOLD | 120-120 Rgb(255, 255, 255) Rgb(117, 130, 215) BOLD | 121-121 Rgb(255, 255, 255) Rgb(119, 127, 215) BOLD | 122-122 Rgb(255, 255, 255) Rgb(121, 124, 215) BOLD | 123-123 Rgb(255, 255, 255) Rgb(122, 121, 215) BOLD | 124-124 Rgb(255, 255, 255) Rgb(124, 117, 215) BOLD | 125-125 Rgb(255, 255, 255) Rgb(125, 114, 215) BOLD | 126-126 Rgb(255, 255, 255) Rgb(127, 111, 215) BOLD | 127-127 Rgb(255, 255, 255) Rgb(129, 108, 215) BOLD | 128-128 Rgb(255, 255, 255) Rgb(130, 105, 215) BOLD | 129-129 Rgb(255, 255, 255) Rgb(132, 101, 215) BOLD | 130-130 Rgb(255, 255, 255) Rgb(133, 98, 215) BOLD | 131-131 Rgb(255, 255, 255) Rgb(135, 95, 215) BOLD

@@ -4944,6 +4944,102 @@ fn network_scans_a_hosts_ports_in_the_background_and_reports_when_done() -> Resu
     check("network_neighbor_port_scan", &stage, buffer)
 }
 
+/// What a minute of listening on the made-up home network hears: the printer and a speaker over
+/// mDNS, a tablet over DHCP, a media computer over NetBIOS, and the switch port en0 is plugged
+/// into over LLDP.
+fn heard_at_home() -> Vec<borg_core::Heard> {
+    use borg_core::{Announcement, Heard, ListenProtocol, SwitchPort};
+    let at = |protocol, address: &str| Announcement { address: address.parse().ok(), ..Announcement::new(protocol) };
+    vec![
+        Heard::Host(Announcement {
+            name: Some("laserbox.local".into()),
+            model: Some("LaserBox 3000".into()),
+            services: vec!["ipp".into(), "http".into()],
+            ..at(ListenProtocol::Mdns, "192.0.2.31")
+        }),
+        Heard::Host(Announcement { kinds: vec!["Printer".into()], ..at(ListenProtocol::Ssdp, "192.0.2.31") }),
+        Heard::Host(Announcement {
+            mac: borg_core::Mac::parse("02:00:5e:10:00:90"),
+            name: Some("speaker.local".into()),
+            model: Some("Living Room Speaker".into()),
+            services: vec!["airplay".into(), "raop".into()],
+            ..at(ListenProtocol::Mdns, "192.0.2.90")
+        }),
+        Heard::Host(Announcement {
+            mac: borg_core::Mac::parse("02:00:5e:10:00:95"),
+            name: Some("tablet".into()),
+            client: Some("android-dhcp-14".into()),
+            ..at(ListenProtocol::Dhcp, "192.0.2.95")
+        }),
+        Heard::Host(Announcement { name: Some("MEDIA-PC".into()), ..at(ListenProtocol::Netbios, "192.0.2.52") }),
+        Heard::Switch(SwitchPort {
+            protocol: ListenProtocol::Lldp,
+            name: Some("core-sw".into()),
+            port: Some("ge-0/0/7".into()),
+            model: None,
+            address: None,
+        }),
+    ]
+}
+
+/// H on the Neighbors page asks where to listen, for how long and as whom. Listening runs as a
+/// job: the hosts it hears join the map with the names they announced, the switch port shows on
+/// the interface's heading, a heard host's details list what it announced, and the jobs panel
+/// counts the time and names the hosts heard last.
+#[test]
+fn network_listens_for_neighbors_and_maps_what_it_hears() -> Result<()> {
+    use borg_core::{CaptureAccess, Effect, ListenEvent};
+    let speaker: std::net::IpAddr = "192.0.2.90".parse()?;
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    let now = borg_testkit::network::open(&mut stage)?;
+    stage.state.network.access = CaptureAccess { administrator: false, elevate: true, tags: true };
+    stage.send(key(KeyCode::Char('5'))).send(key(KeyCode::Char('h')));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Listen for neighbors")?;
+    ensure_text(&buffer, "‹ en0 ›")?;
+    ensure_text(&buffer, "1 min")?;
+    ensure_text(&buffer, "Borg sends nothing while it listens.")?;
+    check("network_listen_form", &stage, buffer)?;
+
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), now);
+    let id = effects
+        .into_iter()
+        .find_map(|effect| match effect {
+            Effect::Listen { id, .. } => Some(id),
+            _ => None,
+        })
+        .context("Enter starts listening")?;
+    borg_core::update(&mut stage.state, Msg::Listen { id, event: ListenEvent::Started }, now);
+    let later = now + Duration::from_secs(20);
+    let at = borg_testkit::network::NEIGHBORS_READ_AT;
+    borg_core::update(
+        &mut stage.state,
+        Msg::Listen { id, event: ListenEvent::Heard { heard: heard_at_home(), at } },
+        later,
+    );
+    let buffer = stage.render(later)?;
+    ensure_text(&buffer, "en0 · Wi-Fi · 192.0.2.20/24 · core-sw · ge-0/0/7")?;
+    ensure_text(&buffer, "laserbox.local")?;
+    ensure_text(&buffer, "speaker.local")?;
+    ensure_text(&buffer, "H Stop listening")?;
+    check("network_neighbors_heard", &stage, buffer)?;
+
+    select_neighbor(&mut stage, speaker)?;
+    let buffer = stage.render(later)?;
+    ensure_text(&buffer, "Living Room Speaker")?;
+    ensure_text(&buffer, "airplay, raop")?;
+    check("network_neighbor_heard_details", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Esc));
+    anyhow::ensure!(!stage.state.network.is_open(), "listening goes on with the screen closed");
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::ALT))).send(key(KeyCode::Char(' ')));
+    let buffer = stage.render(later)?;
+    ensure_text(&buffer, "Listening")?;
+    ensure_text(&buffer, "20 of 60 seconds")?;
+    ensure_text(&buffer, "192.0.2.90 speaker.local · mDNS")?;
+    check("network_listen_job", &stage, buffer)
+}
+
 /// O on a host scanned twice shows its newest scan with ← to the earlier one, Ctrl-S there asks
 /// where to save that scan and in which format, and Ctrl-S on the Neighbors page does the same for
 /// every host.

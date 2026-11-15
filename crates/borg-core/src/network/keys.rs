@@ -73,6 +73,7 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
         KeyCode::Char('s' | 'S') if network.page == NetworkPage::Neighbors => return super::scan(state),
         KeyCode::Char('p' | 'P') if network.page == NetworkPage::Neighbors => return super::scan_ports(state),
         KeyCode::Char('d' | 'D') if network.page == NetworkPage::Neighbors => return super::discover(state),
+        KeyCode::Char('h' | 'H') if network.page == NetworkPage::Neighbors => return super::listen_key(state, now),
         KeyCode::Char('o' | 'O') if network.page == NetworkPage::Neighbors => {
             return crate::port_scan::show_scans(state);
         }

@@ -137,7 +137,7 @@ fn own_addresses_broadcasts_groups_and_unanswered_scans_are_left_out() {
         neighbor("ff02::fb", Some("33:33:00:00:00:fb")),
     ]);
     let scanned = HashSet::from([ip("192.0.2.78"), ip("192.0.2.79")]);
-    let rows = rows(&neighborhood, &[], &home(), &GatewayWatch::default(), &scanned);
+    let rows = rows(&neighborhood, &[], &home(), &GatewayWatch::default(), &scanned, &HashSet::new());
     assert_eq!(listed(&neighborhood, &rows), ["192.0.2.1", "192.0.2.77", "192.0.2.79"]);
 }
 
@@ -155,7 +155,7 @@ fn the_gateway_and_ipv4_addresses_sharing_a_mac_are_flagged() {
         router,
         neighbor("2001:db8::60", Some(NAS)),
     ]);
-    let rows = rows(&neighborhood, &[], &home(), &GatewayWatch::default(), &HashSet::new());
+    let rows = rows(&neighborhood, &[], &home(), &GatewayWatch::default(), &HashSet::new(), &HashSet::new());
     let flags: Vec<(String, bool, bool)> = rows
         .iter()
         .map(|row| (neighborhood.neighbors[row.neighbor].address.to_string(), row.gateway, row.shared))
@@ -254,7 +254,7 @@ fn scanned_hosts_that_answered_join_the_table_and_remembered_ones_show_offline()
         probed("192.0.2.90", None, &[22], false),
         probed("192.0.2.91", None, &[], false),
     ]);
-    let (merged, presence) = merge(&table, &probes, &memory, &places);
+    let (merged, presence) = merge(&table, &probes, &[], &memory, &places);
     let seen: Vec<(String, Option<Mac>, Presence)> = merged
         .neighbors
         .iter()
@@ -281,8 +281,8 @@ fn offline_hosts_keep_their_remembered_ports_and_do_not_count_as_sharing_a_mac()
     memory.note_probe(&places, &[], &probe, EARLIER);
     memory.note_listed(&places, &[neighbor("192.0.2.61", Some(NAS))], EARLIER);
     let table = neighborhood(vec![neighbor("192.0.2.1", Some(ROUTER)), neighbor("192.0.2.60", Some(NAS))]);
-    let (merged, presence) = merge(&table, &HashMap::new(), &memory, &places);
-    let rows = rows(&merged, &presence, &home(), &GatewayWatch::default(), &HashSet::new());
+    let (merged, presence) = merge(&table, &HashMap::new(), &[], &memory, &places);
+    let rows = rows(&merged, &presence, &home(), &GatewayWatch::default(), &HashSet::new(), &HashSet::new());
     let offline = rows.iter().find(|row| merged.neighbors[row.neighbor].address == ip("192.0.2.61")).unwrap();
     assert_eq!(offline.presence, Presence::Offline(EARLIER));
     assert!(rows.iter().all(|row| !row.shared), "a host that is gone shares nothing");

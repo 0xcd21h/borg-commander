@@ -5,9 +5,9 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, ensure};
 use borg_core::{
-    Effect, Gateway, Interface, InterfaceKind, KnownHost, KnownNetwork, KnownRoute, Mac, Msg, NEIGHBORS_FORMAT,
-    Neighbor, NeighborMemory, NeighborState, Neighborhood, NetworkSample, Origin, Route, SavedNeighbors, Socket,
-    TcpState, Trace, Transport,
+    Announced, Effect, Gateway, Interface, InterfaceKind, KnownHost, KnownNetwork, KnownRoute, Mac, Msg,
+    NEIGHBORS_FORMAT, Neighbor, NeighborMemory, NeighborState, Neighborhood, NetworkSample, Origin, Route,
+    SavedNeighbors, Socket, TcpState, Trace, Transport,
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
@@ -212,6 +212,8 @@ pub fn remembered() -> NeighborMemory {
         scanned: (!ports.is_empty()).then_some(seen),
         ports: ports.to_vec(),
         ping: !ports.is_empty(),
+        heard: None,
+        announced: Announced::default(),
     };
     let saved = SavedNeighbors {
         version: NEIGHBORS_FORMAT,

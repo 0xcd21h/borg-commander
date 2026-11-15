@@ -336,7 +336,8 @@ pub(super) fn interface_details(
         theme,
     );
     let rest = below(body, used);
-    let labels = [tr!(network_addresses_label), tr!(network_mtu_label), tr!(network_packets_label)];
+    let labels =
+        [tr!(network_addresses_label), tr!(network_mtu_label), tr!(network_packets_label), tr!(listen_switch_label)];
     let mut facts = facts(rest, 0, &labels, look);
     let addresses: Vec<String> =
         interface.addresses.iter().map(|(address, prefix)| format!("{address}/{prefix}")).collect();
@@ -347,6 +348,9 @@ pub(super) fn interface_details(
         labels[2],
         tr!(network_packets_value, received = interface.packets_received, sent = interface.packets_sent),
     );
+    if let Some(switch) = network.hearing.switch(&interface.name) {
+        facts.add(buf, labels[3], borg_core::switch_line(&switch.port));
+    }
     let (downloads, uploads) = traffic(network.traffic.interfaces.get(&interface.name));
     draw_charts(&downloads, &uploads, below(rest, facts.y + 1), look, buf);
 }
@@ -367,7 +371,7 @@ fn neighbor_details(
         return;
     }
     text(buf, row(inner, 0), neighbor_label(network, neighbor), emphasis(theme));
-    let vendor = neighbor_vendor(neighbor).filter(|_| network.host(neighbor.address).is_some());
+    let vendor = neighbor_vendor(neighbor).filter(|_| network.host_name(neighbor.address).is_some());
     let summary: Vec<&str> = [entry.gateway.then(|| tr!(network_gateway_note)), vendor].into_iter().flatten().collect();
     text(buf, row(inner, 1), summary.join(SEPARATOR), theme.styles.overlay);
     let body = body(rect);
@@ -428,6 +432,7 @@ fn neighbor_details(
         }
         y += 1;
     }
+    y = heard(network, neighbor, body, y, look, clock, buf);
     if let Some(scan) = scan {
         y = port_scan(scan, body, y, &labels, look, clock, buf);
     }
@@ -442,6 +447,56 @@ fn neighbor_details(
     facts.add(buf, labels[9], gateways.join(LIST_SEPARATOR));
     let servers: Vec<String> = neighborhood.dns.iter().map(ToString::to_string).collect();
     facts.add(buf, labels[10], servers.join(LIST_SEPARATOR));
+}
+
+/// What the host announced of itself under its own heading: its names and where each came from,
+/// its model and device types, its services, its DHCP client, the protocols it spoke and when
+/// it was heard last. Returns the row after it.
+fn heard(
+    network: &Network,
+    neighbor: &Neighbor,
+    body: Rect,
+    y: u16,
+    look: &Look<'_>,
+    clock: &Zoned,
+    buf: &mut Buffer,
+) -> u16 {
+    let Some(announced) = network.announced(neighbor.address) else { return y };
+    if y >= body.height {
+        return y;
+    }
+    text(buf, row(body, y), tr!(network_heard_heading), heading(look.theme));
+    let labels = [
+        tr!(network_heard_name_label),
+        tr!(network_model_label),
+        tr!(network_device_types_label),
+        tr!(network_services_label),
+        tr!(network_dhcp_client_label),
+        tr!(network_heard_in_label),
+        tr!(network_last_heard_label),
+    ];
+    let mut facts = facts(body, y + 1, &labels, look);
+    for name in &announced.names {
+        facts.add(buf, labels[0], format!("{}{SEPARATOR}{}", name.text, name.protocol.name()));
+    }
+    if let Some(model) = &announced.model {
+        facts.add(buf, labels[1], model.text.clone());
+    }
+    if !announced.kinds.is_empty() {
+        facts.add(buf, labels[2], announced.kinds.join(LIST_SEPARATOR));
+    }
+    if !announced.services.is_empty() {
+        facts.add(buf, labels[3], announced.services.join(LIST_SEPARATOR));
+    }
+    if let Some(client) = &announced.client {
+        facts.add(buf, labels[4], client.clone());
+    }
+    let protocols: Vec<&str> = announced.protocols.iter().map(|protocol| protocol.name()).collect();
+    facts.add(buf, labels[5], protocols.join(LIST_SEPARATOR));
+    if let Some(at) = network.last_heard(neighbor.address) {
+        facts.add(buf, labels[6], seen(at, clock));
+    }
+    facts.y + 1
 }
 
 /// The host's last port scan under its own heading: when and how, each open port with its name,

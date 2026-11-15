@@ -16,6 +16,7 @@ mod capture;
 mod controls;
 mod details;
 mod list;
+mod listen;
 mod map;
 mod scan_form;
 mod traffic;
@@ -23,6 +24,7 @@ mod traffic;
 pub(crate) use capture::{draw_dialog as draw_capture_dialog, field_at as capture_field_at};
 pub(crate) use controls::{keybar, panel_mouse, status};
 pub(crate) use list::{FilterLine, filter_line};
+pub(crate) use listen::{draw as draw_listen_form, field_at as listen_field_at};
 pub(crate) use scan_form::draw as draw_scan_form;
 
 const TABS_ROW: u16 = 0;
@@ -278,15 +280,16 @@ fn neighbor_vendor(neighbor: &Neighbor) -> Option<&'static str> {
 
 fn neighbor_label(network: &Network, neighbor: &Neighbor) -> String {
     network
-        .host(neighbor.address)
+        .host_name(neighbor.address)
         .or_else(|| neighbor_vendor(neighbor))
         .map_or_else(|| UNKNOWN.to_owned(), str::to_owned)
 }
 
-/// A neighbor's state in the tables, or that it is gone.
+/// A neighbor's state in the tables, that only listening heard it, or that it is gone.
 fn neighbor_state(neighbor: &Neighbor, row: NeighborRow) -> &'static str {
     match row.presence {
         Presence::Offline(_) => tr!(network_offline_state),
+        Presence::Heard => neighbor.state.map_or(tr!(network_heard_state), |state| state.name()),
         _ => neighbor.state.map_or("", |state| state.name()),
     }
 }

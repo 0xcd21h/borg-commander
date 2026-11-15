@@ -557,11 +557,13 @@ Lo que ofrece el menú depende de la fila:
   identifique la fila. Una fila con un proceso añade **Copiar PID**,
   **Mostrar en el monitor de actividad** y **Señal o prioridad…**. Un vecino ofrece
   **Copiar dirección IP**, **Copiar dirección MAC**, **Escanear puertos…** (P),
-  **Escaneos de puertos…** (O), **Escanear red…** (S), **Descubrir redes…** (D) y
-  **Guardar informe…** (Ctrl-S), y un host apagado añade **Olvidar host** (F8).
-  **Escaneos de puertos…** aparece atenuado hasta que el host tiene un escaneo. Un encabezado de la
-  página Vecinos ofrece **Copiar dirección** o **Copiar red**, **Escanear red…**,
-  **Descubrir redes…** y **Guardar informe…**, y una red que Borg recuerda añade **Olvidar red** (F8).
+  **Escaneos de puertos…** (O), **Escanear red…** (S), **Descubrir redes…** (D),
+  **Escuchar vecinos…** (H) y **Guardar informe…** (Ctrl-S), y un host apagado o que solo oyó la
+  escucha añade **Olvidar host** (F8). **Escaneos de puertos…** aparece atenuado hasta que el host
+  tiene un escaneo, y mientras Borg escucha, **Detener escucha** ocupa el lugar de
+  **Escuchar vecinos…**. Un encabezado de la página Vecinos ofrece **Copiar dirección** o
+  **Copiar red**, **Escanear red…**, **Descubrir redes…**, **Escuchar vecinos…** y
+  **Guardar informe…**, y una red que Borg recuerda añade **Olvidar red** (F8).
 - **Alertas**: **Copiar PID**, **Copiar ruta del programa** y **Copiar comando**, luego
   **Mostrar en el monitor de actividad**, **Reanudar**, **Terminar** y **Permitir**.
 - **Elementos de inicio**: **Copiar ruta**, **Copiar ruta del programa** y **Copiar comando**,
@@ -2693,8 +2695,9 @@ en lugar de la dirección en cuanto lo conoce.
 | O | Mostrar los escaneos de puertos del vecino seleccionado (**5 Vecinos**) |
 | S | Escanear la red de la fila seleccionada, u otra que escribas (**5 Vecinos**) |
 | D | Buscar redes detrás del router al que va el tráfico a internet (**5 Vecinos**) |
+| H | Escuchar a los vecinos que se anuncian, o detener la escucha (**5 Vecinos**) |
 | Ctrl-S | Guardar un informe de todos los vecinos (**5 Vecinos**) |
-| F8 / Delete | Olvidar el host seleccionado que está apagado, o una red que Borg recuerda (**5 Vecinos**) |
+| F8 / Delete | Olvidar el host seleccionado que está apagado o que solo oyó la escucha, o una red que Borg recuerda (**5 Vecinos**) |
 | Ctrl-C | Copiar la dirección del puerto, el PID, el otro extremo, la dirección de la interfaz o del vecino, o la red |
 | Tab | Alternar entre la lista y los detalles |
 | Space | Pausar o reanudar el muestreo |
@@ -2734,9 +2737,9 @@ la red local con el que este equipo habló hace poco, con su dirección, direcci
 estado. El estado es la palabra que usa el propio sistema para la entrada: **REACHABLE** respondió
 hace poco, **STALE** lleva un tiempo sin comprobarse, **DELAY** y **PROBE** se están comprobando,
 **INCOMPLETE** preguntó y aún no tiene respuesta, **FAILED** nunca respondió y **PERMANENT** no
-caduca nunca. Bajo cada encabezado, los hosts que solo respondieron a un escaneo van después de las
-entradas con dirección MAC, luego los hosts recordados que están apagados, y las entradas sin
-dirección MAC van al final.
+caduca nunca. Bajo cada encabezado, los hosts que solo respondieron a un escaneo o que solo oyó la
+escucha van después de las entradas con dirección MAC, luego los hosts recordados que están
+apagados, y las entradas sin dirección MAC van al final.
 Las direcciones de este equipo y las entradas de broadcast y multicast quedan fuera de la lista. Un
 panel ancho añade el fabricante, los puertos abiertos y el tiempo de ping que encontró un escaneo, y
 una nota.
@@ -2870,6 +2873,75 @@ Las redes de la tabla de rutas vienen y van con la tabla, así que F8 no las toc
 encuentra detrás de un túnel dura lo que dura la sesión, porque un túnel no tiene una dirección MAC
 de puerta de enlace con la que distinguir sus redes.
 
+### Escuchar vecinos
+
+Muchos dispositivos se anuncian sin que nadie les pregunte. Las impresoras y los altavoces dicen su
+nombre y sus servicios por mDNS, las smart TV por SSDP, los equipos Windows por NetBIOS y LLMNR, y
+cada dispositivo que entra en la red pide una dirección por DHCP con su nombre de host en la
+solicitud. La escucha recoge esos anuncios. Borg no envía nada mientras escucha.
+
+Pulsa **H** en **5 Vecinos**, o elige **Escuchar vecinos…** en el menú contextual.
+**Escuchar vecinos** pide tres cosas:
+
+- **Interfaz** empieza en la interfaz de la fila seleccionada y, si no, en la que usa el tráfico a
+  internet para salir. Ofrece las interfaces que están activas y tienen dirección, y deja fuera el
+  loopback y los túneles, que no tienen un enlace en el que escuchar.
+- **Duración** es 30 s, 1 min o 5 min, o **Hasta detenerla**. Empieza en 1 min, tiempo suficiente
+  para que la mayoría de los dispositivos se anuncien.
+- **Ejecutar como** aparece donde Borg puede pedir al sistema la contraseña de un administrador,
+  igual que en una captura.
+
+↑↓ eligen un campo, ←→ o Space lo cambian, Enter empieza y Esc cancela. Borg ejecuta `tcpdump` con
+un filtro que solo se queda con estos paquetes:
+
+- Solicitudes y anuncios ARP, y el descubrimiento de vecinos de IPv6, que dan una dirección con su
+  dirección MAC y marcan los routers.
+- mDNS y Bonjour en el puerto UDP 5353, con nombres de host, los servicios que ofrece un
+  dispositivo, como `ipp` o `airplay`, y el modelo que nombran sus registros.
+- SSDP y UPnP en el puerto UDP 1900, con el software del servidor y los tipos de dispositivo y
+  servicios UPnP.
+- El servicio de nombres NetBIOS en el puerto UDP 137 y LLMNR en el puerto UDP 5355, con nombres de
+  Windows y Samba.
+- DHCP en los puertos UDP 67 y 68, con el nombre de host que pide un cliente y la clase de
+  fabricante que envía, que a menudo nombra su sistema operativo.
+- LLDP y CDP, con el switch al que está conectado este equipo y el puerto.
+
+En una red conmutada o en Wi-Fi solo oyes broadcasts, multicasts y el tráfico de este equipo. El
+switch o el punto de acceso entrega cada paquete unicast solo al dispositivo al que va dirigido, así
+que el tráfico entre otros dos hosts nunca te llega. Un dispositivo que se queda callado queda fuera
+del mapa, y **S** encuentra más de esos (consulta [Vecinos](#neighbors)).
+
+La escucha se ejecuta como una tarea, así que puedes cerrar la pantalla de red y seguir trabajando.
+Alt-J muestra cuánto ha avanzado, y al desplegar la tarea se ven la interfaz, la duración, el número
+de hosts oídos, el puerto del switch y los 5 últimos hosts oídos. C la cancela, igual que **H** en
+**5 Vecinos**, donde el botón dice **H Detener escucha**. La escucha no se puede pausar. Cuando
+termina, un aviso como **Escucha terminada · oyó 4 hosts** dice lo que encontró, y **O Abrir** en la
+tarea terminada abre **5 Vecinos**.
+
+Cada host oído en las redes de la propia interfaz se une al mapa bajo la interfaz, y lo mismo las
+direcciones de enlace local. Borg deja fuera las direcciones y los paquetes de este equipo, y las
+direcciones de otras redes. Un host que solo conoce la escucha muestra **Oído** en la columna
+**Estado**, y escribir **Oído** en el filtro deja todos los hosts que oyó la escucha. El nombre que
+anunció un host gana al que da una búsqueda de DNS inversa y, si anunció varios, primero va mDNS,
+luego DHCP, NetBIOS y LLMNR. Los detalles de un host añaden una sección **Escucha** con cada
+**Nombre** y el protocolo por el que llegó, el **Modelo**, los **Tipos de dispositivo**, los
+**Servicios**, el **Cliente DHCP**, los protocolos en **Oído en** y la hora en
+**Oído por última vez**. El puerto del switch aparece al final del encabezado de la interfaz y en
+**Switch** en sus detalles.
+
+Borg recuerda los hosts IPv4 que oyó, con lo que anunciaron, en `neighbors.json`, junto a los hosts
+de las tablas y los escaneos. Un host oído que ya no está en una visita posterior muestra
+**Apagado**, con **Oído** en la columna **Nota**. Los hosts IPv6 y los puertos de switch duran lo
+que dura la sesión. F8 o Delete olvida un host apagado o que solo oyó la escucha, después de
+preguntar. Una sesión guarda hasta 1.024 hosts oídos y 16 tipos de dispositivo y 16 servicios por
+host, y Borg corta en 80 caracteres cada nombre u otro texto que anuncia un host.
+
+tcpdump necesita acceso al dispositivo de captura, igual que para una captura, y
+[Capturar tráfico](#capturing-traffic) explica cómo dárselo una sola vez. Sin acceso, Borg pregunta
+**Escuchar como administrador** donde el sistema puede pedir tu contraseña y, si no, la tarea
+termina con **No tienes permiso para escuchar en** y el nombre de la interfaz. Si falta tcpdump,
+Borg ofrece instalarlo.
+
 ### Escanear puertos
 
 Pulsa **P** sobre un vecino, o elige **Escanear puertos…** en su menú contextual, para ver en qué
@@ -2961,10 +3033,12 @@ abiertos con sus nombres de servicio, el número de puertos cerrados y filtrados
 interfaz y la puerta de enlace desde las que se hizo el escaneo. Si el host limitó el escaneo o lo
 cancelaste, el informe lo dice y lista los puertos a los que no llegó. El informe de la página tiene
 las subredes, las puertas de enlace, los servidores DNS, las redes enrutadas con su camino y sus
-saltos, y la salida a internet de cada interfaz. Luego viene cada host con su red, el router a
-través del que se llega a él, su dirección MAC, fabricante, nombre, estado, los puertos y el tiempo
-de ping que encontró un escaneo y sus notas, un host apagado con la última vez que se vio, y el
-último escaneo de puertos de cada host. Las horas están en UTC, igual que la fecha del nombre del archivo. Lo que Borg no averiguó
+saltos, la salida a internet de cada interfaz y el puerto del switch al que, según la escucha, está
+conectada. Luego viene cada host con su red, el router a través del que se llega a él, su dirección
+MAC, fabricante, nombre, estado, los puertos y el tiempo de ping que encontró un escaneo y sus
+notas, un host apagado con la última vez que se vio, y el último escaneo de puertos de cada host.
+Una tabla **Escucha** lista lo que anunció cada host: su nombre, modelo, tipos de dispositivo,
+servicios, los protocolos en los que se oyó y cuándo se oyó por última vez. Las horas están en UTC, igual que la fecha del nombre del archivo. Lo que Borg no averiguó
 queda fuera del informe.
 
 ### Filtrar

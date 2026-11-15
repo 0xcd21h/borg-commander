@@ -64,6 +64,8 @@ pub(crate) fn counted(done: u64, unit: Unit) -> String {
         Unit::Folders => format::count(done, format::Count::Folder),
         Unit::Processes => format::count(done, format::Count::Process),
         Unit::Ports => format::count(done, format::Count::Port),
+        Unit::Seconds => format::count(done, format::Count::Second),
+        Unit::Hosts => format::count(done, format::Count::Host),
     }
 }
 
@@ -77,11 +79,12 @@ pub fn activity(job: &Job, now: Instant) -> Activity {
             None => format!("{}…", job.kind.doing()),
         },
         (Phase::Asking(_), false) => tr!(waiting_for_you).to_owned(),
-        (Phase::Running | Phase::Ended(_), false) => match pace(job, now) {
-            Some((speed, left)) => {
+        (Phase::Running | Phase::Ended(_), false) => match (pace(job, now), fraction, job.gauge.unit) {
+            (Some((speed, left)), _, _) => {
                 format!("{} {share}% · {}/s · {}", job.kind.doing(), format::size(speed), clock(left))
             }
-            None => format!("{} {share}%", job.kind.doing()),
+            (None, None, Some(unit)) => format!("{} · {}", job.kind.doing(), counted(job.gauge.done, unit)),
+            (None, _, _) => format!("{} {share}%", job.kind.doing()),
         },
     };
     Activity { label, fraction }

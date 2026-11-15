@@ -10,8 +10,8 @@ use super::{
     text::{csv, table},
 };
 use crate::{
-    Ending, InternetRoute, Mac, NeighborState, Origin, PortChoice, PortRange, PortScanRecord, Routed, ScanNetwork,
-    ScanSpeed, Trace,
+    Announced, Ending, HeardSwitch, InternetRoute, ListenProtocol, Mac, NeighborState, Origin, PortChoice, PortRange,
+    PortScanRecord, Routed, Said, ScanNetwork, ScanSpeed, SwitchPort, Trace,
 };
 
 const SCANNED_AT: u64 = 1_768_471_200;
@@ -92,6 +92,21 @@ fn host(text: &str, mac_text: Option<&str>) -> ReportHost {
         ports: None,
         ping: None,
         port_scan: None,
+        heard: None,
+        announced: None,
+    }
+}
+
+/// What a printer announced over mDNS and SSDP.
+fn printer() -> Announced {
+    let said = |text: &str| Said { protocol: ListenProtocol::Mdns, text: text.into() };
+    Announced {
+        names: vec![said("laserbox.local")],
+        model: Some(said("LaserBox 3000")),
+        kinds: vec!["Printer".into()],
+        services: vec!["ipp".into(), "http".into()],
+        client: None,
+        protocols: vec![ListenProtocol::Mdns, ListenProtocol::Ssdp],
     }
 }
 
@@ -108,8 +123,8 @@ fn routed() -> Routed {
     }
 }
 
-/// A router, the storage box with its scan, a phone that went offline the day before, and a
-/// camera on a network behind the gateway.
+/// A router, the storage box with its scan, a phone that went offline the day before, a camera
+/// on a network behind the gateway, and a printer only listening heard, on a switch port.
 fn neighbors() -> NeighborsReport {
     NeighborsReport {
         read_at: SCANNED_AT,
@@ -122,6 +137,17 @@ fn neighbors() -> NeighborsReport {
             in_use: true,
         }],
         dns: vec![address("192.0.2.1")],
+        switches: vec![HeardSwitch {
+            interface: "en0".into(),
+            port: SwitchPort {
+                protocol: ListenProtocol::Lldp,
+                name: Some("core-sw".into()),
+                port: Some("ge-0/0/7".into()),
+                model: None,
+                address: None,
+            },
+            at: SCANNED_AT,
+        }],
         hosts: vec![
             ReportHost {
                 name: Some("router.home.arpa".into()),
@@ -153,6 +179,13 @@ fn neighbors() -> NeighborsReport {
                 presence: ReportPresence::Answered,
                 ports: Some(vec![443]),
                 ..host("198.51.100.40", None)
+            },
+            ReportHost {
+                name: Some("laserbox.local".into()),
+                presence: ReportPresence::Heard,
+                heard: Some(SCANNED_AT),
+                announced: Some(printer()),
+                ..host("192.0.2.31", None)
             },
         ],
     }
@@ -284,6 +317,7 @@ fn the_neighbors_in_markdown_list_every_host_and_then_their_port_scans() {
 - **Gateway:** 192.0.2.1 · 00:27:22:4c:01:01
 - **Route:** 198.51.100.0/24 · via 192.0.2.1 › 203.0.113.1 · 3 hops · en0
 - **Internet:** en0 · via 192.0.2.1 · in use
+- **Switch:** en0 · core-sw · ge-0/0/7
 - **DNS:** 192.0.2.1
 
 | Address | MAC | Vendor | Name | State | Ports | Ping | Note |
@@ -292,6 +326,13 @@ fn the_neighbors_in_markdown_list_every_host_and_then_their_port_scans() {
 | 192.0.2.60 | 00:11:32:aa:00:60 | Example Storage | nas.home.arpa | STALE | 22, 445 | 1 ms |  |
 | 192.0.2.77 | da:a1:19:12:34:56 |  |  | Offline |  |  | Randomized, Seen 2026-01-14 10:00 UTC |
 | 198.51.100.40 |  |  |  |  | 443 |  | via 192.0.2.1 |
+| 192.0.2.31 |  |  | laserbox.local | Heard |  |  |  |
+
+## Heard
+
+| Address | Name | Model | Device types | Services | Heard in | Last heard |
+| --- | --- | --- | --- | --- | --- | --- |
+| 192.0.2.31 | laserbox.local | LaserBox 3000 | Printer | ipp, http | mDNS, SSDP | 2026-01-15 10:00 UTC |
 
 ## Port scans
 
@@ -320,7 +361,7 @@ fn the_neighbors_in_json_name_each_host_s_flags_and_keep_its_scan() {
     );
     assert_eq!(document["internet"], json!([{"interface": "en0", "gateways": ["192.0.2.1"], "in_use": true}]));
     let hosts = document["hosts"].as_array().unwrap();
-    assert_eq!(hosts.len(), 4);
+    assert_eq!(hosts.len(), 5);
     assert_eq!((&hosts[3]["network"], &hosts[3]["via"]), (&json!("198.51.100.0/24"), &json!("192.0.2.1")));
     assert_eq!(
         hosts[0],
@@ -342,6 +383,29 @@ fn the_neighbors_in_json_name_each_host_s_flags_and_keep_its_scan() {
     assert_eq!(hosts[2]["last_seen"], "2026-01-14T10:00:00Z");
     assert_eq!(hosts[2].get("ports"), None, "nothing is made up for what was not gathered");
     assert_eq!(hosts[2].get("state"), None);
+    assert_eq!(hosts[4]["presence"], "heard");
+    assert_eq!(
+        hosts[4]["heard"],
+        json!({
+            "last": "2026-01-15T10:00:00Z",
+            "names": [{"protocol": "mdns", "text": "laserbox.local"}],
+            "model": {"protocol": "mdns", "text": "LaserBox 3000"},
+            "kinds": ["Printer"],
+            "services": ["ipp", "http"],
+            "protocols": ["mdns", "ssdp"],
+        })
+    );
+    assert_eq!(hosts[0].get("heard"), None);
+    assert_eq!(
+        document["switches"],
+        json!([{
+            "interface": "en0",
+            "protocol": "lldp",
+            "name": "core-sw",
+            "port": "ge-0/0/7",
+            "heard": "2026-01-15T10:00:00Z",
+        }])
+    );
 }
 
 #[test]
@@ -349,11 +413,12 @@ fn the_neighbors_in_csv_have_a_row_for_each_host() {
     assert_eq!(
         page(ReportFormat::Csv),
         "\
-address,mac,vendor,name,interface,network,via,state,presence,last_seen,ports,ping_ms,flags,port_scan_at,port_scan_mode,port_scan_open
-192.0.2.1,00:27:22:4c:01:01,,router.home.arpa,en0,,,REACHABLE,listed,,53 80,2,gateway,,,
-192.0.2.60,00:11:32:aa:00:60,Example Storage,nas.home.arpa,en0,,,STALE,answered,,22 445,1,,2026-01-15T10:00:00Z,fast,22 80 445
-192.0.2.77,da:a1:19:12:34:56,,,en0,,,,offline,2026-01-14T10:00:00Z,,,randomized,,,
-198.51.100.40,,,,en0,198.51.100.0/24,192.0.2.1,,answered,,443,,,,,
+address,mac,vendor,name,interface,network,via,state,presence,last_seen,ports,ping_ms,flags,port_scan_at,port_scan_mode,port_scan_open,heard_at,heard_from,model,device_types,services
+192.0.2.1,00:27:22:4c:01:01,,router.home.arpa,en0,,,REACHABLE,listed,,53 80,2,gateway,,,,,,,,
+192.0.2.60,00:11:32:aa:00:60,Example Storage,nas.home.arpa,en0,,,STALE,answered,,22 445,1,,2026-01-15T10:00:00Z,fast,22 80 445,,,,,
+192.0.2.77,da:a1:19:12:34:56,,,en0,,,,offline,2026-01-14T10:00:00Z,,,randomized,,,,,,,,
+198.51.100.40,,,,en0,198.51.100.0/24,192.0.2.1,,answered,,443,,,,,,,,,,
+192.0.2.31,,,laserbox.local,en0,,,,heard,,,,,,,,2026-01-15T10:00:00Z,mdns ssdp,LaserBox 3000,Printer,ipp http
 "
     );
 }

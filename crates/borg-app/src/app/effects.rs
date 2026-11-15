@@ -57,6 +57,7 @@ impl App {
             Effect::SaveNeighbors => self.save_neighbors(),
             Effect::ResolveScanTarget(name) => self.resolve_scan_target(name),
             Effect::ScanPorts { id, request } => self.scan_ports(id, *request),
+            Effect::Listen { id, request } => self.listen(id, request),
             Effect::SavePortScans => self.save_port_scans(),
             Effect::SaveReport { path, text, replace } => self.save_report(path, text, replace),
             Effect::Capture { id, request } => self.network.capture(id, request),

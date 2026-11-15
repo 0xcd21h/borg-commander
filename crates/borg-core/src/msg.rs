@@ -86,6 +86,11 @@ pub enum Msg {
         id: u64,
         event: crate::PortScanEvent,
     },
+    /// What listening heard, or how it ended.
+    Listen {
+        id: u64,
+        event: crate::ListenEvent,
+    },
     /// The subnet scan sent its last probe, or stopped.
     ScanFinished {
         id: u64,
@@ -436,6 +441,12 @@ pub enum Effect {
         path: PathBuf,
         text: String,
         replace: bool,
+    },
+    /// Runs `tcpdump` to listen for neighbors as a job, until its time is up or the job's
+    /// control cancels it.
+    Listen {
+        id: u64,
+        request: crate::ListenRequest,
     },
     /// Runs `tcpdump` for the network screen's capture.
     Capture {

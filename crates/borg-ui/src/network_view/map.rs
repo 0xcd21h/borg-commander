@@ -60,10 +60,12 @@ pub(super) fn heading_line(network: &Network, index: usize, clock: &Zoned) -> Op
         NeighborEntry::Host(_) => return None,
         NeighborEntry::Interface(at) => {
             let interface = &network.sample.interfaces[at];
+            let switch = network.hearing.switch(&interface.name).map(|switch| borg_core::switch_line(&switch.port));
             let parts = [
                 Some(interface.name.clone()),
                 Some(kind_label(interface.kind).to_owned()),
                 address_with_prefix(interface),
+                switch.filter(|line| !line.is_empty()),
             ];
             parts.into_iter().flatten().collect::<Vec<_>>().join(SEPARATOR)
         }
