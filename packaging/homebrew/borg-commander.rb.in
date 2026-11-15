@@ -23,7 +23,7 @@ cask "borg-commander" do
   postflight do
     if OS.mac?
       system_command "/usr/bin/xattr",
-                     args: ["-d", "com.apple.quarantine", "#{staged_path}/borg-#{version}-#{arch}-#{os}/borg"]
+                     args: ["-d", "com.apple.quarantine", "#{staged_path}/borg-#{version}-#{arch}-apple-darwin/borg"]
     end
   end
 
