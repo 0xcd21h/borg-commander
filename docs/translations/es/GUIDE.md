@@ -2889,7 +2889,9 @@ Pulsa **H** en **5 Vecinos**, o elige **Escuchar vecinos…** en el menú contex
 
 - **Interfaz** empieza en la interfaz de la fila seleccionada y, si no, en la que usa el tráfico a
   internet para salir. Ofrece las interfaces que están activas y tienen dirección, y deja fuera el
-  loopback y los túneles, que no tienen un enlace en el que escuchar.
+  loopback y los túneles que solo transportan paquetes IP, como WireGuard y la mayoría de las VPN,
+  que no tienen un enlace en el que escuchar. Un túnel que transporta Ethernet, como un dispositivo
+  tap de OpenVPN o una red ZeroTier, tiene dirección MAC, y Borg lo ofrece.
 - **Duración** es 30 s, 1 min o 5 min, o **Hasta detenerla**. Empieza en 1 min, tiempo suficiente
   para que la mayoría de los dispositivos se anuncien.
 - **Ejecutar como** aparece donde Borg puede pedir al sistema la contraseña de un administrador,
