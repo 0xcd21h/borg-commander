@@ -1067,9 +1067,10 @@ Borg ships to Homebrew as a cask because the archives hold prebuilt binaries: Ho
 a cask without the developer tools that a formula without bottles needs. The cask links the
 binary as `borg` and `borgcmd`; Homebrew skips the `borg` link where BorgBackup's formula owns
 it. Homebrew quarantines cask downloads, and the binary is signed ad hoc without notarization,
-so the cask's `postflight` removes the quarantine attribute from the binary. The publish script
-also deletes the old `Formula/borg-commander.rb` and writes `tap_migrations.json`, which moves
-anyone who installed the formula to the cask on their next upgrade.
+so a step in the cask's `postflight_steps` removes the quarantine attribute from the binary.
+The publish script also deletes the old `Formula/borg-commander.rb` and writes
+`tap_migrations.json`, which moves anyone who installed the formula to the cask on their next
+upgrade.
 
 One-time setup for Homebrew: create the public repository `homebrew-tap` and add a
 fine-grained token with *Contents: read and write* on it as the `HOMEBREW_TAP_TOKEN` secret of
