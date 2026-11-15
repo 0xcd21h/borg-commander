@@ -20,10 +20,11 @@ cask "borg-commander" do
   artifact "borg-#{version}-#{arch}-#{os}/SYNTAX-LICENSES.md",
            target: "#{HOMEBREW_PREFIX}/share/borg-commander/SYNTAX-LICENSES.md"
 
-  postflight do
-    if OS.mac?
-      system_command "/usr/bin/xattr",
-                     args: ["-d", "com.apple.quarantine", "#{staged_path}/borg-#{version}-#{arch}-apple-darwin/borg"]
+  postflight_steps do
+    on_macos do
+      run "/usr/bin/xattr",
+          args:         ["-d", "com.apple.quarantine", "{{staged_path}}/borg-{{version}}-{{arch}}-apple-darwin/borg"],
+          must_succeed: false
     end
   end
 
