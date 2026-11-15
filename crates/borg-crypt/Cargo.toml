@@ -1,0 +1,31 @@
+[package]
+name                 = "borg-crypt"
+description          = "Encrypted files: age with passwords and Paranoia Text Encryption"
+edition.workspace      = true
+version.workspace      = true
+license.workspace      = true
+rust-version.workspace = true
+
+[dependencies]
+aes              = { workspace = true }
+argon2           = { workspace = true }
+base64           = { workspace = true }
+blowfish         = { workspace = true }
+chacha20poly1305 = { workspace = true }
+cmac             = { workspace = true }
+hkdf             = { workspace = true }
+hmac             = { workspace = true }
+lzma-rust2       = { workspace = true }
+scrypt           = { workspace = true }
+sha2             = { workspace = true }
+sha3             = { workspace = true }
+subtle           = { workspace = true }
+thiserror        = { workspace = true }
+zeroize          = { workspace = true }
+
+[dev-dependencies]
+flate2   = { workspace = true }
+proptest = { workspace = true }
+
+[lints]
+workspace = true
