@@ -21,7 +21,7 @@ expression: describe(&buffer)
  /home/me/projects/borg/docs/reciept-template.md
 $
 F1Help      F2File      F3View      F4Edit      F5Copy      F6Move      F7Mkdir     F8Delete    F9Menu      F10Quit     ^OShell         Esc then 1–9/0 = F1–F10
-Alt-H Remote hosts  Ctrl-F Search  Alt-V Collections  Alt-D Size search  Esc Hide  Alt-W Maximize  Ctrl-S Filter  Ins Mark             ◈ Borg Commander v0.11.1
+Alt-H Remote hosts  Ctrl-F Search  Alt-V Collections  Alt-D Size search  Esc Hide  Alt-W Maximize  Ctrl-S Filter  Ins Mark             ◈ Borg Commander v0.12.0
 --- styles ---
   0: 0-71 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 72-74 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 75-75 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 76-78 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 79-79 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 80-80 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 81-82 Rgb(169, 169, 169) Rgb(30, 30, 30) NONE | 83-85 Rgb(71, 71, 71) Rgb(30, 30, 30) NONE | 86-88 Rgb(169, 169, 169) Rgb(30, 30, 30) NONE | 89-91 Rgb(71, 71, 71) Rgb(30, 30, 30) NONE | 92-95 Rgb(169, 169, 169) Rgb(30, 30, 30) NONE | 96-159 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE
   1: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-78 Rgb(102, 102, 102) Rgb(30, 30, 30) NONE | 79-79 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 80-80 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 81-81 Rgb(43, 43, 43) Rgb(30, 30, 30) NONE | 82-85 Rgb(56, 114, 178) Rgb(48, 48, 48) BOLD | 86-138 Rgb(157, 157, 157) Rgb(48, 48, 48) NONE | 139-144 Rgb(86, 86, 86) Rgb(48, 48, 48) NONE | 145-157 Rgb(157, 157, 157) Rgb(48, 48, 48) NONE | 158-158 Rgb(43, 43, 43) Rgb(30, 30, 30) NONE | 159-159 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE
