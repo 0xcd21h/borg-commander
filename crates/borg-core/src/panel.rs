@@ -9,7 +9,7 @@ mod cursor;
 mod listing;
 mod results;
 
-pub use listing::order;
+pub use listing::{Ranks, order};
 
 const EAGER_MERGE_LIMIT: usize = 4096;
 const MERGE_GROWTH_DIVISOR: usize = 2;
@@ -63,6 +63,8 @@ pub enum SortKey {
     Modified,
     Source,
     Files,
+    /// How well search results match the query, best first.
+    Match,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

@@ -251,3 +251,41 @@ fn the_dialog_opens_with_what_it_held_when_it_closed_in_the_current_folder() {
     search_key(&mut state, space, &esc);
     assert_eq!(SearchForm::new(&state, false).pattern.text(), "*.log", "analyzing space keeps the search's values");
 }
+
+#[test]
+fn close_matches_follow_the_setting_the_checkbox_and_the_query() {
+    let mut settings = crate::Settings::default();
+    settings.search.typos = false;
+    let (mut state, _) = AppState::new(
+        crate::Startup::at("/work".into()),
+        100,
+        30,
+        settings,
+        crate::Appearance::new(vec![crate::ThemeChoice { id: "midnight".into(), name: "Midnight".into() }], 0),
+        std::time::Instant::now(),
+    );
+    let key = |code| KeyEvent::new(code, KeyModifiers::NONE);
+    let typos = |effects: &[Effect]| {
+        effects.iter().find_map(|effect| match effect {
+            Effect::Search { request, .. } => Some(request.typos),
+            _ => None,
+        })
+    };
+    let mut form = SearchForm::new(&state, false);
+    assert!(!form.typos && form.shows(TYPOS_FIELD));
+    form.pattern = LineInput::new("reciept");
+    form.selected = TYPOS_FIELD;
+    state.overlay = Some(Overlay::Search(form));
+    search_key_of(&mut state, key(KeyCode::Char(' ')));
+    assert_eq!(typos(&search_key_of(&mut state, key(KeyCode::Enter))), Some(true));
+
+    let mut form = SearchForm::new(&state, false);
+    assert!(form.typos, "the dialog keeps what it held");
+    form.pattern = LineInput::new("reciept typos:no");
+    assert_eq!(typos(&search_key(&mut state, form, &key(KeyCode::Enter))), Some(false));
+
+    let mut sizes = SearchForm::new(&state, true);
+    assert!(!sizes.shows(TYPOS_FIELD));
+    sizes.typos = true;
+    assert_eq!(typos(&search_key(&mut state, sizes, &key(KeyCode::Enter))), Some(false), "sizes match names as typed");
+}

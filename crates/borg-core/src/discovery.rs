@@ -12,7 +12,8 @@ pub const MINIMUM_FIELD: usize = 4;
 pub const FILES_FIELD: usize = 5;
 pub const HIDDEN_FIELD: usize = 6;
 pub const SKIP_FIELD: usize = 7;
-pub const SEARCH_FIELDS: usize = 8;
+pub const TYPOS_FIELD: usize = 8;
+pub const SEARCH_FIELDS: usize = 9;
 /// Recent searches the search dialog lists.
 pub const RECENT_SHOWN: usize = 5;
 const UNIT: f64 = 1024.0;
@@ -42,6 +43,10 @@ impl SearchKind {
             Self::Rules => tr!(rule_matches),
             Self::Packed => tr!(packed_executables),
         }
+    }
+    /// Whether the search measures folder sizes rather than looking for names.
+    pub fn measures_sizes(self) -> bool {
+        matches!(self, Self::FolderTotals | Self::FolderTree)
     }
     /// Whether the search lists the files it judges by what they hold, with rules or by the
     /// entropy of their code, rather than by text it is given.
@@ -88,6 +93,8 @@ pub struct SearchForm {
     pub hidden: bool,
     /// Leave out generated folders, ignored files and the configured globs.
     pub skip: bool,
+    /// Also find names with typos, shuffled digits or letters left out.
+    pub typos: bool,
     pub selected: usize,
     pub error: Option<String>,
     /// The recalled query's place in the history, and what was typed before recalling.
@@ -133,6 +140,7 @@ impl SearchForm {
             ),
             hidden: space || request.map_or(state.settings.preferences.show_hidden, |r| r.hidden),
             skip: request.is_none_or(|r| r.skip.is_some()),
+            typos: request.map_or(state.settings.search.typos, |r| r.typos),
             selected: 0,
             error: None,
             recalled: None,
@@ -141,14 +149,14 @@ impl SearchForm {
     }
 
     /// Whether the dialog shows `field`. Size scans measure folders and read everything, so
-    /// they look inside no file and have no switch for leaving things out. Rule scans and the
-    /// search for packed programs judge what files hold and list files, so they take no text
-    /// and no count of files.
+    /// they look inside no file, have no switch for leaving things out and match names only as
+    /// typed. Rule scans and the search for packed programs judge what files hold and list
+    /// files, so they take no text and no count of files.
     pub fn shows(&self, field: usize) -> bool {
         let sizes = matches!(self.kind, SearchKind::FolderTotals | SearchKind::FolderTree);
         let judges = self.kind.judges_files();
         field < SEARCH_FIELDS
-            && !(sizes && matches!(field, CONTENTS_FIELD | SKIP_FIELD))
+            && !(sizes && matches!(field, CONTENTS_FIELD | SKIP_FIELD | TYPOS_FIELD))
             && !(judges && matches!(field, CONTENTS_FIELD | FILES_FIELD))
     }
 
@@ -284,7 +292,8 @@ pub(crate) fn search_key(state: &mut AppState, mut form: SearchForm, key: &KeyEv
                 let root = form.root(state);
                 let query = form.pattern.text().trim();
                 let query = if query.is_empty() { "*" } else { query };
-                match crate::results::name_search(state, root, query, form.hidden, form.skip, options) {
+                let reach = crate::results::Reach { hidden: form.hidden, skip: form.skip, typos: form.typos };
+                match crate::results::name_search(state, root, query, reach, options) {
                     Ok(request) => {
                         state.overlay = None;
                         form.contents.remember(&mut state.find_recent);
@@ -308,6 +317,9 @@ pub(crate) fn search_key(state: &mut AppState, mut form: SearchForm, key: &KeyEv
             form.hidden = !form.hidden;
         }
         KeyCode::Char(' ') | KeyCode::Left | KeyCode::Right if form.selected == SKIP_FIELD => form.skip = !form.skip,
+        KeyCode::Char(' ') | KeyCode::Left | KeyCode::Right if form.selected == TYPOS_FIELD => {
+            form.typos = !form.typos;
+        }
         _ if form.selected == CONTENTS_FIELD => {
             form.contents.edit(key, &state.find_recent);
         }

@@ -271,8 +271,12 @@ fn submit(state: &mut AppState, purpose: PromptPurpose, text: &str, now: Instant
             Vec::new()
         }
         PromptPurpose::Search { root } => {
-            let hidden = state.settings.preferences.show_hidden;
-            match crate::results::name_search(state, root, text, hidden, true, Default::default()) {
+            let reach = crate::results::Reach {
+                hidden: state.settings.preferences.show_hidden,
+                skip: true,
+                typos: state.settings.search.typos,
+            };
+            match crate::results::name_search(state, root, text, reach, Default::default()) {
                 Ok(request) => crate::results::start_search(state, request),
                 Err(error) => {
                     state.notice = Some(error.message());
@@ -283,7 +287,8 @@ fn submit(state: &mut AppState, purpose: PromptPurpose, text: &str, now: Instant
         PromptPurpose::Collection => crate::results::collection(state, text, state.active),
         PromptPurpose::ResultsFilter => {
             let side = state.active;
-            state.panel_mut(side).filter_results(text.to_owned());
+            let typos = state.settings.search.typos;
+            state.panel_mut(side).filter_results(text.to_owned(), typos);
             Vec::new()
         }
         PromptPurpose::Select | PromptPurpose::Unselect => {

@@ -169,7 +169,7 @@ pub(crate) fn draw(scene: &PanelScene<'_>, look: &Look<'_>, buf: &mut Buffer) {
     }
     let context = match panel.listing() {
         Listing::Failed(error) => tr!(search_failed, error = error),
-        _ => context(scene, &results.source, inner.width),
+        _ => context(scene, results, inner.width),
     };
     text(buf, Rect { height: 1, ..inner }, &context, styles.footer);
     let (header, body) = geometry(scene.area);
@@ -239,10 +239,11 @@ fn footer(panel: &Panel, results: &Results) -> String {
     )
 }
 
-/// The line above the columns: a collection's keys, or how a search went and in which folder.
-fn context(scene: &PanelScene<'_>, source: &ResultSource, width: u16) -> String {
+/// The line above the columns: a collection's keys, or how a search went, how many names it
+/// found only closely, and in which folder.
+fn context(scene: &PanelScene<'_>, results: &Results, width: u16) -> String {
     let panel = scene.panel;
-    match source {
+    match &results.source {
         ResultSource::Collection(_) => tr!(tab_switch_ins_ctrl_t_mark_ctrl).into(),
         ResultSource::Search { progress, .. } if panel.is_size_view() && progress.cached => {
             let cached = tr!(sizes_cached_at, time = format::modified(progress.measured, scene.clock));
@@ -250,6 +251,10 @@ fn context(scene: &PanelScene<'_>, source: &ResultSource, width: u16) -> String 
         }
         ResultSource::Search { request, progress } => {
             let summary = search_summary(panel, progress, &request.options, scene.clock);
+            let summary = match results.close_matches {
+                0 => summary,
+                count => format!("{summary} · {}", tr!(close_matches_found, count = count)),
+            };
             let room = usize::from(width).saturating_sub(summary.chars().count() + 3);
             format!("{summary} · {}", format::truncate_start(&request.root.display().to_string(), room))
         }
@@ -312,6 +317,7 @@ fn draw_header(panel: &Panel, header: Rect, styles: &Styles<Style>, buf: &mut Bu
             SortKey::Size => tr!(size),
             SortKey::Modified => tr!(modified),
             SortKey::Extension => tr!(type),
+            SortKey::Match => tr!(results_view_match),
         };
         let arrow = if panel.sort().key == key { if panel.sort().reverse { " ↓" } else { " ↑" } } else { "" };
         text(buf, cell, &format!("{label}{arrow}"), styles.menu);

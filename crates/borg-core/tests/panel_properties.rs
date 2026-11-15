@@ -72,7 +72,10 @@ fn apply(panel: &mut Panel, op: &Op) {
 fn check_invariants(panel: &Panel) -> Result<(), TestCaseError> {
     let sort = panel.sort();
     let entries = panel.entries();
-    prop_assert!(entries.windows(2).all(|w| order(&w[0], &w[1], sort) != Ordering::Greater), "entries out of order");
+    prop_assert!(
+        entries.windows(2).all(|w| order(&w[0], &w[1], sort, None) != Ordering::Greater),
+        "entries out of order"
+    );
     prop_assert!(entries.windows(2).all(|w| !w[1].is_dir() || w[0].is_dir()), "directories must come first");
     if panel.is_empty() {
         return Ok(());

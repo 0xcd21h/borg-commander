@@ -136,6 +136,7 @@ impl Search {
         self.background.request(
             id,
             Work::Search(SearchRequest {
+                typos: false,
                 skip: None,
                 root,
                 query: "*".into(),
@@ -220,7 +221,7 @@ fn search_names(search: &SearchRequest, rules: Option<&Path>, stream: &mut Outpu
         false
     };
     let query = match SearchQuery::parse(&search.query) {
-        Ok(query) => query,
+        Ok(query) => query.with_typos(search.typos),
         Err(error) => return failed(stream, error.message()),
     };
     let contents = match search.options.contents.as_deref().map(borg_view::Query::compile).transpose() {
@@ -452,7 +453,7 @@ fn judge_code(path: &Path, stream: &Output<'_>, progress: &mut SearchProgress) -
 /// Answers from an index: `None` when its folder is not in it, so a live search must answer;
 /// otherwise whether the search finished. Matches are read again, so deleted files drop out.
 fn search_index(index: &crate::index::Index, search: &SearchRequest, stream: &mut Output<'_>) -> Option<bool> {
-    let query = SearchQuery::parse(&search.query).ok()?;
+    let query = SearchQuery::parse(&search.query).ok()?.with_typos(search.typos);
     let found = index.search(search, &query, RESULT_LIMIT)?;
     let mut progress = SearchProgress {
         visited: index.entries(),

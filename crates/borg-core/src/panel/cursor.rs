@@ -69,6 +69,17 @@ impl Panel {
         found.is_some()
     }
 
+    /// Puts the cursor on the entry `key` ranks best, the first of equals.
+    pub fn seek_best<K: Ord>(&mut self, key: impl Fn(&Entry) -> Option<K>) -> bool {
+        let best = self.entries.iter().enumerate().filter_map(|(index, entry)| Some((key(entry)?, index))).min();
+        if let Some((_, index)) = best {
+            self.drop_landing();
+            self.cursor = index + self.parent_rows();
+            self.clamp();
+        }
+        best.is_some()
+    }
+
     pub fn point_at_path(&mut self, path: PathBuf) {
         self.drop_landing();
         self.restore(Some(Anchor::Path(path)));

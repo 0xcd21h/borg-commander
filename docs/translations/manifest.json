@@ -1,12 +1,12 @@
 {
   "locales": {
     "zh-CN": {
-      "source": "4ac2e81f395912b3b8a4ac4c56091a9372e2f6d7a80e26da77f7565828dc5fc6",
+      "source": "016fe1b18ebe46305f7865127738eb67b686d1222a6a1642c8a7dd07d2d23770",
       "protected": {
-        "code blocks": "dd7890253e2ce69c384b9fb772f3484524482de29b06b81a8df4e8ee4e62c850",
-        "inline code": "f2d10061e818f59aecf7226cb072f8677149267eb72d5b4b5cf5b1d0a3b1b5cf",
+        "code blocks": "b9fe65a2f65a40b55ae99412ca448f2e89b26d42f179b54284c963f08b2e13cc",
+        "inline code": "9816330ac65d0f0d15738d05c1ae11c037ad709abddd24d63623231c748f7b85",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "082e0f3209aa29d3062a861bcc7bf7e86b1aac26a512b037a0be346936e25017"
+        "heading levels": "04b3e24e7eaeb2c08f235402290dc16455cc2d09488ff4e6d0aeb083da2c1df7"
       },
       "headings": [
         {
@@ -20,6 +20,10 @@
         {
           "level": 2,
           "title": "Collections and recursive search"
+        },
+        {
+          "level": 3,
+          "title": "Names with typos"
         },
         {
           "level": 3,
@@ -308,12 +312,12 @@
       ]
     },
     "pt": {
-      "source": "4ac2e81f395912b3b8a4ac4c56091a9372e2f6d7a80e26da77f7565828dc5fc6",
+      "source": "016fe1b18ebe46305f7865127738eb67b686d1222a6a1642c8a7dd07d2d23770",
       "protected": {
-        "code blocks": "dd7890253e2ce69c384b9fb772f3484524482de29b06b81a8df4e8ee4e62c850",
-        "inline code": "f2d10061e818f59aecf7226cb072f8677149267eb72d5b4b5cf5b1d0a3b1b5cf",
+        "code blocks": "b9fe65a2f65a40b55ae99412ca448f2e89b26d42f179b54284c963f08b2e13cc",
+        "inline code": "9816330ac65d0f0d15738d05c1ae11c037ad709abddd24d63623231c748f7b85",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "082e0f3209aa29d3062a861bcc7bf7e86b1aac26a512b037a0be346936e25017"
+        "heading levels": "04b3e24e7eaeb2c08f235402290dc16455cc2d09488ff4e6d0aeb083da2c1df7"
       },
       "headings": [
         {
@@ -327,6 +331,10 @@
         {
           "level": 2,
           "title": "Collections and recursive search"
+        },
+        {
+          "level": 3,
+          "title": "Names with typos"
         },
         {
           "level": 3,
@@ -615,12 +623,12 @@
       ]
     },
     "es": {
-      "source": "4ac2e81f395912b3b8a4ac4c56091a9372e2f6d7a80e26da77f7565828dc5fc6",
+      "source": "016fe1b18ebe46305f7865127738eb67b686d1222a6a1642c8a7dd07d2d23770",
       "protected": {
-        "code blocks": "dd7890253e2ce69c384b9fb772f3484524482de29b06b81a8df4e8ee4e62c850",
-        "inline code": "f2d10061e818f59aecf7226cb072f8677149267eb72d5b4b5cf5b1d0a3b1b5cf",
+        "code blocks": "b9fe65a2f65a40b55ae99412ca448f2e89b26d42f179b54284c963f08b2e13cc",
+        "inline code": "9816330ac65d0f0d15738d05c1ae11c037ad709abddd24d63623231c748f7b85",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "082e0f3209aa29d3062a861bcc7bf7e86b1aac26a512b037a0be346936e25017"
+        "heading levels": "04b3e24e7eaeb2c08f235402290dc16455cc2d09488ff4e6d0aeb083da2c1df7"
       },
       "headings": [
         {
@@ -634,6 +642,10 @@
         {
           "level": 2,
           "title": "Collections and recursive search"
+        },
+        {
+          "level": 3,
+          "title": "Names with typos"
         },
         {
           "level": 3,
@@ -922,12 +934,12 @@
       ]
     },
     "ru": {
-      "source": "4ac2e81f395912b3b8a4ac4c56091a9372e2f6d7a80e26da77f7565828dc5fc6",
+      "source": "016fe1b18ebe46305f7865127738eb67b686d1222a6a1642c8a7dd07d2d23770",
       "protected": {
-        "code blocks": "dd7890253e2ce69c384b9fb772f3484524482de29b06b81a8df4e8ee4e62c850",
-        "inline code": "f2d10061e818f59aecf7226cb072f8677149267eb72d5b4b5cf5b1d0a3b1b5cf",
+        "code blocks": "b9fe65a2f65a40b55ae99412ca448f2e89b26d42f179b54284c963f08b2e13cc",
+        "inline code": "9816330ac65d0f0d15738d05c1ae11c037ad709abddd24d63623231c748f7b85",
         "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "082e0f3209aa29d3062a861bcc7bf7e86b1aac26a512b037a0be346936e25017"
+        "heading levels": "04b3e24e7eaeb2c08f235402290dc16455cc2d09488ff4e6d0aeb083da2c1df7"
       },
       "headings": [
         {
@@ -941,6 +953,10 @@
         {
           "level": 2,
           "title": "Collections and recursive search"
+        },
+        {
+          "level": 3,
+          "title": "Names with typos"
         },
         {
           "level": 3,

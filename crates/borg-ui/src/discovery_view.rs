@@ -3,7 +3,7 @@ use std::path::Path;
 use crate::{Theme, dialog_view::centered, format};
 use borg_core::{
     AppState, CONTENTS_FIELD, CollectionPicker, EXCLUSION_SWITCHES, ExclusionEditor, FILES_FIELD, HIDDEN_FIELD,
-    LineInput, MINIMUM_FIELD, PATTERN_FIELD, PastSearch, ROOT_FIELD, SKIP_FIELD, SearchForm,
+    LineInput, MINIMUM_FIELD, PATTERN_FIELD, PastSearch, ROOT_FIELD, SKIP_FIELD, SearchForm, TYPOS_FIELD,
 };
 use borg_i18n::tr;
 use ratatui::{
@@ -14,17 +14,18 @@ use ratatui::{
 };
 
 const MAX_WIDTH: u16 = 82;
-const SEARCH_HEIGHT: u16 = 14;
+const SEARCH_HEIGHT: u16 = 15;
 /// The contents field's row, which it shares with the switches for case, words and regular
 /// expressions.
 const CONTENTS_ROW: u16 = 2;
 const HIDDEN_ROW: u16 = 7;
 const SKIP_ROW: u16 = 8;
-const ERROR_ROW: u16 = 9;
-const SEARCH_BUTTON_ROW: u16 = 10;
-const HINT_ROW: u16 = 11;
+const TYPOS_ROW: u16 = 9;
+const ERROR_ROW: u16 = 10;
+const SEARCH_BUTTON_ROW: u16 = 11;
+const HINT_ROW: u16 = 12;
 /// The heading over recent searches, a row below the hint.
-const RECENT_ROW: u16 = 13;
+const RECENT_ROW: u16 = 14;
 /// The first pattern's row in the exclusion list, below the switches and a heading.
 const PATTERNS_ROW: u16 = 5;
 /// The exclusion list's rows besides its patterns: borders, switches, headings, the row for
@@ -174,7 +175,7 @@ pub(crate) fn search_area(screen: Rect, recent: usize) -> Rect {
 
 pub(crate) fn search_field(screen: Rect, recent: usize, point: Position) -> Option<usize> {
     let area = search_area(screen, recent).inner(ratatui::layout::Margin::new(2, 1));
-    (area.contains(point) && point.y > area.y && point.y <= area.y + SKIP_ROW)
+    (area.contains(point) && point.y > area.y && point.y <= area.y + TYPOS_ROW)
         .then(|| usize::from(point.y - area.y - 1))
 }
 
@@ -443,6 +444,7 @@ pub(crate) fn search(
     let checks = [
         (HIDDEN_ROW, form.hidden, HIDDEN_FIELD, tr!(include_hidden_files_and_folders)),
         (SKIP_ROW, form.skip, SKIP_FIELD, tr!(skip_generated_files)),
+        (TYPOS_ROW, form.typos, TYPOS_FIELD, tr!(find_names_with_typos)),
     ];
     for (row, checked, index, label) in checks.into_iter().filter(|(_, _, index, _)| form.shows(*index)) {
         write(

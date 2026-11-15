@@ -122,7 +122,8 @@ funcionam com o visualizador e com a pré-visualização.
   nomes correspondem em qualquer alfabeto, seja qual for a capitalização de um glob, e as letras
   acentuadas correspondem independentemente da forma como o sistema de ficheiros as guarda. As
   correspondências próximas da pasta de pesquisa aparecem primeiro, enquanto o resto da árvore
-  ainda está a ser lido.
+  ainda está a ser lido. As palavras simples também encontram
+  [nomes com erros](#names-with-typos).
 - **Alt-K:** junta os ficheiros marcados, ou o ficheiro atual, numa coleção no outro painel. Uma
   coleção guarda referências, pelo que o conteúdo dos ficheiros não é copiado.
 - **Alt-V:** escolhe uma coleção guardada numa lista com deslocamento que mostra quantas entradas
@@ -143,6 +144,51 @@ funcionam com o visualizador e com a pré-visualização.
   barra de título podem ser clicados. Recolher oculta a vista; Alt-Shift-R repõe-na com o mesmo
   esquema e a mesma seleção.
 - **Ctrl-S:** filtra os resultados por nome ou caminho de origem. Um filtro vazio mostra tudo.
+  Quando nada corresponde ao filtro tal como foi escrito, mostra os nomes que lhe correspondem de
+  forma aproximada.
+
+### Nomes com erros
+
+Um nome mal escrito ou meio esquecido continua a aparecer. Enquanto **Encontrar também nomes com
+erros e algarismos trocados** estiver assinalado na caixa de diálogo de Ctrl-F, como está por
+omissão, uma palavra simples encontra também os nomes que lhe correspondem de forma aproximada:
+
+- **Erros:** uma palavra de 4 a 8 letras pode ter um erro, e uma palavra mais longa dois. Uma
+  letra em falta, a mais ou errada conta como um erro, tal como duas letras vizinhas escritas pela
+  ordem inversa, por isso `reciept` encontra `receipt.pdf`. A primeira letra tem de estar certa,
+  ou trocada com a segunda. As palavras com 3 letras ou menos só correspondem tal como foram
+  escritas. Abaixo de 6 letras, uma palavra que termina a meio de uma palavra mais longa do nome
+  custa mais um erro, por isso `note` encontra `nose.txt` e deixa de fora `notification.log`.
+- **Algarismos trocados:** um número com 4 algarismos ou mais encontra um número completo no nome
+  com os mesmos algarismos por qualquer ordem, por isso `1986` encontra `scan_8619.pdf`. Os
+  algarismos nunca são acrescentados, retirados nem alterados, por isso `2024` nunca encontra
+  `2023`.
+- **Letras omitidas:** a partir de 4 letras, `qtrly` encontra `quarterly-sales.csv`. A
+  correspondência só entra em cada palavra do nome pelo seu início, e as letras têm de cobrir pelo
+  menos metade de cada palavra em que tocam.
+
+A correspondência aproximada ignora espaços, hífenes, pontos e sublinhados, por isso
+`meetingnotes` encontra `Meeting Notes.md`, e também os acentos, por isso `resume` encontra
+`Résumé.pdf`. Numa palavra com letras e algarismos, uns e outros correspondem em separado:
+`invoice8619` encontra `Invoice 1986.pdf`. Uma palavra com alguma maiúscula continua a distinguir
+maiúsculas e minúsculas, e os nomes em chinês, japonês e coreano só correspondem tal como foram
+escritos.
+
+As palavras entre aspas, os globs, os caminhos, `-word` e os filtros correspondem sempre
+exatamente, tal como as análises de tamanho. Acrescente `typos:no` a uma pesquisa para deixar de
+fora as correspondências aproximadas uma vez, ou `typos:yes` para as incluir quando a opção não
+está assinalada. Defina `typos = false` em `[search]` para começar com a opção por assinalar; a
+localização rápida e o filtro dos resultados também seguem essa definição.
+
+Os resultados abrem com as melhores correspondências primeiro: os nomes que são a palavra, depois
+os que começam por ela, os que a têm no início de uma palavra e os que a têm em qualquer ponto,
+depois os nomes com menos erros antes dos que têm mais, depois os algarismos trocados e por fim as
+letras omitidas. Quando uma pesquisa tem várias palavras, um nome é classificado pela pior delas.
+Em caso de empate, as pastas menos profundas e os nomes mais curtos vêm primeiro. As letras que
+corresponderam aparecem sublinhadas, e a linha de contexto conta as correspondências aproximadas,
+que contam para o limite de 20 000 como quaisquer outras. Clique no cabeçalho de uma coluna para
+ordenar de outra forma e escolha **Pesquisar → Ordenar por correspondência** para repor a ordem
+por correspondência.
 
 ### Pesquisar dentro dos ficheiros
 
@@ -284,10 +330,11 @@ examina os programas dessa forma.
 ### Trabalhar com os resultados
 
 Clique no cabeçalho de uma coluna para ordenar por ela e clique de novo para inverter a ordem. Os
-menus Esquerda e Direita também permitem ordenar, e o menu Pesquisar acrescenta a ordenação por
-pasta de origem e o agrupamento por pasta ou tipo de ficheiro. Enter no cabeçalho de um grupo
-recolhe-o; Insert marca os ficheiros correspondentes desse grupo. As marcas mantêm-se quando
-ordena ou filtra, e o rodapé conta também os ficheiros marcados que o filtro oculta.
+menus Esquerda e Direita também permitem ordenar, e o menu Pesquisar acrescenta **Ordenar por
+correspondência**, a ordenação por pasta de origem e o agrupamento por pasta ou tipo de ficheiro.
+Enter no cabeçalho de um grupo recolhe-o; Insert marca os ficheiros correspondentes desse grupo. As
+marcas mantêm-se quando ordena ou filtra, e o rodapé conta também os ficheiros marcados que o filtro
+oculta.
 
 F3 e Ctrl-Q abrem o ficheiro original e, depois de uma pesquisa de texto, abrem-no na primeira
 correspondência. A pré-visualização acompanha o cursor pelos resultados e mostra cada ficheiro na
@@ -1380,7 +1427,9 @@ com os bytes que transportou e cada limite atingido com o endereço do cliente.
 Ctrl-S abre a localização rápida. Escreva um nome ou um glob como `*.rs`; Down e Up passam de uma
 correspondência para outra, Insert marca uma correspondência, Ctrl-A marca todas e Enter ou Esc
 fecham a pesquisa. A correspondência ignora maiúsculas e minúsculas, a menos que a pesquisa
-contenha maiúsculas.
+contenha maiúsculas. Quando nada no painel corresponde ao que escreveu, o cursor vai para o nome
+mais próximo, segundo as regras de [nomes com erros](#names-with-typos), e Down e Up passam de
+uma correspondência aproximada para outra.
 
 ### Copiar, mover e eliminar
 
@@ -1789,6 +1838,7 @@ exclude = ["*.min.js", "fixtures/large"]  # paths below the search folder, as in
 artifacts = true            # leave out node_modules, Cargo's target and cache-tagged folders
 ignore-files = true         # follow .gitignore, .ignore, .rgignore and .borgignore
 history = true              # remember searches for Ctrl-P and Ctrl-N
+typos = true                # also find names with typos and shuffled digits
 
 [index]
 roots = ["~/Projects"]      # folders indexed for instant search
