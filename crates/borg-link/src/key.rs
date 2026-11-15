@@ -177,8 +177,9 @@ mod tests {
         let other = Identity::generate();
         assert_eq!(Identity::from_text(&one.to_text()), Some(one.clone()));
         assert_eq!(Identity::from_private(&one.private).public(), one.public());
-        let mut damaged = one.to_text();
-        damaged.replace_range(..2, if damaged.starts_with("00") { "01" } else { "00" });
+        let mut damaged_public = *one.public();
+        damaged_public[0] = !damaged_public[0];
+        let damaged = format!("{}{}", hex(&one.private), hex(&damaged_public));
         assert_eq!(Identity::from_text(&damaged), None);
         assert_eq!(one.shared_secret(other.public()), other.shared_secret(one.public()));
         assert_eq!(one.shared_secret(&[0; KEY_LEN]), None);
