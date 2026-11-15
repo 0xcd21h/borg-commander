@@ -561,8 +561,11 @@ O que o menu oferece depende da linha:
   aquilo por que a linha é alcançada. Uma linha com um processo acrescenta **Copiar PID**,
   **Mostrar no monitor de atividade** e **Sinal ou prioridade…**. Um vizinho oferece
   **Copiar endereço IP**, **Copiar endereço MAC**, **Analisar portas…** (P), **Análises de portas…**
-  (O), **Analisar sub-rede** (S) e **Guardar relatório…** (Ctrl-S), e um host desligado acrescenta
-  **Esquecer host** (F8). **Análises de portas…** fica esbatido até o host ter uma análise.
+  (O), **Analisar rede…** (S), **Descobrir redes…** (D) e **Guardar relatório…** (Ctrl-S), e um host
+  desligado acrescenta **Esquecer host** (F8). **Análises de portas…** fica esbatido até o host ter
+  uma análise. Um cabeçalho da página Vizinhos oferece **Copiar endereço** ou **Copiar rede**,
+  **Analisar rede…**, **Descobrir redes…** e **Guardar relatório…**, e uma rede que o Borg guardou
+  acrescenta **Esquecer rede** (F8).
 - **Alertas**: **Copiar PID**, **Copiar caminho do programa** e **Copiar comando**, depois
   **Mostrar no monitor de atividade**, **Retomar**, **Terminar** e **Permitir**.
 - **Itens de arranque**: **Copiar caminho**, **Copiar caminho do programa** e **Copiar comando**,
@@ -2655,9 +2658,11 @@ Prima de **1** a **5**, ou clique num separador, para mudar de página:
   **Túnel**, **Ponte** ou **Virtual**), o primeiro endereço e as velocidades. ● marca uma interface
   ativa. Os detalhes acrescentam todos os endereços, a MTU, os bytes e pacotes que a interface
   recebeu e enviou até agora, e os erros.
-- **5 Vizinhos** lista os dispositivos da rede local cujo endereço MAC esta máquina conhece, com o
-  fabricante, o nome e o estado, e assinala o gateway e tudo o que pareça suspeito. Consulte
-  [Vizinhos](#neighbors) e [Analisar portas](#scanning-ports).
+- **5 Vizinhos** mapeia cada interface, túnel e VPN com os dispositivos que lhe estão ligados
+  diretamente, as redes que alcança através de routers e a sua saída para a internet. Indica o
+  fabricante, o nome e o estado de cada dispositivo, e assinala o gateway e tudo o que pareça
+  suspeito. Consulte [Vizinhos](#neighbors), [Redes encaminhadas](#routed-networks) e
+  [Analisar portas](#scanning-ports).
 
 O rodapé mostra a velocidade total de receção e envio da máquina em todas as interfaces exceto a de
 loopback. O Borg procura em segundo plano os nomes dos endereços remotos e mostra o nome em vez do
@@ -2673,10 +2678,11 @@ endereço assim que o conhece.
 | R | Capturar o tráfego da linha selecionada ou parar a captura em curso |
 | P | Analisar as portas do vizinho selecionado (**5 Vizinhos**) |
 | O | Mostrar as análises de portas do vizinho selecionado (**5 Vizinhos**) |
-| S | Analisar a sub-rede do vizinho selecionado (**5 Vizinhos**) |
+| S | Analisar a rede da linha selecionada, ou outra que escrever (**5 Vizinhos**) |
+| D | Procurar redes por trás do router para onde segue o tráfego da internet (**5 Vizinhos**) |
 | Ctrl-S | Guardar um relatório de todos os vizinhos (**5 Vizinhos**) |
-| F8 / Delete | Esquecer o host selecionado que está desligado (**5 Vizinhos**) |
-| Ctrl-C | Copiar o endereço da porta, o PID, a outra extremidade, ou o endereço da interface ou do vizinho |
+| F8 / Delete | Esquecer o host selecionado que está desligado, ou uma rede que o Borg guardou (**5 Vizinhos**) |
+| Ctrl-C | Copiar o endereço da porta, o PID, a outra extremidade, o endereço da interface ou do vizinho, ou a rede |
 | Tab | Alternar entre a lista e os detalhes |
 | Space | Pausar ou retomar a amostragem |
 | Alt-W | Maximizar o painel com o foco |
@@ -2697,13 +2703,27 @@ ao monitor. Um processo sem ligações nem portas abertas recebe um aviso que o 
 
 ### Vizinhos
 
-**5 Vizinhos** mostra a tabela ARP (IPv4) e a tabela NDP (IPv6) do sistema: cada dispositivo da rede
-local com que esta máquina falou recentemente, com o endereço, o endereço MAC, o nome e o estado. O
-estado é a palavra que o próprio sistema usa para a entrada: **REACHABLE** respondeu há pouco,
-**STALE** não é verificado há algum tempo, **DELAY** e **PROBE** estão a ser verificados,
+**5 Vizinhos** mostra onde esta máquina está na rede e o que alcança a partir daí. Cada interface
+ativa com um endereço que não seja só de ligação local recebe uma linha de cabeçalho com o nome, o
+tipo e o endereço. Os túneis e as VPN também recebem uma, por isso uma VPN do trabalho aparece ao
+lado do Wi-Fi com as redes a que dá acesso. Debaixo de cada cabeçalho vêm os dispositivos ligados
+diretamente à interface, depois as redes que a interface alcança através de um router ou de um
+túnel, cada uma numa linha que começa por › e seguida dos hosts que o Borg lá encontrou, e por fim
+uma linha **Internet** quando o tráfego para a internet pode sair pela interface.
+[Redes encaminhadas](#routed-networks) explica essas linhas.
+
+A interface por onde o tráfego para a internet sai agora vem primeiro, depois as outras interfaces
+com saída para a internet, depois as interfaces Wi-Fi, Ethernet e ponte, e por fim os túneis. O
+cursor também para nos cabeçalhos, e os seus detalhes descrevem a interface, a rede ou a saída.
+
+Os dispositivos vêm da tabela ARP (IPv4) e da tabela NDP (IPv6) do sistema: cada dispositivo da
+rede local com que esta máquina falou recentemente, com o endereço, o endereço MAC, o nome e o
+estado. O estado é a palavra que o próprio sistema usa para a entrada: **REACHABLE** respondeu há
+pouco, **STALE** não é verificado há algum tempo, **DELAY** e **PROBE** estão a ser verificados,
 **INCOMPLETE** perguntou e ainda não teve resposta, **FAILED** nunca respondeu e **PERMANENT** nunca
-expira. Os hosts que só responderam a uma análise vêm depois das entradas com endereço MAC, a seguir
-os hosts guardados que estão desligados, e as entradas sem endereço MAC ficam no fim. Os endereços
+expira. Debaixo de cada cabeçalho, os hosts que só responderam a uma análise vêm depois das entradas
+com endereço MAC, a seguir os hosts guardados que estão desligados, e as entradas sem endereço MAC
+ficam no fim. Os endereços
 desta máquina e as entradas de broadcast e multicast ficam fora da lista. Um painel largo acrescenta
 o fabricante, as portas abertas e o tempo de ping que uma análise encontrou, e uma nota.
 
@@ -2732,24 +2752,34 @@ endereço MAC, as **Portas abertas** e o **Ping** que uma análise encontrou, e 
 nota. Em **Esta rede** listam os gateways na interface do vizinho e os servidores DNS.
 
 As tabelas só guardam os dispositivos com que esta máquina falou, e alguns dispositivos ficam
-calados até alguém bater à porta. Prima **S**, ou escolha **Analisar sub-rede** no menu de contexto,
-para os encontrar. O Borg pergunta primeiro e indica a sub-rede, a interface e o número de
-endereços. Depois sonda 16 endereços de cada vez. Cada um recebe um ping, ligações TCP às portas 22,
-80 e 443 e um datagrama UDP vazio para a porta 9 que leva o sistema a perguntar pelo endereço MAC
-desse endereço, e o Borg espera até 1 segundo pelas respostas. Um host que responde ao ping, aceita
-uma ligação ou a recusa entra logo na lista, e um painel largo mostra as portas abertas em
+calados até alguém bater à porta. Prima **S**, ou escolha **Analisar rede…** no menu de contexto,
+para os encontrar. **Analisar rede** pede a **Rede** e começa com a da linha selecionada: a sub-rede
+de um host ou de uma interface, ou a rede encaminhada sob o cursor. ↑ e ↓ percorrem as sub-redes em
+que esta máquina está e as redes que alcança, e pode escrever qualquer outra, como 192.168.20.0/24,
+ou só um endereço para o /24 à volta dele. Por baixo do campo, o Borg conta os endereços e indica a
+interface por onde a análise sai. Enter inicia a análise. Uma rede fora dos intervalos privados e
+fora de todas as redes que esta máquina alcança recebe primeiro uma pergunta, e a pergunta abre com
+**Não** selecionado.
+
+O Borg sonda 16 endereços de cada vez. Cada um recebe um ping e ligações TCP às portas 22, 80 e
+443, e um endereço ligado diretamente à interface recebe também um datagrama UDP vazio para a porta
+9 que leva o sistema a perguntar pelo seu endereço MAC. O Borg espera até 1 segundo pelas respostas.
+Um host que responde ao ping, aceita uma ligação ou a recusa entra logo na lista, e um painel largo
+mostra as portas abertas em
 **Portas** e o tempo de ping em **Ping**. Os endereços que ficam calados continuam ocultos. O rodapé
 conta os endereços sondados e os hosts que responderam, e Esc para a análise. Fechar o ecrã deixa a
 análise a correr, e um aviso indica quando termina.
 
 O ping passa por um socket ICMP que não precisa de direitos de administrador. O Linux só concede
 esse socket aos grupos em `net.ipv4.ping_group_range`, e onde o sistema o recusa, o Borg salta o
-ping e guia-se pelas portas. Uma análise abrange sub-redes IPv4 em interfaces Ethernet, Wi-Fi e
-ponte que estejam ativas, e no máximo 254 endereços: uma sub-rede maior fica reduzida ao /24 à volta
-do endereço desta máquina. Salta esta máquina, o endereço de rede e o endereço de broadcast. Sem
-nenhuma linha selecionada, S analisa a sub-rede da interface do gateway predefinido. Analise apenas
-redes que tem autorização para analisar, porque algumas redes tratam uma análise como um ataque.
-Além das análises e das pesquisas de nomes, a página só lê tabelas que o sistema mantém.
+ping e guia-se pelas portas. Uma análise abrange uma rede IPv4 de /24 a /30, no máximo 254
+endereços. O formulário propõe uma sub-rede maior como o /24 à volta do endereço desta máquina, e
+uma rede encaminhada larga como o /24 do primeiro router que o Borg encontrou dentro dela, ou então
+o seu primeiro /24. Uma análise salta os endereços desta máquina, o endereço de rede e o endereço de
+broadcast. Sem nenhuma linha selecionada, o formulário começa na sub-rede da interface por onde sai
+o tráfego para a internet. Analise apenas redes que tem autorização para analisar, porque algumas
+redes tratam uma análise como um ataque. Além das análises, das descobertas e das pesquisas de
+nomes, a página só lê tabelas que o sistema mantém.
 
 O Borg guarda os hosts que encontra, nas tabelas e nas análises, em `neighbors.json` na sua pasta de
 estado, num ficheiro que só o utilizador pode ler. Guarda-os por rede, que reconhece pela sub-rede e
@@ -2760,6 +2790,67 @@ detalhes acrescentam **Visto pela última vez**. Escreva **Desligado** no filtro
 hosts. Prima F8 ou Delete num deles, ou escolha **Esquecer host** no menu de contexto, e o Borg
 pergunta antes de retirar o host do ficheiro. O Borg guarda até 1024 hosts por rede e 32 redes, e
 deixa sair primeiro os que viu há mais tempo.
+
+### Redes encaminhadas
+
+Um router leva muitas vezes a mais redes do que aquela em que esta máquina está. O gateway em
+192.168.1.1 pode também encaminhar 192.168.2.0/24 para outro piso, e uma VPN leva às redes do
+trabalho. **5 Vizinhos** lista cada uma dessas redes debaixo da interface que a alcança, numa linha
+de cabeçalho que começa por ›. A linha indica a rede, como é alcançada e o número de hosts que o
+Borg lá encontrou:
+
+- **no gateway** indica um gateway que respondeu pela própria rede, a um salto de distância. A rede
+  está ligada a uma das portas do próprio gateway.
+- **via** indica os routers no caminho, a partir do gateway, unidos por ›, e a linha acrescenta o
+  número de saltos.
+- Uma rede por trás de um túnel mostra só o endereço, porque o seu tráfego entra diretamente no
+  túnel.
+
+O Borg conhece estas redes de duas formas. A tabela de rotas do sistema lista as redes que uma VPN
+ou um router anunciam, e o Borg lê-a junto com as tabelas de vizinhos. As outras encontra-as quando
+prime **D**, ou escolhe **Descobrir redes…** no menu de contexto. O Borg pergunta primeiro e indica
+o router para onde segue o tráfego da internet e o número de endereços que vai tentar. Depois tenta
+os dois endereços que os routers usam mais vezes, .1 e .254, nestas redes /24:
+
+- Cada /24 do /16 à volta de cada endereço privado das interfaces Wi-Fi, Ethernet e ponte desta
+  máquina. Um endereço 192.168.1.20 traz as redes de 192.168.0.0/24 a 192.168.255.0/24.
+- As redes /24 dentro das rotas que a tabela envia pela mesma interface, até 256 por rota.
+- Sete redes que os routers atribuem por predefinição, como 10.0.0.0/24 e 192.168.0.0/24.
+
+Deixa de fora as redes em que esta máquina está e as que seguem pelas rotas de outra interface, por
+isso as redes de uma VPN ficam dentro da VPN. Uma descoberta tenta no máximo 512 redes, 64 endereços
+de cada vez, cada um com um ping e ligações TCP às portas 80 e 443, que têm 1 segundo para
+responder. Cada endereço que responde recebe um traçado: pedidos de eco cujo tempo de vida cresce de
+1 a 8 saltos. O primeiro eco que volta indica a que distância está a rede, e os routers que
+descartam os mais curtos identificam-se pelo caminho. Onde o ping não é permitido, ligações com um
+tempo de vida crescente contam os saltos. O rodapé conta os endereços tentados e as redes
+encontradas, e Esc para a descoberta.
+
+Um endereço que responde acrescenta o seu /24 debaixo da interface por onde a descoberta saiu, a
+menos que uma rota da tabela já o cubra. A análise de uma rede que escreveu e que nenhuma rota cobre
+faz o mesmo para cada host que responde. Os hosts de uma rede encaminhada não mostram endereço MAC,
+por isso a coluna **MAC** mostra **via** e o router através do qual são alcançados, e os seus
+detalhes acrescentam **Rota**. **S** numa rede encaminhada ou num dos seus hosts abre
+**Analisar rede** nessa rede, e a análise sai pela interface que a alcança. Os detalhes de uma rede
+encaminhada indicam a **Rota** com cada router e a interface, os **Saltos**, a **Origem**, que é
+**Tabela de rotas** ou **Descoberta**, e o número de **Hosts**.
+
+A linha **Internet** debaixo de uma interface indica o seu gateway. Uma VPN que leva todo o tráfego
+acrescenta duas rotas que cobrem cada uma metade do espaço de endereços, 0.0.0.0/1 e 128.0.0.0/1, e
+estas ganham à rota predefinida porque são mais específicas. O Borg conta cada rota de /1 a /7 como
+uma saída para a internet, marca a mais específica como **em uso** e, quando não há nenhuma, marca a
+rota predefinida que o sistema lista primeiro. Com Wi-Fi e cabo, ou uma VPN por cima de qualquer um
+deles, o mapa mostra cada saída e aquela que o tráfego segue. Os detalhes listam a **Interface**, os
+endereços do **Gateway** e as **Rotas** que abrangem mais endereços.
+
+O Borg guarda as redes que uma descoberta encontrou e os hosts por trás delas em `neighbors.json`,
+debaixo da rede local a partir da qual as alcançou, por isso voltam quando entra de novo nessa rede.
+Guarda até 16 por rede. Uma que não respondeu nesta visita mostra **Visto** e a hora no seu
+cabeçalho, e os seus detalhes acrescentam **Visto pela última vez**. Prima F8 ou Delete nela, ou
+escolha **Esquecer rede** no menu de contexto, e o Borg pergunta antes de retirar a rede e os seus
+hosts. As redes da tabela de rotas aparecem e desaparecem com a tabela, por isso F8 não lhes toca. O
+que o Borg encontra por trás de um túnel dura até ao fim da sessão, porque um túnel não tem endereço
+MAC de gateway que permita distinguir as suas redes.
 
 ### Analisar portas
 
@@ -2849,18 +2940,21 @@ leva de volta ao diálogo. Esc volta para onde estava.
 O relatório de uma análise tem a hora, o modo, as portas pedidas e quantas eram, as portas abertas
 com os nomes dos serviços, o número de portas fechadas e filtradas, e a sub-rede, a interface e o
 gateway de onde a análise partiu. Quando o host limitou a análise ou quando a cancelou, o relatório
-di-lo e indica as portas a que não chegou. O relatório da página tem as sub-redes, os gateways e os
-servidores DNS, depois cada host com o endereço MAC, o fabricante, o nome, o estado, as portas e o
-tempo de ping que uma análise da sub-rede encontrou e as suas notas, um host desligado com a hora em
-que foi visto pela última vez, e a última análise de portas de cada host. As horas estão em UTC, tal
+di-lo e indica as portas a que não chegou. O relatório da página tem as sub-redes, os gateways, os
+servidores DNS, as redes encaminhadas com o caminho e os saltos, e a saída para a internet de cada
+interface. Depois vem cada host com a sua rede, o router através do qual é alcançado, o endereço
+MAC, o fabricante, o nome, o estado, as portas e o tempo de ping que uma análise encontrou e as suas
+notas, um host desligado com a hora em que foi visto pela última vez, e a última análise de portas
+de cada host. As horas estão em UTC, tal
 como a data no nome do ficheiro. O que o Borg não apurou fica fora do relatório.
 
 ### Filtrar
 
 O filtro mantém as linhas que correspondem a todas as palavras que escreve. Uma palavra simples
 corresponde ao processo, ao PID, à porta, ao serviço, ao endereço, ao nome do host, ao estado, ao
-protocolo, ao endereço MAC, ao fabricante ou a uma etiqueta que a linha mostra, por isso `postgres`,
-`5432`, `https` e `example.com` funcionam. Uma palavra com nome de campo procura apenas nesse campo:
+protocolo, ao endereço MAC, ao fabricante, à rede ou a uma etiqueta que a linha mostra, por isso
+`postgres`, `5432`, `https` e `example.com` funcionam. Uma palavra com nome de campo procura apenas
+nesse campo:
 
 | Palavra | Mantém |
 | --- | --- |
@@ -2873,10 +2967,12 @@ protocolo, ao endereço MAC, ao fabricante ou a uma etiqueta que a linha mostra,
 | `if:en0`, `interface:en0` | Interfaces e vizinhos cujo nome de interface contém o texto |
 | `mac:3c:22`, `mac:3c-22` | Vizinhos e interfaces cujo endereço MAC contém o texto |
 | `vendor:synology` | Vizinhos cujo fabricante contém o texto |
+| `net:10.20` | Vizinhos numa rede cujo endereço contém o texto, e o cabeçalho dessa rede |
 
 Coloque `!` antes de uma palavra para excluir as linhas que lhe correspondem: `!state:time_wait`
 oculta as ligações a fechar, e `!proc:browser` oculta um programa. O filtro aplica-se a todas as
-páginas e, enquanto escreve, indica quantas linhas da página mantém.
+páginas e, enquanto escreve, indica quantas linhas da página mantém. Em **5 Vizinhos**, um cabeçalho
+mantém-se enquanto houver uma linha debaixo dele que corresponda.
 
 ### Capturar tráfego
 
@@ -3179,12 +3275,16 @@ contagens de bytes de TCP vêm do `ss` quando está instalado; os sockets UDP e 
 mostram **—** nas velocidades, e os detalhes indicam **O sistema não indica contagens de bytes
 aqui**. Os totais e as velocidades das interfaces funcionam sempre.
 
-No macOS, os vizinhos vêm de `arp -anl` e `ndp -an`, os gateways de `netstat -rn` e os servidores
-DNS de `/etc/resolv.conf`. O `arp` não indica estado, por isso uma entrada IPv4 cujo temporizador
-corre mostra **REACHABLE** e uma expirada mostra **STALE**. No Linux, o Borg lê a tabela de vizinhos
-do kernel por netlink, ou `/proc/net/arp` quando o netlink lhe está vedado, e os gateways de
-`/proc/net/route` e `/proc/net/ipv6_route`. Os servidores DNS vêm de `/etc/resolv.conf`, ou de
-`/run/systemd/resolve/resolv.conf` quando o primeiro só indica o stub do systemd-resolved.
+No macOS, os vizinhos vêm de `arp -anl` e `ndp -an`, os gateways e as outras rotas de
+`netstat -rn` e os servidores DNS de `/etc/resolv.conf`. O `arp` não indica estado, por isso uma
+entrada IPv4 cujo temporizador corre mostra **REACHABLE** e uma expirada mostra **STALE**. No Linux,
+o Borg lê a tabela de vizinhos do kernel por netlink, ou `/proc/net/arp` quando o netlink lhe está
+vedado, e os gateways e as rotas de `/proc/net/route` e `/proc/net/ipv6_route`. Os servidores DNS
+vêm de `/etc/resolv.conf`, ou de `/run/systemd/resolve/resolv.conf` quando o primeiro só indica o
+stub do systemd-resolved. O macOS entrega ao socket com que o Borg faz ping os avisos dos routers
+que descartam os ecos de uma descoberta, por isso uma rede encaminhada lista cada router no caminho.
+O Linux não passa esses avisos a esse socket, por isso aí uma descoberta conta os saltos e indica só
+o gateway.
 
 ## Itens de arranque
 

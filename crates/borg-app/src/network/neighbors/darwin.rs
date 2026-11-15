@@ -1,6 +1,6 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
-use borg_core::{Gateway, Mac, Neighbor, NeighborState};
+use borg_core::{Gateway, Mac, Neighbor, NeighborState, Route};
 
 #[cfg(target_os = "macos")]
 pub(super) const ARP: &str = "/usr/sbin/arp";
@@ -40,6 +40,12 @@ const NETIF_COLUMN: &str = "Netif";
 const GATEWAY_COLUMN: usize = 1;
 const GATEWAY_FLAG: char = 'G';
 const SCOPED_FLAG: char = 'I';
+const HOST_FLAG: char = 'H';
+const IPV6_SECTION: &str = "Internet6:";
+const PREFIX_SEPARATOR: char = '/';
+const OCTET_SEPARATOR: char = '.';
+const OCTET_BITS: u8 = 8;
+const IPV4_OCTETS: usize = 4;
 
 fn unscoped(address: &str) -> &str {
     address.split(SCOPE).next().unwrap_or(address)
@@ -133,6 +139,61 @@ pub(super) fn gateways(output: &str) -> Vec<Gateway> {
     found.into_iter().map(|(_, gateway)| gateway).collect()
 }
 
+/// A destination as `netstat -rn` writes it: the octets up to the end of the network, then
+/// `/prefix` when the prefix is not the one those octets imply.
+fn destination(text: &str) -> Option<(Ipv4Addr, u8)> {
+    let (address, prefix) = match text.split_once(PREFIX_SEPARATOR) {
+        Some((address, prefix)) => (address, Some(prefix.parse::<u8>().ok()?)),
+        None => (text, None),
+    };
+    let octets: Vec<u8> = address.split(OCTET_SEPARATOR).map(str::parse).collect::<Result<_, _>>().ok()?;
+    if octets.is_empty() || octets.len() > IPV4_OCTETS {
+        return None;
+    }
+    let implied = u8::try_from(octets.len()).ok()? * OCTET_BITS;
+    let mut full = [0_u8; IPV4_OCTETS];
+    full[..octets.len()].copy_from_slice(&octets);
+    let prefix = prefix.unwrap_or(implied);
+    (prefix <= IPV4_OCTETS as u8 * OCTET_BITS).then_some((Ipv4Addr::from(full), prefix))
+}
+
+/// The IPv4 routes to networks other than the default ones, each once.
+pub(super) fn routes(output: &str) -> Vec<Route> {
+    let mut columns: Option<(usize, usize)> = None;
+    let mut found: Vec<Route> = Vec::new();
+    for line in output.lines() {
+        let words: Vec<&str> = line.split_whitespace().collect();
+        match words.first() {
+            Some(&IPV6_SECTION) => break,
+            Some(&HEADER) => {
+                let at = |name: &str| words.iter().position(|word| *word == name);
+                columns = at(FLAGS_COLUMN).zip(at(NETIF_COLUMN));
+            }
+            Some(&DEFAULT_ROUTE) | None => {}
+            Some(first) => {
+                let Some((flags, netif)) = columns else { continue };
+                let (Some((network, prefix)), Some(gateway), Some(flags), Some(interface)) =
+                    (destination(first), words.get(GATEWAY_COLUMN), words.get(flags), words.get(netif))
+                else {
+                    continue;
+                };
+                if flags.contains(HOST_FLAG) {
+                    continue;
+                }
+                let gateway = gateway.parse::<Ipv4Addr>().ok().filter(|_| flags.contains(GATEWAY_FLAG));
+                let route = Route { network, prefix, gateway, interface: (*interface).to_owned() };
+                let known = found.iter().any(|known| {
+                    (known.network, known.prefix, &known.interface) == (route.network, route.prefix, &route.interface)
+                });
+                if !known {
+                    found.push(route);
+                }
+            }
+        }
+    }
+    found
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -161,8 +222,17 @@ Internet:
 Destination        Gateway            Flags               Netif Expire
 default            198.51.100.1       UGScIg                en7
 default            192.0.2.1          UGScg                 en0
+0/1                10.99.0.7          UGScg               utun4
+10.20/16           10.99.0.7          UGSc                utun4
 127                127.0.0.1          UCS                   lo0
+128.0/1            10.99.0.7          UGSc                utun4
 192.0.2            link#14            UCS                   en0      !
+192.0.2            link#14            UCSI                  en0      !
+192.0.2.1/32       link#14            UCS                   en0      !
+192.0.2.1          3c:22:fb:1:2:3     UHLWIir               en0   1186
+192.0.2.255        ff:ff:ff:ff:ff:ff  UHLWbI                en0      !
+203.0.113          192.0.2.1          UGSc                  en0
+224.0.0/4          link#14            UmCS                  en0      !
 
 Internet6:
 Destination                             Gateway                                 Flags               Netif Expire
@@ -226,6 +296,31 @@ default                                 fe80::%utun0                            
                 (address("fe80::"), "utun0".to_owned()),
             ]
         );
+    }
+
+    #[test]
+    fn network_routes_read_with_the_prefix_their_octets_imply_and_each_once() {
+        let found: Vec<(String, Option<Ipv4Addr>, String)> = routes(NETSTAT_OUTPUT)
+            .into_iter()
+            .map(|route| (format!("{}/{}", route.network, route.prefix), route.gateway, route.interface))
+            .collect();
+        let vpn = Some(Ipv4Addr::new(10, 99, 0, 7));
+        assert_eq!(
+            found,
+            [
+                ("0.0.0.0/1".into(), vpn, "utun4".into()),
+                ("10.20.0.0/16".into(), vpn, "utun4".into()),
+                ("127.0.0.0/8".into(), None, "lo0".into()),
+                ("128.0.0.0/1".into(), vpn, "utun4".into()),
+                ("192.0.2.0/24".into(), None, "en0".into()),
+                ("192.0.2.1/32".into(), None, "en0".into()),
+                ("203.0.113.0/24".into(), Some(Ipv4Addr::new(192, 0, 2, 1)), "en0".into()),
+                ("224.0.0.0/4".into(), None, "en0".into()),
+            ]
+        );
+        assert_eq!(destination("10.1.2.3.4"), None);
+        assert_eq!(destination("10/33"), None);
+        assert_eq!(destination("link#14"), None);
     }
 
     #[test]

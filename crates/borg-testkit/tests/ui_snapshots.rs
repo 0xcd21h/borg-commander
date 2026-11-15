@@ -4606,9 +4606,15 @@ fn network_lists_the_neighbors_with_their_vendors_and_flags() -> Result<()> {
     ensure_text(&buffer, "router.home.arpa")?;
     ensure_text(&buffer, "Gateway 192.0.2.1 · DNS 192.0.2.1, 198.51.100.53")?;
     ensure_no_text(&buffer, "192.0.2.255")?;
+    ensure_text(&buffer, "en0 · Wi-Fi · 192.0.2.20/24")?;
+    ensure_text(&buffer, "› Internet · via 192.0.2.1 · in use")?;
+    ensure_text(&buffer, "utun3 · Tunnel · 198.51.100.2")?;
+    ensure_text(&buffer, "› 10.20.0.0/16")?;
     check("network_neighbors", &stage, buffer)?;
 
-    stage.send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::Down));
+    for _ in 0..5 {
+        stage.send(key(KeyCode::Down));
+    }
     let buffer = stage.render(now)?;
     ensure_text(&buffer, "Other IPv4 addresses on en0 answer with this MAC address.")?;
     check("network_neighbor_shared_mac", &stage, buffer)?;
@@ -4618,7 +4624,10 @@ fn network_lists_the_neighbors_with_their_vendors_and_flags() -> Result<()> {
     ensure_text(&buffer, "Vendor")?;
     ensure_text(&buffer, "MAC shared")?;
     check("network_neighbors_wide", &stage, buffer)?;
-    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT))).send(key(KeyCode::Home));
+    stage
+        .send(Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT)))
+        .send(key(KeyCode::Home))
+        .send(key(KeyCode::Down));
 
     let id = stage.state.network.pending.context("the screen waits for a sample")?;
     let mut sample = borg_testkit::network::sample(borg_testkit::network::SECONDS);
@@ -4633,7 +4642,7 @@ fn network_lists_the_neighbors_with_their_vendors_and_flags() -> Result<()> {
     check("network_neighbor_gateway_changed", &stage, buffer)?;
 
     let right =
-        MouseEvent { kind: MouseEventKind::Down(MouseButton::Right), column: 8, row: 4, modifiers: KeyModifiers::NONE };
+        MouseEvent { kind: MouseEventKind::Down(MouseButton::Right), column: 8, row: 5, modifiers: KeyModifiers::NONE };
     let msg = borg_ui::mouse_input(&stage.state, right, false, now).context("a right-click on a row")?;
     stage.send(msg);
     let buffer = stage.render(now)?;
@@ -4644,7 +4653,8 @@ fn network_lists_the_neighbors_with_their_vendors_and_flags() -> Result<()> {
 
     stage.send(key(KeyCode::Char('s')));
     let buffer = stage.render(now)?;
-    ensure_text(&buffer, "Scan 192.0.2.0/24 on en0?")?;
+    ensure_text(&buffer, "192.0.2.0/24")?;
+    ensure_text(&buffer, "253 addresses on en0.")?;
     check("network_scan_question", &stage, buffer)?;
     stage.send(key(KeyCode::Esc));
     anyhow::ensure!(stage.state.overlay.is_none(), "Esc leaves without scanning");
@@ -4667,11 +4677,13 @@ fn network_scans_the_subnet_and_shows_remembered_hosts_that_are_gone() -> Result
     let buffer = stage.render(now)?;
     ensure_text(&buffer, "Offline")?;
     stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT)));
-    for _ in 0..8 {
+    for _ in 0..9 {
         stage.send(key(KeyCode::Down));
     }
     let buffer = stage.render(now)?;
     ensure_text(&buffer, "Seen Jan 14 18:30")?;
+    ensure_text(&buffer, "› 203.0.113.0/24 · on gateway 192.0.2.1 · 1 hop · 1 host")?;
+    ensure_text(&buffer, "via 192.0.2.1")?;
     ensure_text(&buffer, "Seen Jan  2 09:05")?;
     check("network_neighbors_offline", &stage, buffer)?;
     stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT)));
@@ -4682,7 +4694,7 @@ fn network_scans_the_subnet_and_shows_remembered_hosts_that_are_gone() -> Result
     let right = MouseEvent {
         kind: MouseEventKind::Down(MouseButton::Right),
         column: 8,
-        row: 12,
+        row: 13,
         modifiers: KeyModifiers::NONE,
     };
     let msg = borg_ui::mouse_input(&stage.state, right, false, now).context("a right-click on the offline row")?;
@@ -4701,7 +4713,7 @@ fn network_scans_the_subnet_and_shows_remembered_hosts_that_are_gone() -> Result
 
     stage.send(key(KeyCode::Home)).send(key(KeyCode::Char('s')));
     let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), now);
-    let Some(Effect::ScanSubnet { id, addresses }) = effects.into_iter().next() else { panic!("Enter scans") };
+    let Some(Effect::ScanSubnet { id, addresses, .. }) = effects.into_iter().next() else { panic!("Enter scans") };
     let probe = |address: &str, ping: Option<u64>, open: &[u16], refused: bool| Msg::Probed {
         id,
         probe: Probe {
@@ -4709,6 +4721,7 @@ fn network_scans_the_subnet_and_shows_remembered_hosts_that_are_gone() -> Result
             ping: ping.map(Duration::from_micros),
             open: open.to_vec(),
             refused,
+            trace: None,
         },
         at: borg_testkit::network::NEIGHBORS_READ_AT,
     };
@@ -4727,9 +4740,113 @@ fn network_scans_the_subnet_and_shows_remembered_hosts_that_are_gone() -> Result
     Ok(())
 }
 
+/// Puts the cursor on the Neighbors page's row that names `wanted`: a host's address, an
+/// interface, a routed network or "Internet".
+fn select_row(stage: &mut Stage, wanted: &str) -> Result<()> {
+    use borg_core::NeighborEntry;
+    stage.send(key(KeyCode::Home));
+    for _ in 0..stage.state.network.neighbors.len() {
+        let network = &stage.state.network;
+        let named = match network.entry() {
+            Some(NeighborEntry::Interface(at)) => network.sample.interfaces[at].name.clone(),
+            Some(NeighborEntry::Network(at)) => network.routed[at].cidr(),
+            Some(NeighborEntry::Internet(_)) => "Internet".to_owned(),
+            Some(NeighborEntry::Host(row)) => network.neighborhood.neighbors[row.neighbor].address.to_string(),
+            None => String::new(),
+        };
+        if named == wanted {
+            return Ok(());
+        }
+        stage.send(key(KeyCode::Down));
+    }
+    anyhow::bail!("a row names {wanted}")
+}
+
+/// D asks before looking for networks behind the gateway, the footer counts what it finds, and
+/// the map shows each one under the interface that reaches it, with the routers on the way. A
+/// routed network, the way to the internet and a tunnel's network each have their own details,
+/// S on a routed network scans it through the router, and a typed network beyond every known one
+/// asks first with No as the default.
+#[test]
+fn network_discovers_the_networks_behind_the_gateway_and_maps_them() -> Result<()> {
+    use borg_core::{Effect, Probe, Trace};
+    use std::time::Duration;
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    stage.state.network.memory = borg_testkit::network::remembered();
+    let now = borg_testkit::network::open(&mut stage)?;
+    stage.send(key(KeyCode::Char('5'))).send(key(KeyCode::Char('d')));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Look for networks through 192.0.2.1 on en0?")?;
+    check("network_discover_question", &stage, buffer)?;
+
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), now);
+    let Some(Effect::Discover { id, addresses }) = effects.into_iter().next() else { panic!("Enter discovers") };
+    let probe = |address: &str, hops: Option<u8>, path: &[&str]| Msg::Probed {
+        id,
+        probe: Probe {
+            address: address.parse().unwrap(),
+            ping: hops.map(|hops| Duration::from_micros(900 * u64::from(hops))),
+            open: Vec::new(),
+            refused: false,
+            trace: hops.map(|hops| Trace {
+                hops: Some(hops),
+                path: path.iter().map(|router| router.parse().unwrap()).collect(),
+            }),
+        },
+        at: borg_testkit::network::NEIGHBORS_READ_AT,
+    };
+    stage
+        .send(probe("10.0.0.1", None, &[]))
+        .send(probe("172.16.0.1", Some(3), &["192.0.2.1", "198.51.100.1"]))
+        .send(probe("192.168.1.1", Some(1), &[]));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, &format!("Looking through 192.0.2.1 on en0: 3 of {}, 2 found", addresses.len()))?;
+    ensure_text(&buffer, "› 172.16.0.0/24 · via 192.0.2.1 › 198.51.100.1 · 3 hops · 1 host")?;
+    ensure_text(&buffer, "› 192.168.1.0/24 · on gateway 192.0.2.1 · 1 hop · 1 host")?;
+    check("network_discover_running", &stage, buffer)?;
+    stage.send(Msg::ScanFinished { id, result: Ok(()) });
+
+    select_row(&mut stage, "172.16.0.0/24")?;
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Looked through 192.0.2.1 on en0: 2 networks found.")?;
+    ensure_text(&buffer, "192.0.2.1 › 198.51.100.1 · en0")?;
+    check("network_routed_details", &stage, buffer)?;
+
+    select_row(&mut stage, "203.0.113.0/24")?;
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "The gateway answered for this network itself")?;
+    check("network_remembered_network_details", &stage, buffer)?;
+
+    select_row(&mut stage, "Internet")?;
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Internet traffic leaves this way now.")?;
+    check("network_internet_details", &stage, buffer)?;
+
+    select_row(&mut stage, "10.20.0.0/16")?;
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Traffic to this network goes into the tunnel on utun3.")?;
+    check("network_tunnel_network_details", &stage, buffer)?;
+
+    select_row(&mut stage, "172.16.0.0/24")?;
+    stage.send(key(KeyCode::Char('s')));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "254 addresses reached through en0.")?;
+    check("network_scan_routed_form", &stage, buffer)?;
+    for _ in 0.."172.16.0.0/24".len() {
+        stage.send(key(KeyCode::Backspace));
+    }
+    stage.send(Msg::Paste("198.18.0.0/28".into())).send(key(KeyCode::Enter));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "lies outside the private ranges")?;
+    check("network_scan_outside", &stage, buffer)?;
+    stage.send(key(KeyCode::Enter));
+    anyhow::ensure!(stage.state.network.scan.is_none(), "Enter keeps No");
+    Ok(())
+}
+
 fn select_neighbor(stage: &mut Stage, address: std::net::IpAddr) -> Result<()> {
     stage.send(key(KeyCode::Home));
-    for _ in borg_testkit::network::neighborhood().neighbors {
+    for _ in 0..stage.state.network.neighbors.len() {
         if stage.state.network.neighbor().map(|(neighbor, _)| neighbor.address) == Some(address) {
             return Ok(());
         }

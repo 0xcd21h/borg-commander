@@ -1,7 +1,11 @@
-//! What the Neighbors page knows, as a report: the attached networks, every host with what the
+//! What the Neighbors page knows, as a report: the attached networks, the networks reached
+//! through routers and tunnels, each interface's way to the internet, every host with what the
 //! tables, scans and memory say about it, and the last port scan of each.
 
-use std::{net::IpAddr, time::Duration};
+use std::{
+    net::{IpAddr, Ipv4Addr},
+    time::Duration,
+};
 
 use borg_i18n::tr;
 use serde::Serialize;
@@ -10,15 +14,20 @@ use super::{
     scan::{self, MINOR, NetworkDocument, SECTION, SUBSECTION, ScanDocument, TITLE, port_list},
     text::{self, CSV_LIST_SEPARATOR, LINES, LIST_SEPARATOR, fact},
 };
-use crate::{AppState, Mac, NeighborState, PortScanRecord, Presence, ScanNetwork, vendor};
+use crate::{
+    AppState, InternetRoute, Mac, NeighborState, Origin, PortScanRecord, Presence, Routed, ScanNetwork, vendor,
+};
 
 const MICROS_PER_MILLI: u128 = 1_000;
-const CSV_HEADS: [&str; 14] = [
+const VALUE_SEPARATOR: &str = " · ";
+const CSV_HEADS: [&str; 16] = [
     "address",
     "mac",
     "vendor",
     "name",
     "interface",
+    "network",
+    "via",
     "state",
     "presence",
     "last_seen",
@@ -68,6 +77,10 @@ pub struct ReportHost {
     pub vendor: Option<&'static str>,
     pub name: Option<String>,
     pub interface: String,
+    /// The routed network the host is behind.
+    pub network: Option<String>,
+    /// The router a host without a MAC address is reached through.
+    pub via: Option<Ipv4Addr>,
     pub state: Option<NeighborState>,
     pub presence: ReportPresence,
     /// When a host that is gone was last seen, in seconds since the epoch.
@@ -85,6 +98,8 @@ pub struct NeighborsReport {
     /// When the tables were read, in seconds since the epoch.
     pub read_at: u64,
     pub networks: Vec<ScanNetwork>,
+    pub routes: Vec<Routed>,
+    pub internet: Vec<InternetRoute>,
     pub dns: Vec<IpAddr>,
     pub hosts: Vec<ReportHost>,
 }
@@ -99,6 +114,10 @@ struct HostDocument<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     name: Option<&'a str>,
     interface: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    network: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    via: Option<Ipv4Addr>,
     #[serde(skip_serializing_if = "Option::is_none")]
     state: Option<&'static str>,
     presence: ReportPresence,
@@ -115,11 +134,77 @@ struct HostDocument<'a> {
 }
 
 #[derive(Serialize)]
+struct RouteDocument<'a> {
+    network: String,
+    interface: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    gateway: Option<Ipv4Addr>,
+    #[serde(skip_serializing_if = "<[Ipv4Addr]>::is_empty")]
+    path: &'a [Ipv4Addr],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hops: Option<u8>,
+    source: Origin,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_seen: Option<String>,
+}
+
+#[derive(Serialize)]
+struct InternetDocument<'a> {
+    interface: &'a str,
+    #[serde(skip_serializing_if = "<[IpAddr]>::is_empty")]
+    gateways: &'a [IpAddr],
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    wide: Vec<String>,
+    in_use: bool,
+}
+
+#[derive(Serialize)]
 struct NeighborsDocument<'a> {
     read_at: String,
     networks: Vec<NetworkDocument>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    routes: Vec<RouteDocument<'a>>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    internet: Vec<InternetDocument<'a>>,
     dns: &'a [IpAddr],
     hosts: Vec<HostDocument<'a>>,
+}
+
+fn route_document(routed: &Routed) -> RouteDocument<'_> {
+    RouteDocument {
+        network: routed.cidr(),
+        interface: &routed.interface,
+        gateway: routed.gateway,
+        path: &routed.trace.path,
+        hops: routed.trace.hops,
+        source: routed.origin,
+        last_seen: routed.remembered.map(text::utc),
+    }
+}
+
+fn internet_document(route: &InternetRoute) -> InternetDocument<'_> {
+    InternetDocument {
+        interface: &route.interface,
+        gateways: &route.gateways,
+        wide: route.wide.iter().map(|wide| format!("{}/{}", wide.network, wide.prefix)).collect(),
+        in_use: route.in_use,
+    }
+}
+
+/// A routed network as the report's facts give it: the network, how it is reached, how far, and
+/// the interface.
+fn route_fact(routed: &Routed) -> String {
+    let hops = routed.trace.hops.map(|hops| borg_i18n::count(usize::from(hops), borg_i18n::Count::Hop));
+    let parts = [Some(routed.cidr()), crate::route_way(routed), hops, Some(routed.interface.clone())];
+    fact(tr!(network_route_label), parts.into_iter().flatten().collect::<Vec<_>>().join(VALUE_SEPARATOR))
+}
+
+/// An interface's way to the internet as the report's facts give it.
+fn internet_fact(route: &InternetRoute) -> String {
+    let via = route.gateway().map(|gateway| tr!(network_via, gateway = gateway));
+    let in_use = route.in_use.then(|| tr!(network_in_use).to_owned());
+    let parts = [Some(route.interface.clone()), via, in_use];
+    fact(tr!(network_internet), parts.into_iter().flatten().collect::<Vec<_>>().join(VALUE_SEPARATOR))
 }
 
 /// A ping time in whole milliseconds, rounded up as the page shows it.
@@ -139,6 +224,7 @@ impl ReportHost {
             row.shared.then_some(HostFlag::MacShared),
             randomized.then_some(HostFlag::Randomized),
         ];
+        let routed = network.routed_network(address);
         let (presence, last_seen) = match row.presence {
             Presence::Listed => (ReportPresence::Listed, None),
             Presence::Answered => (ReportPresence::Answered, None),
@@ -150,6 +236,8 @@ impl ReportHost {
             vendor: neighbor.mac.filter(|_| !randomized).and_then(vendor),
             name: network.host(address).map(str::to_owned),
             interface: neighbor.interface.clone(),
+            network: routed.map(Routed::cidr),
+            via: network.router_for(neighbor),
             state: neighbor.state,
             presence,
             last_seen,
@@ -167,6 +255,8 @@ impl ReportHost {
             vendor: self.vendor,
             name: self.name.as_deref(),
             interface: &self.interface,
+            network: self.network.as_deref(),
+            via: self.via,
             state: self.state.map(NeighborState::name),
             presence: self.presence,
             last_seen: self.last_seen.map(text::utc),
@@ -188,8 +278,10 @@ impl ReportHost {
     }
 
     fn note_cell(&self) -> String {
+        let via = self.via.map(|gateway| tr!(network_via, gateway = gateway));
         let seen = self.last_seen.map(|at| tr!(network_seen_note, when = text::readable(at)));
-        self.flags.iter().map(|flag| flag.label().to_owned()).chain(seen).collect::<Vec<_>>().join(LIST_SEPARATOR)
+        let flags = self.flags.iter().map(|flag| flag.label().to_owned());
+        via.into_iter().chain(flags).chain(seen).collect::<Vec<_>>().join(LIST_SEPARATOR)
     }
 
     fn row(&self) -> Vec<String> {
@@ -213,6 +305,8 @@ impl ReportHost {
             self.vendor.unwrap_or_default().to_owned(),
             self.name.clone().unwrap_or_default(),
             self.interface.clone(),
+            self.network.clone().unwrap_or_default(),
+            self.via.map(|via| via.to_string()).unwrap_or_default(),
             self.state.map(NeighborState::name).unwrap_or_default().to_owned(),
             text::plain(self.presence),
             self.last_seen.map(text::utc).unwrap_or_default(),
@@ -233,6 +327,8 @@ impl NeighborsReport {
         Self {
             read_at: network.neighborhood.read_at,
             networks: network.places.iter().map(|place| crate::port_scan::scan_network(network, place)).collect(),
+            routes: network.routed.clone(),
+            internet: network.internet.clone(),
             dns: network.neighborhood.dns.clone(),
             hosts: network.every_neighbor().into_iter().map(|row| ReportHost::of(state, row)).collect(),
         }
@@ -241,6 +337,8 @@ impl NeighborsReport {
     pub(super) fn markdown(&self) -> String {
         let facts = std::iter::once(fact(tr!(report_read_label), text::readable(self.read_at)))
             .chain(self.networks.iter().flat_map(scan::network_facts))
+            .chain(self.routes.iter().map(route_fact))
+            .chain(self.internet.iter().map(internet_fact))
             .chain((!self.dns.is_empty()).then(|| {
                 let dns: Vec<String> = self.dns.iter().map(ToString::to_string).collect();
                 fact(tr!(network_dns_label), dns.join(LIST_SEPARATOR))
@@ -273,6 +371,8 @@ impl NeighborsReport {
         text::json(&NeighborsDocument {
             read_at: text::utc(self.read_at),
             networks: self.networks.iter().map(scan::network_document).collect(),
+            routes: self.routes.iter().map(route_document).collect(),
+            internet: self.internet.iter().map(internet_document).collect(),
             dns: &self.dns,
             hosts: self.hosts.iter().map(ReportHost::document).collect(),
         })

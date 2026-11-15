@@ -160,6 +160,10 @@ pub enum ConfirmPurpose {
     Scan(Box<crate::SubnetScan>),
     /// Yes drops a remembered host that is gone from the saved neighbors.
     ForgetNeighbor(std::net::Ipv4Addr),
+    /// Look for networks behind the router internet traffic goes to.
+    Discover(Box<crate::Discovery>),
+    /// Forget a remembered routed network and the hosts behind it.
+    ForgetRoute(std::net::Ipv4Addr, u8),
     /// Yes starts the port scan as a job.
     ScanPorts(Box<crate::PortScanRequest>),
     /// Yes writes the report over the file that is there, and no goes back to the save dialog.
@@ -226,6 +230,8 @@ pub enum Overlay {
     Storage(crate::StorageWindow),
     /// Which host to scan for open ports, which ports and how fast.
     PortScan(Box<crate::PortScanForm>),
+    /// Which network the subnet scan covers.
+    ScanNetwork(Box<crate::ScanForm>),
     /// A port scan finished in the background.
     PortScanDone(Box<crate::PortScanRecord>),
     /// The open ports a scan found.

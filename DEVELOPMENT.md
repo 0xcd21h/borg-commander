@@ -298,19 +298,39 @@ a fresh download; run it with `python3 -I`. `borg-app::network::neighbors` reads
 macOS it parses `/usr/sbin/arp -anl`, `/usr/sbin/ndp -an` and `/usr/sbin/netstat -rn`. On Linux it
 dumps the neighbor table over netlink (`RTM_GETNEIGH`) through rustix, falls back to
 `/proc/net/arp`, and reads the gateways from `/proc/net/route` and `/proc/net/ipv6_route`. The
-sampler reads the tables on every sample while Neighbors shows and on every fifth otherwise. A
-failed read lands in `Neighborhood::error` and shows on the page without failing the sample.
+same route tables give `Neighborhood::routes`, every IPv4 route other than a default or host one:
+macOS's classful destinations such as `192.0.2` or `10.20/16` are widened to a network and prefix,
+and Linux's hex fields are read in native byte order with the prefix from the mask. The sampler
+reads the tables on every sample while Neighbors shows and on every fifth otherwise. A failed read
+lands in `Neighborhood::error` and shows on the page without failing the sample.
 
-Subnet scans: `borg-app::network::scan` runs on tokio with a semaphore of 16 probes in flight. Each
-probe sends an empty UDP datagram to the discard port, an ICMP echo through an unprivileged
-`SOCK_DGRAM` socket made with rustix, and TCP connects to `SCAN_PORTS`, each with a 1 second
-timeout. The echo parser skips the IPv4 header macOS hands over and matches replies by source
+The map: `neighbors::routes` turns the routes into `Routed` networks (table routes from /8 to /30
+on an interface that is up, minus attached, special and covered ones) and `InternetRoute`s, one for
+each interface with a default gateway or a wide route from /1 to /7, marking the most specific
+wide route, else the first default, as in use. `routed()` merges the table's networks with the ones
+a discovery reached and the ones memory holds, letting a table route take a discovered trace.
+`neighbors::map` builds the page's `NeighborEntry` list: interface headings ordered by in use,
+other ways out, LAN and tunnel, each with its own hosts, its routed networks with their hosts, and
+its internet row; `shows()` keeps interfaces that are up with an address beyond link-local and
+loopback. `discovery()` picks the /24 networks to probe through the in-use way, their `.1` and
+`.254`, without attached networks and those another interface's routes take.
+
+Subnet scans: `borg-app::network::scan` runs on tokio and takes a `Plan`. `Plan::Subnet` keeps 16
+probes in flight; each sends an empty UDP datagram to the discard port when the network is on the
+link, an ICMP echo through an unprivileged `SOCK_DGRAM` socket made with rustix, and TCP connects to
+`SCAN_PORTS`, each with a 1 second timeout. `Plan::Discovery` keeps 64 in flight, tries ports 80
+and 443, and traces each address that answered: echoes with `IP_TTL` from 1 to `MAX_HOPS`, or TCP
+connects with a growing TTL when ping is unavailable. macOS hands Time Exceeded to the ICMP socket,
+so `icmp_answer` reads the inner IPv4 header and echo to name the router; Linux does not, so a
+trace there yields hops alone. Each address uses a block of 16 echo sequence numbers. The echo parser skips the IPv4 header macOS hands over and matches replies by source
 and sequence, since Linux rewrites the identifier. Ping is left out when the socket cannot be
 made. A stop flag ends the loop, each probe answers with `Msg::Probed`, and `Msg::ScanFinished`
 follows the last one. In core, `neighbors::merge` lays the probes and `NeighborMemory` over the
 table read from the system, marking each entry `Listed`, `Answered` or `Offline`. The memory is
-keyed by `LocalNetwork`, the subnet plus the gateway's MAC address, and saved owner-only as
-`neighbors.json` through `Effect::SaveNeighbors`: at once when a host, MAC address or port is new,
+keyed by `LocalNetwork`, the subnet plus the gateway's MAC address. Format 2 adds each place's
+`KnownRoute`s, up to 16, for the networks a discovery reached from it, and keeps hosts behind them
+under the same place; format 1 files still load. Networks behind a tunnel have no place and are not
+kept. The memory is saved owner-only as `neighbors.json` through `Effect::SaveNeighbors`: at once when a host, MAC address or port is new,
 and at most once a minute when only the times change. A file that fails to load is left alone and
 nothing is saved over it for the session.
 

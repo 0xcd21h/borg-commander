@@ -20,6 +20,8 @@ mod neighbors;
 mod proxy;
 mod scan;
 
+pub use scan::Plan;
+
 pub(crate) use capture::{access as capture_access, helper as capture_helper, read_capture, record_for_agent};
 pub(crate) use scan::epoch_seconds;
 #[cfg(any(target_os = "macos", test))]
@@ -108,11 +110,11 @@ impl Network {
     }
 
     /// Scans `addresses`, in place of a scan still running.
-    pub fn scan(&mut self, id: u64, addresses: Vec<std::net::Ipv4Addr>) {
+    pub fn scan(&mut self, id: u64, addresses: Vec<std::net::Ipv4Addr>, plan: Plan) {
         if let Some(scan) = self.scan.take() {
             scan.abort();
         }
-        self.scan = Some(scan::Scan::start(id, addresses, self.messages.clone()));
+        self.scan = Some(scan::Scan::start(id, addresses, plan, self.messages.clone()));
     }
 
     pub fn stop_scan(&self, id: u64) {

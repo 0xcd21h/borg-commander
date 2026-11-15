@@ -19,6 +19,7 @@ mod keys;
 mod model;
 mod neighbors;
 mod rows;
+mod scan_form;
 mod shell_variables;
 mod traffic;
 mod viewer;
@@ -34,12 +35,15 @@ pub use filter::NetworkFilter;
 pub(crate) use keys::{click, copied_text, paste, route_key, show_page, sort_by};
 pub use model::{Interface, InterfaceKind, NetworkSample, PortKey, Socket, SocketKey, TcpState, Transport, service};
 pub use neighbors::{
-    Gateway, GatewayWatch, KnownHost, KnownNetwork, LocalNetwork, Mac, MacChange, NEIGHBORS_FORMAT, Neighbor,
-    NeighborMemory, NeighborRow, NeighborState, Neighborhood, Noted, Presence, Probe, Probed, SCAN_PORTS,
-    SavedNeighbors, Subnet, SubnetScan, places, subnet, vendor,
+    Discovery, Gateway, GatewayWatch, InternetRoute, KnownHost, KnownNetwork, KnownRoute, LocalNetwork, MAX_HOPS, Mac,
+    MacChange, NEIGHBORS_FORMAT, Neighbor, NeighborEntry, NeighborMemory, NeighborRow, NeighborState, Neighborhood,
+    Noted, Origin, Presence, Probe, Probed, ROUTER_HOSTS, Route, Routed, SCAN_PORTS, SavedNeighbors, ScanProblem,
+    Subnet, SubnetScan, Trace, Way, places, subnet, vendor,
 };
 use rows::Source;
 pub use rows::{ConnectionRow, Exposure, InterfaceRow, PortRow, ProcessRow, neighbor_notes};
+pub use scan_form::ScanForm;
+pub(crate) use scan_form::{on_key as on_scan_form_key, paste as paste_scan_form};
 pub use shell_variables::{
     Dialect, KEY_LOG_VARIABLE, PROXY_VARIABLES, ShellVariables, TRUST_VARIABLES, shell_variables,
 };
@@ -158,6 +162,8 @@ enum RowKey {
     Connection(SocketKey),
     Interface(String),
     Neighbor(IpAddr, String),
+    Routed(Ipv4Addr, u8),
+    Internet(String),
 }
 
 #[derive(Debug, Clone)]
@@ -173,7 +179,15 @@ pub struct Network {
     pub processes: Vec<ProcessRow>,
     pub connections: Vec<ConnectionRow>,
     pub interfaces: Vec<InterfaceRow>,
-    pub neighbors: Vec<NeighborRow>,
+    /// The Neighbors page's rows: each interface with its hosts, routed networks and way out.
+    pub neighbors: Vec<NeighborEntry>,
+    /// The networks reached through a router or a tunnel: the route table's, the ones a
+    /// discovery found, and the remembered ones.
+    pub routed: Vec<Routed>,
+    /// Each interface's way to the internet.
+    pub internet: Vec<InternetRoute>,
+    /// The networks discoveries found this session.
+    reached: Vec<Routed>,
     /// The neighbor tables with what scans found and the remembered hosts that are gone.
     pub neighborhood: Neighborhood,
     table: Neighborhood,
@@ -243,6 +257,9 @@ impl Default for Network {
             connections: Vec::new(),
             interfaces: Vec::new(),
             neighbors: Vec::new(),
+            routed: Vec::new(),
+            internet: Vec::new(),
+            reached: Vec::new(),
             neighborhood: Neighborhood::default(),
             table: Neighborhood::default(),
             presence: Vec::new(),
@@ -392,9 +409,63 @@ impl Network {
         (self.page == NetworkPage::Interfaces).then(|| (&self.sample.interfaces[row.interface], row.rate))
     }
 
+    /// The Neighbors page's selected row.
+    pub fn entry(&self) -> Option<NeighborEntry> {
+        let entry = *self.neighbors.get(self.cursors[NetworkPage::Neighbors.index()])?;
+        (self.page == NetworkPage::Neighbors).then_some(entry)
+    }
+
     pub fn neighbor(&self) -> Option<(&Neighbor, NeighborRow)> {
-        let row = *self.neighbors.get(self.cursors[NetworkPage::Neighbors.index()])?;
-        (self.page == NetworkPage::Neighbors).then(|| (&self.neighborhood.neighbors[row.neighbor], row))
+        let row = self.entry()?.host()?;
+        Some((&self.neighborhood.neighbors[row.neighbor], row))
+    }
+
+    /// The host rows the Neighbors page shows.
+    pub fn neighbor_rows(&self) -> impl Iterator<Item = NeighborRow> + '_ {
+        self.neighbors.iter().filter_map(|entry| entry.host())
+    }
+
+    /// The rows a page shows that its filter counts: every row, and on Neighbors the hosts.
+    pub fn shown(&self, page: NetworkPage) -> usize {
+        match page {
+            NetworkPage::Neighbors => self.neighbor_rows().count(),
+            _ => self.len(page),
+        }
+    }
+
+    /// The routed network holding a host, if one does.
+    pub fn routed_network(&self, address: IpAddr) -> Option<&Routed> {
+        let IpAddr::V4(address) = address else { return None };
+        neighbors::holding(&self.routed, address).map(|index| &self.routed[index])
+    }
+
+    /// Whether a routed network shows anything found now, or only what memory holds.
+    pub fn routed_live(&self, index: usize) -> bool {
+        let network = &self.routed[index];
+        network.remembered.is_none()
+            || self.neighbor_rows().any(|row| {
+                let neighbor = &self.neighborhood.neighbors[row.neighbor];
+                !matches!(row.presence, Presence::Offline(_))
+                    && matches!(neighbor.address, IpAddr::V4(address) if network.contains(address))
+            })
+    }
+
+    /// The router a host without a MAC address is reached through: its routed network's gateway,
+    /// or beyond every known network its interface's way to the internet.
+    pub fn router_for(&self, neighbor: &Neighbor) -> Option<Ipv4Addr> {
+        let IpAddr::V4(address) = neighbor.address else { return None };
+        if neighbor.mac.is_some() || subnet(&self.sample.interfaces, neighbor).is_some() {
+            return None;
+        }
+        let gateway = match self.routed_network(neighbor.address) {
+            Some(routed) => routed.gateway,
+            None => self
+                .internet
+                .iter()
+                .find(|route| route.interface == neighbor.interface)
+                .and_then(InternetRoute::gateway),
+        }?;
+        (gateway != address).then_some(gateway)
     }
 
     pub fn neighbor_name(&self, neighbor: &Neighbor) -> Option<String> {
@@ -403,20 +474,78 @@ impl Network {
 
     pub fn same_mac(&self, neighbor: &Neighbor) -> Vec<IpAddr> {
         let Some(mac) = neighbor.mac else { return Vec::new() };
-        self.neighbors
-            .iter()
+        self.neighbor_rows()
             .map(|row| &self.neighborhood.neighbors[row.neighbor])
             .filter(|other| other.mac == Some(mac) && other.address != neighbor.address)
             .map(|other| other.address)
             .collect()
     }
 
-    pub fn scan_target(&self) -> Option<SubnetScan> {
-        let interface = match self.neighbor() {
-            Some((neighbor, _)) => neighbor.interface.clone(),
-            None => self.neighborhood.first_gateway()?.interface.clone(),
-        };
+    /// The attached subnet scans cover on an interface.
+    fn attached_scan(&self, interface: &str) -> Option<SubnetScan> {
         self.sample.interfaces.iter().find(|known| known.name == interface).and_then(SubnetScan::of)
+    }
+
+    /// The networks the scan form offers: each attached subnet, then each routed network.
+    pub fn scan_choices(&self) -> Vec<String> {
+        let attached = self.sample.interfaces.iter().filter_map(SubnetScan::of).map(|scan| scan.subnet());
+        let routed = self.routed.iter().map(|network| {
+            let (base, prefix) = network.scanned_part();
+            format!("{base}/{prefix}")
+        });
+        let mut choices: Vec<String> = attached.chain(routed).collect();
+        let mut seen = HashSet::new();
+        choices.retain(|choice| seen.insert(choice.clone()));
+        choices
+    }
+
+    /// The network S offers first: the selected row's, else the one internet traffic leaves
+    /// through.
+    pub fn scan_target(&self) -> Option<String> {
+        let routed = |index: usize| {
+            let (base, prefix) = self.routed[index].scanned_part();
+            Some(format!("{base}/{prefix}"))
+        };
+        let exit = || self.internet.iter().find(|route| route.in_use).map(|route| route.interface.as_str());
+        let interface = match self.entry() {
+            Some(NeighborEntry::Network(index)) => return routed(index),
+            Some(NeighborEntry::Host(row)) => {
+                let neighbor = &self.neighborhood.neighbors[row.neighbor];
+                if let IpAddr::V4(address) = neighbor.address
+                    && let Some(index) = neighbors::holding(&self.routed, address)
+                {
+                    return routed(index);
+                }
+                neighbor.interface.as_str()
+            }
+            Some(NeighborEntry::Interface(index)) => self.sample.interfaces.get(index)?.name.as_str(),
+            Some(NeighborEntry::Internet(index)) => self.internet.get(index)?.interface.as_str(),
+            None => exit().or_else(|| self.neighborhood.first_gateway().map(|gateway| gateway.interface.as_str()))?,
+        };
+        self.attached_scan(interface)
+            .or_else(|| exit().and_then(|name| self.attached_scan(name)))
+            .map(|scan| scan.subnet())
+    }
+
+    /// The scan of a network typed into the scan form.
+    pub fn typed_scan(&self, text: &str) -> Result<SubnetScan, ScanProblem> {
+        SubnetScan::typed(text, &self.sample.interfaces, &self.routed, &self.internet)
+    }
+
+    /// Whether a network lies outside the private ranges and every network this machine reaches.
+    pub fn outside(&self, network: Ipv4Addr, prefix: u8) -> bool {
+        let last = Ipv4Addr::from(u32::from(network) | !neighbors::mask(prefix));
+        let known = |address: Ipv4Addr| {
+            self.places.iter().any(|place| place.contains(address))
+                || self.routed_network(IpAddr::V4(address)).is_some()
+        };
+        let private = |address: Ipv4Addr| crate::port_scan::is_private(IpAddr::V4(address));
+        !(private(network) && private(last)) && !(known(network) && known(last))
+    }
+
+    /// What a discovery would probe now.
+    pub fn discovery(&self) -> Option<Discovery> {
+        neighbors::discovery(&self.sample.interfaces, &self.table.routes, &self.internet)
     }
 
     /// The scanned ports `address` took connections on, from this session's scan or else an
@@ -427,9 +556,17 @@ impl Network {
 
     /// Puts the scanned and remembered hosts beside the neighbor tables and builds the rows again.
     fn merge(&mut self) {
-        self.places = neighbors::places(&self.sample.interfaces, &self.table);
+        let interfaces = &self.sample.interfaces;
+        self.places = neighbors::places(interfaces, &self.table);
+        self.internet = neighbors::internet(&self.table, interfaces);
+        self.reroute();
         (self.neighborhood, self.presence) = neighbors::merge(&self.table, &self.probes, &self.memory, &self.places);
         self.rebuild();
+    }
+
+    fn reroute(&mut self) {
+        let table = neighbors::table_networks(&self.table.routes, &self.sample.interfaces);
+        self.routed = neighbors::routed(table, &self.reached, self.memory.remembered(&self.places));
     }
 
     /// Whether to save the remembered neighbors now: at once for a new host, port or MAC
@@ -514,6 +651,8 @@ impl Network {
             probes: &self.probes,
             memory: &self.memory,
             places: &self.places,
+            routed: &self.routed,
+            internet: &self.internet,
             filter,
         }
     }
@@ -531,10 +670,18 @@ impl Network {
             NetworkPage::Interfaces => {
                 RowKey::Interface(self.sample.interfaces[self.interfaces.get(index)?.interface].name.clone())
             }
-            NetworkPage::Neighbors => {
-                let neighbor = &self.neighborhood.neighbors[self.neighbors.get(index)?.neighbor];
-                RowKey::Neighbor(neighbor.address, neighbor.interface.clone())
-            }
+            NetworkPage::Neighbors => match *self.neighbors.get(index)? {
+                NeighborEntry::Host(row) => {
+                    let neighbor = &self.neighborhood.neighbors[row.neighbor];
+                    RowKey::Neighbor(neighbor.address, neighbor.interface.clone())
+                }
+                NeighborEntry::Interface(at) => RowKey::Interface(self.sample.interfaces.get(at)?.name.clone()),
+                NeighborEntry::Network(at) => {
+                    let network = self.routed.get(at)?;
+                    RowKey::Routed(network.network, network.prefix)
+                }
+                NeighborEntry::Internet(at) => RowKey::Internet(self.internet.get(at)?.interface.clone()),
+            },
         })
     }
 
@@ -570,6 +717,7 @@ impl Network {
     pub(crate) fn rebuild(&mut self) {
         let filter = NetworkFilter::parse(&self.filter);
         let (rows, totals) = self.source(&filter).filtered();
+        let filtered = !filter.is_empty();
         let rows::Rows { mut ports, mut processes, mut connections, mut interfaces, mut neighbors } = rows;
         self.totals = totals;
         let [by_port, by_process, by_connection, by_interface, by_neighbor] = self.orders;
@@ -643,8 +791,18 @@ impl Network {
                     .then((x.address, &x.interface).cmp(&(y.address, &y.interface)))
             })
         });
+        let entries = {
+            let source = self.source(&filter);
+            let parts = neighbors::MapParts {
+                interfaces: &self.sample.interfaces,
+                routed: &self.routed,
+                internet: &self.internet,
+                neighbors: &self.neighborhood.neighbors,
+            };
+            neighbors::entries(&parts, neighbors, filtered, |entry| filter.matches(&source.entry_haystack(entry)))
+        };
         (self.ports, self.processes, self.connections, self.interfaces, self.neighbors) =
-            (ports, processes, connections, interfaces, neighbors);
+            (ports, processes, connections, interfaces, entries);
         for page in NetworkPage::ALL {
             let index = page.index();
             let found = self.chosen[index].clone().and_then(|key| self.find(page, &key));
@@ -675,11 +833,11 @@ impl Network {
             .iter()
             .filter_map(|socket| socket.remote.map(|remote| remote.ip()))
             .chain(
-                self.neighbors
-                    .iter()
-                    .map(|row| &self.neighborhood.neighbors[row.neighbor])
-                    .filter(|neighbor| neighbor.mac.is_some())
-                    .map(|neighbor| neighbor.address),
+                self.neighbor_rows()
+                    .filter(|row| {
+                        self.neighborhood.neighbors[row.neighbor].mac.is_some() || row.presence == Presence::Answered
+                    })
+                    .map(|row| self.neighborhood.neighbors[row.neighbor].address),
             )
             .filter(|address| !address.is_loopback() && !address.is_unspecified())
             .collect::<HashSet<_>>()
@@ -889,11 +1047,20 @@ pub(crate) fn hosts_resolved(state: &mut AppState, names: Vec<(IpAddr, Option<St
     }
 }
 
-/// A subnet scan under way: how many of its addresses were probed and answered so far.
+/// What a scan under way covers: a subnet, or the networks a discovery looks for through a
+/// route out.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ScanKind {
+    Subnet { subnet: String },
+    Discovery { way: Way },
+}
+
+/// A scan under way: how many of its addresses were probed and answered so far. A discovery
+/// counts the networks found instead of the addresses that answered.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScanRun {
     pub id: u64,
-    pub subnet: String,
+    pub kind: ScanKind,
     pub interface: String,
     pub total: usize,
     pub done: usize,
@@ -906,26 +1073,67 @@ pub fn scanned_ports() -> String {
     SCAN_PORTS.map(|port| port.to_string()).join(PORT_SEPARATOR)
 }
 
-/// S asks before scanning the selected neighbor's subnet.
+/// Where a discovery's probes go, in words: the gateway and its interface, or the interface.
+pub fn way_label(way: &Way) -> String {
+    match way.gateway {
+        Some(gateway) => tr!(network_way_gateway, gateway = gateway, interface = way.interface),
+        None => way.interface.clone(),
+    }
+}
+
+/// What joins the routers on the way to a network.
+const HOP_SEPARATOR: &str = " › ";
+
+/// How a routed network is reached, in words: through the gateway that owns it, through the
+/// routers on the way, or `None` straight into its tunnel.
+pub fn route_way(routed: &Routed) -> Option<String> {
+    let path = || routed.path().iter().map(ToString::to_string).collect::<Vec<_>>().join(HOP_SEPARATOR);
+    match (routed.on_gateway(), routed.gateway) {
+        (true, Some(gateway)) => Some(tr!(network_on_gateway, gateway = gateway)),
+        (false, Some(_)) => Some(tr!(network_via, gateway = path())),
+        (_, None) => None,
+    }
+}
+
+/// S asks which network to scan, starting from the selected row's.
 pub(crate) fn scan(state: &mut AppState) -> Vec<Effect> {
     if state.network.scan.is_some() {
         return Vec::new();
     }
-    let Some(scan) = state.network.scan_target() else {
-        state.notice = Some(tr!(network_scan_nothing).into());
-        return Vec::new();
+    let network = &state.network;
+    let choices = network.scan_choices();
+    let target = network.scan_target().or_else(|| choices.first().cloned()).unwrap_or_default();
+    state.overlay = Some(crate::Overlay::ScanNetwork(Box::new(crate::ScanForm::new(&target, choices))));
+    Vec::new()
+}
+
+/// The scan form's network was sent: an unreadable one stays in the form, one beyond every
+/// network this machine reaches asks first, and any other starts.
+pub(crate) fn submit_scan(state: &mut AppState, mut form: crate::ScanForm) -> Vec<Effect> {
+    let scan = match state.network.typed_scan(form.network.text()) {
+        Ok(scan) => scan,
+        Err(problem) => {
+            form.problem = Some(problem);
+            state.overlay = Some(crate::Overlay::ScanNetwork(Box::new(form)));
+            return Vec::new();
+        }
     };
+    if !state.network.outside(scan.network, scan.prefix) {
+        state.overlay = None;
+        return start_scan(state, scan);
+    }
+    let question = tr!(
+        network_scan_question,
+        subnet = scan.subnet(),
+        interface = scan.interface,
+        count = scan.addresses.len(),
+        ports = scanned_ports()
+    );
     state.overlay = Some(crate::Overlay::Confirm(crate::Confirm {
         title: tr!(network_scan_title),
-        message: tr!(
-            network_scan_question,
-            subnet = scan.subnet(),
-            interface = scan.interface,
-            count = scan.addresses.len(),
-            ports = scanned_ports()
-        ),
+        message: format!("{question}\n\n{}", tr!(network_scan_outside, subnet = scan.subnet())),
         purpose: crate::ConfirmPurpose::Scan(Box::new(scan)),
-        accept: true,
+        accept: false,
     }));
     Vec::new()
 }
@@ -941,7 +1149,7 @@ pub(crate) fn start_scan(state: &mut AppState, scan: SubnetScan) -> Vec<Effect> 
     }
     network.scan = Some(ScanRun {
         id,
-        subnet: scan.subnet(),
+        kind: ScanKind::Subnet { subnet: scan.subnet() },
         interface: scan.interface.clone(),
         total: scan.addresses.len(),
         done: 0,
@@ -949,7 +1157,48 @@ pub(crate) fn start_scan(state: &mut AppState, scan: SubnetScan) -> Vec<Effect> 
         stopping: false,
     });
     network.merge();
-    vec![Effect::ScanSubnet { id, addresses: scan.addresses }]
+    vec![Effect::ScanSubnet { id, addresses: scan.addresses, nudge: scan.on_link }]
+}
+
+/// D asks before looking for networks behind the router internet traffic goes to.
+pub(crate) fn discover(state: &mut AppState) -> Vec<Effect> {
+    if state.network.scan.is_some() {
+        return Vec::new();
+    }
+    let Some(discovery) = state.network.discovery() else {
+        state.notice = Some(tr!(network_discover_nothing).into());
+        return Vec::new();
+    };
+    state.overlay = Some(crate::Overlay::Confirm(crate::Confirm {
+        title: tr!(network_discover_title),
+        message: tr!(
+            network_discover_question,
+            way = way_label(&discovery.way),
+            networks = borg_i18n::count(discovery.networks, borg_i18n::Count::Network),
+            count = discovery.addresses.len(),
+            hops = MAX_HOPS
+        ),
+        purpose: crate::ConfirmPurpose::Discover(Box::new(discovery)),
+        accept: true,
+    }));
+    Vec::new()
+}
+
+pub(crate) fn start_discovery(state: &mut AppState, discovery: Discovery) -> Vec<Effect> {
+    state.notice = None;
+    let network = &mut state.network;
+    network.next_id += 1;
+    let id = network.next_id;
+    network.scan = Some(ScanRun {
+        id,
+        interface: discovery.way.interface.clone(),
+        kind: ScanKind::Discovery { way: discovery.way },
+        total: discovery.addresses.len(),
+        done: 0,
+        answered: 0,
+        stopping: false,
+    });
+    vec![Effect::Discover { id, addresses: discovery.addresses }]
 }
 
 /// Esc stops a scan under way; the probes already out still report.
@@ -964,39 +1213,137 @@ pub(crate) fn probed(state: &mut AppState, id: u64, probe: Probe, at: u64, now: 
     let network = &mut state.network;
     let Some(scan) = network.scan.as_mut().filter(|scan| scan.id == id) else { return Vec::new() };
     scan.done += 1;
-    scan.answered += usize::from(probe.answered());
     let interface = scan.interface.clone();
-    let noted = network.memory.note_probe(&network.places, &probe, at);
-    network.probes.insert(IpAddr::V4(probe.address), Probed { interface, probe });
+    let noted = match &scan.kind {
+        ScanKind::Subnet { .. } => {
+            scan.answered += usize::from(probe.answered());
+            let beyond = network.beyond(&interface, &probe, at);
+            network.memory.note_probe(&network.places, &network.routed, &probe, at).with(beyond)
+        }
+        ScanKind::Discovery { way } => {
+            let way = way.clone();
+            let (noted, new) = network.reach(&way, &probe, at);
+            if let Some(scan) = network.scan.as_mut() {
+                scan.answered += usize::from(new);
+            }
+            noted
+        }
+    };
+    if probe.answered() {
+        let interface =
+            network.routed_network(IpAddr::V4(probe.address)).map_or(interface, |routed| routed.interface.clone());
+        network.probes.insert(IpAddr::V4(probe.address), Probed { interface, probe });
+    }
     let save = network.save_due(noted, now);
     network.merge();
     let resolve = network.resolve();
     save.then_some(Effect::SaveNeighbors).into_iter().chain(resolve).collect()
 }
 
+impl Network {
+    /// Notes the network a discovery's probe answered from, unless a table route already covers
+    /// it, and remembers it under the place the way out leaves from. Says whether the network is
+    /// new to this session.
+    fn reach(&mut self, way: &Way, probe: &Probe, at: u64) -> (Noted, bool) {
+        let covered = self.routed.iter().any(|routed| routed.origin == Origin::Table && routed.contains(probe.address));
+        if !probe.answered() || covered {
+            return (Noted::default(), false);
+        }
+        let base = neighbors::network_part(probe.address, neighbors::SCAN_PREFIX);
+        let found = Routed {
+            network: base,
+            prefix: neighbors::SCAN_PREFIX,
+            interface: way.interface.clone(),
+            gateway: way.gateway,
+            trace: probe.trace.clone().unwrap_or_default(),
+            origin: Origin::Discovery,
+            remembered: None,
+        };
+        let new = match self.reached.iter_mut().find(|known| known.network == base) {
+            Some(known) => {
+                if known.trace.hops.is_none() {
+                    known.trace = found.trace.clone();
+                }
+                false
+            }
+            None => {
+                self.reached.push(found.clone());
+                true
+            }
+        };
+        let place = self.places.iter().find(|place| place.interface == way.interface).cloned();
+        let noted = place.map_or_else(Noted::default, |place| self.memory.note_reached(&place, &found, probe, at));
+        (noted, new)
+    }
+
+    /// Notes the network around a host a scan found outside every attached and routed network, as
+    /// reached through the interface the scan went out of.
+    fn beyond(&mut self, interface: &str, probe: &Probe, at: u64) -> Noted {
+        let attached = neighbors::attached(&self.sample.interfaces);
+        let known = attached.iter().any(|&(network, prefix)| neighbors::inside(probe.address, network, prefix))
+            || self.routed_network(IpAddr::V4(probe.address)).is_some();
+        if known || !probe.answered() {
+            return Noted::default();
+        }
+        let gateway = self.internet.iter().find(|route| route.interface == interface).and_then(InternetRoute::gateway);
+        let way = Way { interface: interface.to_owned(), gateway };
+        let (noted, _) = self.reach(&way, probe, at);
+        self.reroute();
+        noted
+    }
+}
+
 pub(crate) fn scan_finished(state: &mut AppState, id: u64, result: Result<(), String>, now: Instant) -> Vec<Effect> {
     let network = &mut state.network;
     let Some(scan) = network.scan.take_if(|scan| scan.id == id) else { return Vec::new() };
-    state.notice = Some(match result {
-        Ok(()) if scan.stopping => {
-            tr!(network_scan_stopped, subnet = scan.subnet, answered = scan.answered, done = scan.done)
+    state.notice = Some(match (&scan.kind, result) {
+        (ScanKind::Subnet { subnet }, Ok(())) if scan.stopping => {
+            tr!(network_scan_stopped, subnet = subnet, answered = scan.answered, done = scan.done)
         }
-        Ok(()) => tr!(network_scanned, subnet = scan.subnet, answered = scan.answered, total = scan.total),
-        Err(error) => tr!(network_scan_failed, subnet = scan.subnet, error = error),
+        (ScanKind::Subnet { subnet }, Ok(())) => {
+            tr!(network_scanned, subnet = subnet, answered = scan.answered, total = scan.total)
+        }
+        (ScanKind::Subnet { subnet }, Err(error)) => tr!(network_scan_failed, subnet = subnet, error = error),
+        (ScanKind::Discovery { way }, Ok(())) => {
+            let found = borg_i18n::count(scan.answered, borg_i18n::Count::Network);
+            let way = way_label(way);
+            if scan.stopping {
+                tr!(network_discover_stopped, way = way, found = found)
+            } else {
+                tr!(network_discovered, way = way, found = found)
+            }
+        }
+        (ScanKind::Discovery { way }, Err(error)) => tr!(network_discover_failed, way = way_label(way), error = error),
     });
     network.merge();
     network.flush(true, now).then_some(Effect::SaveNeighbors).into_iter().collect()
 }
 
-/// F8 on a host that is gone asks before Borg forgets it.
 /// P: asks which ports of the selected neighbor to scan, or of a host typed in.
 pub(crate) fn scan_ports(state: &mut AppState) -> Vec<Effect> {
     let target = state.network.neighbor().map(|(neighbor, _)| neighbor.address);
     crate::port_scan::open_form(state, target)
 }
 
+/// F8 on a host that is gone, or on a routed network the route table does not list, asks before
+/// Borg forgets it.
 pub(crate) fn forget(state: &mut AppState) -> Vec<Effect> {
-    let Some((neighbor, row)) = state.network.neighbor() else { return Vec::new() };
+    let network = &state.network;
+    if let Some(NeighborEntry::Network(index)) = network.entry() {
+        let routed = &network.routed[index];
+        if routed.origin == Origin::Table || network.remembering(routed).is_none() {
+            state.notice = Some(tr!(network_forget_route_listed).into());
+            return Vec::new();
+        }
+        state.overlay = Some(crate::Overlay::Confirm(crate::Confirm {
+            title: tr!(network_forget_route_title),
+            message: tr!(network_forget_route_question, network = routed.cidr()),
+            purpose: crate::ConfirmPurpose::ForgetRoute(routed.network, routed.prefix),
+            accept: false,
+        }));
+        return Vec::new();
+    }
+    let Some((neighbor, row)) = network.neighbor() else { return Vec::new() };
     let (IpAddr::V4(address), Presence::Offline(_)) = (neighbor.address, row.presence) else {
         state.notice = Some(tr!(network_forget_present).into());
         return Vec::new();
@@ -1010,15 +1357,52 @@ pub(crate) fn forget(state: &mut AppState) -> Vec<Effect> {
     Vec::new()
 }
 
+impl Network {
+    /// The place whose memory holds a routed network.
+    fn remembering(&self, routed: &Routed) -> Option<&LocalNetwork> {
+        self.places.iter().find(|place| {
+            self.memory
+                .routes(place)
+                .iter()
+                .any(|route| (route.network, route.prefix) == (routed.network, routed.prefix))
+        })
+    }
+
+    /// The place whose memory holds a host: the one it is on, or the one behind whose routes it is.
+    fn holder(&self, address: Ipv4Addr) -> Option<LocalNetwork> {
+        let own = self.places.iter().find(|place| place.contains(address));
+        own.or_else(|| {
+            self.places.iter().find(|place| self.memory.hosts(place).iter().any(|host| host.address == address))
+        })
+        .cloned()
+    }
+}
+
 pub(crate) fn forget_host(state: &mut AppState, address: Ipv4Addr, now: Instant) -> Vec<Effect> {
     let network = &mut state.network;
-    let Some(place) = network.places.iter().find(|place| place.contains(address)).cloned() else { return Vec::new() };
+    let Some(place) = network.holder(address) else { return Vec::new() };
     if !network.memory.forget(&place, address) {
         return Vec::new();
     }
     network.memory_changed = true;
     network.merge();
     state.notice = Some(tr!(network_forgot, address = address));
+    network.flush(true, now).then_some(Effect::SaveNeighbors).into_iter().collect()
+}
+
+pub(crate) fn forget_route(state: &mut AppState, at: Ipv4Addr, prefix: u8, now: Instant) -> Vec<Effect> {
+    let network = &mut state.network;
+    let routed = network.routed.iter().find(|routed| (routed.network, routed.prefix) == (at, prefix)).cloned();
+    let Some(place) = routed.as_ref().and_then(|routed| network.remembering(routed)).cloned() else {
+        return Vec::new();
+    };
+    if !network.memory.forget_route(&place, at, prefix) {
+        return Vec::new();
+    }
+    network.reached.retain(|reached| (reached.network, reached.prefix) != (at, prefix));
+    network.memory_changed = true;
+    network.merge();
+    state.notice = Some(tr!(network_forgot_route, network = format!("{at}/{prefix}")));
     network.flush(true, now).then_some(Effect::SaveNeighbors).into_iter().collect()
 }
 

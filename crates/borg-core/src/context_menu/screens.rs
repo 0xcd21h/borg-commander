@@ -7,8 +7,8 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use super::{ContextCommand, copy, press};
 use crate::menu::when;
 use crate::{
-    Action, Activity, ActivityPage, Alerts, AppState, Menu, MenuEntry, Neighbor, NeighborRow, Network, NetworkPage,
-    Presence, StartupItems,
+    Action, Activity, ActivityPage, Alerts, AppState, Menu, MenuEntry, Neighbor, NeighborEntry, NeighborRow, Network,
+    NetworkPage, Origin, Presence, StartupItems,
 };
 
 const SIGNAL_KEY: char = 'k';
@@ -21,6 +21,7 @@ const SCAN_KEY: char = 's';
 const FORGET_KEY: u8 = 8;
 const PORTS_KEY: char = 'p';
 const SCANS_KEY: char = 'o';
+const DISCOVER_KEY: char = 'd';
 
 fn alt(letter: char) -> KeyEvent {
     KeyEvent::new(KeyCode::Char(letter), KeyModifiers::ALT)
@@ -113,6 +114,9 @@ pub(super) fn network(network: &Network, scanned: bool) -> Option<Menu<ContextCo
     if let Some((neighbor, row)) = network.neighbor() {
         return Some(neighbor_menu(neighbor, row, scanned));
     }
+    if let Some(entry) = network.entry() {
+        return heading_menu(network, entry);
+    }
     let text = crate::network::copied_text(network)?;
     let label = match network.page {
         NetworkPage::Ports | NetworkPage::Interfaces | NetworkPage::Neighbors => tr!(context_copy_address),
@@ -147,13 +151,37 @@ fn neighbor_menu(neighbor: &Neighbor, row: NeighborRow, scanned: bool) -> Menu<C
             MenuEntry::Separator,
             press(tr!(context_scan_ports), "P", KeyCode::Char(PORTS_KEY)),
             when(press(tr!(context_port_scans), "O", KeyCode::Char(SCANS_KEY)), scanned),
-            press(tr!(context_scan_subnet), "S", KeyCode::Char(SCAN_KEY)),
+            press(tr!(context_scan_network), "S", KeyCode::Char(SCAN_KEY)),
+            press(tr!(context_discover), "D", KeyCode::Char(DISCOVER_KEY)),
             press(tr!(context_save_report), "C-s", save),
         ]
         .into_iter()
         .chain(forget)
         .collect(),
     }
+}
+
+/// A heading of the Neighbors page: what it names to copy, and the scans that start from it.
+fn heading_menu(network: &Network, entry: NeighborEntry) -> Option<Menu<ContextCommand>> {
+    let text = crate::network::copied_text(network)?;
+    let routed = match entry {
+        NeighborEntry::Network(index) => network.routed.get(index),
+        NeighborEntry::Interface(_) | NeighborEntry::Internet(_) | NeighborEntry::Host(_) => None,
+    };
+    let label = if routed.is_some() { tr!(context_copy_network) } else { tr!(context_copy_address) };
+    let forgettable = routed.is_some_and(|routed| routed.remembered.is_some() && routed.origin != Origin::Table);
+    let save = KeyEvent::new(KeyCode::Char(crate::port_scan::SAVE_KEY), KeyModifiers::CONTROL);
+    let entries = vec![
+        copy(label, text.as_str()),
+        MenuEntry::Separator,
+        press(tr!(context_scan_network), "S", KeyCode::Char(SCAN_KEY)),
+        press(tr!(context_discover), "D", KeyCode::Char(DISCOVER_KEY)),
+        press(tr!(context_save_report), "C-s", save),
+    ]
+    .into_iter()
+    .chain(forgettable.then(|| press(tr!(context_forget_network), "F8", KeyCode::F(FORGET_KEY))))
+    .collect();
+    Some(Menu { title: text, entries })
 }
 
 /// The selected alert's process and what can be done about it.

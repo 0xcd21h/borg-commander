@@ -291,22 +291,29 @@ fn is_link_local_v6(address: Ipv6Addr) -> bool {
     address.segments()[0] & mask == network
 }
 
-/// The gateway of the attached network an address is on.
-fn gateway_of(state: &AppState, address: IpAddr) -> Option<Mac> {
-    let IpAddr::V4(address) = address else { return None };
-    state.network.places.iter().find(|place| place.contains(address)).and_then(|place| place.gateway)
+/// The attached network an address is on, or the one whose interface reaches the routed network
+/// it is behind.
+fn place_of(network: &crate::Network, address: IpAddr) -> Option<&crate::LocalNetwork> {
+    let IpAddr::V4(v4) = address else { return None };
+    let on = network.places.iter().find(|place| place.contains(v4));
+    on.or_else(|| {
+        let routed = network.routed_network(address)?;
+        network.places.iter().find(|place| place.interface == routed.interface)
+    })
 }
 
-/// The network a scan of `address` runs from: the attached subnet it is on, or the default
-/// gateway's.
+/// The gateway of the attached network an address is on or reached through.
+fn gateway_of(state: &AppState, address: IpAddr) -> Option<Mac> {
+    place_of(&state.network, address).and_then(|place| place.gateway)
+}
+
+/// The network a scan of `address` runs from: the attached subnet it is on or reached through,
+/// or the default gateway's.
 fn network_of(state: &AppState, address: IpAddr) -> Option<ScanNetwork> {
     let network = &state.network;
     let gateway_interface = network.neighborhood.first_gateway().map(|gateway| gateway.interface.as_str());
-    let place = match address {
-        IpAddr::V4(address) => network.places.iter().find(|place| place.contains(address)),
-        IpAddr::V6(_) => None,
-    }
-    .or_else(|| network.places.iter().find(|place| Some(place.interface.as_str()) == gateway_interface))?;
+    let place = place_of(network, address)
+        .or_else(|| network.places.iter().find(|place| Some(place.interface.as_str()) == gateway_interface))?;
     Some(scan_network(network, place))
 }
 
@@ -324,10 +331,9 @@ pub(crate) fn scan_network(network: &crate::Network, place: &crate::LocalNetwork
     }
 }
 
-/// Whether an address is on one of the attached networks Borg knows.
-fn attached(state: &AppState, address: IpAddr) -> bool {
-    let IpAddr::V4(address) = address else { return false };
-    state.network.places.iter().any(|place| place.contains(address))
+/// Whether an address is on one of the attached networks Borg knows or behind a routed one.
+fn known(state: &AppState, address: IpAddr) -> bool {
+    place_of(&state.network, address).is_some() || state.network.routed_network(address).is_some()
 }
 
 /// P: asks what to scan, starting from the selected neighbor's address.
@@ -389,7 +395,7 @@ fn confirm(state: &mut AppState, form: &PortScanForm, target: String, address: I
         ports,
         speed: form.speed,
     };
-    let local = is_private(address) || attached(state, address);
+    let local = is_private(address) || known(state, address);
     let question = tr!(
         port_scan_question,
         ports = borg_i18n::count(request.ports.len(), borg_i18n::Count::Port),

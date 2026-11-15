@@ -129,6 +129,9 @@ pub enum Count {
     Hour,
     Day,
     Port,
+    Host,
+    Hop,
+    Network,
 }
 
 pub fn count(count: usize, noun: Count) -> String {
@@ -149,6 +152,9 @@ pub fn count(count: usize, noun: Count) -> String {
             Count::Hour => tr!(count_hour_few, count = count),
             Count::Day => tr!(count_day_few, count = count),
             Count::Port => tr!(count_port_few, count = count),
+            Count::Host => tr!(count_host_few, count = count),
+            Count::Hop => tr!(count_hop_few, count = count),
+            Count::Network => tr!(count_network_few, count = count),
         };
     }
     match (noun, singular) {
@@ -180,6 +186,12 @@ pub fn count(count: usize, noun: Count) -> String {
         (Count::Day, false) => tr!(count_day_many, count = count),
         (Count::Port, true) => tr!(count_port_one, count = count),
         (Count::Port, false) => tr!(count_port_many, count = count),
+        (Count::Host, true) => tr!(count_host_one, count = count),
+        (Count::Host, false) => tr!(count_host_many, count = count),
+        (Count::Hop, true) => tr!(count_hop_one, count = count),
+        (Count::Hop, false) => tr!(count_hop_many, count = count),
+        (Count::Network, true) => tr!(count_network_one, count = count),
+        (Count::Network, false) => tr!(count_network_many, count = count),
     }
 }
 

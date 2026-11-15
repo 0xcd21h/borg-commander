@@ -1117,6 +1117,7 @@ fn home_sample(step: u64, router: &str) -> NetworkSample {
             home_neighbor("192.0.2.60", Some(NAS_MAC), NeighborState::Delay),
         ],
         gateways: vec![Gateway { address: "192.0.2.1".parse().unwrap(), interface: "en0".into() }],
+        routes: Vec::new(),
         dns: vec!["192.0.2.1".parse().unwrap()],
         error: None,
         read_at: HOME_READ_AT + step,
@@ -1137,11 +1138,13 @@ fn home_opened() -> (AppState, Instant) {
     assert!(neighbors, "opening reads the neighbor tables");
     update(&mut state, Msg::Network { id, result: Ok(home_sample(1, ROUTER_MAC)) }, now);
     press(&mut state, KeyCode::Char('5'), KeyModifiers::NONE);
+    assert_eq!(state.network.entry(), Some(NeighborEntry::Interface(1)), "the map starts at en0");
+    press(&mut state, KeyCode::Down, KeyModifiers::NONE);
     (state, now)
 }
 
 fn shown_neighbors(network: &Network) -> Vec<String> {
-    network.neighbors.iter().map(|row| network.neighborhood.neighbors[row.neighbor].address.to_string()).collect()
+    network.neighbor_rows().map(|row| network.neighborhood.neighbors[row.neighbor].address.to_string()).collect()
 }
 
 #[test]
@@ -1162,8 +1165,7 @@ fn five_lists_the_neighbors_by_address_with_the_silent_ones_last() {
     );
     let names: Vec<Option<String>> = state
         .network
-        .neighbors
-        .iter()
+        .neighbor_rows()
         .map(|row| state.network.neighbor_name(&state.network.neighborhood.neighbors[row.neighbor]))
         .collect();
     assert_eq!(names, [Some("nas.home.arpa".into()), Some("Synology".into()), Some("Ubiquiti".into()), None, None]);
@@ -1184,13 +1186,20 @@ fn key(state: &mut AppState, code: KeyCode, now: Instant) -> Vec<Effect> {
 }
 
 fn probe(address: &str, ping: Option<u64>, open: &[u16], refused: bool) -> Probe {
-    Probe { address: address.parse().unwrap(), ping: ping.map(Duration::from_millis), open: open.to_vec(), refused }
+    Probe {
+        address: address.parse().unwrap(),
+        ping: ping.map(Duration::from_millis),
+        open: open.to_vec(),
+        refused,
+        trace: None,
+    }
 }
 
 fn started_scan(state: &mut AppState, now: Instant) -> u64 {
     press(state, KeyCode::Char('s'), KeyModifiers::NONE);
     let effects = key(state, KeyCode::Enter, now);
-    let Some(Effect::ScanSubnet { id, addresses }) = effects.first() else { panic!("Yes scans: {effects:?}") };
+    let Some(Effect::ScanSubnet { id, addresses, nudge }) = effects.first() else { panic!("Enter scans: {effects:?}") };
+    assert!(nudge, "the subnet is on this machine's link");
     assert_eq!(addresses.len(), 253);
     assert!(!addresses.contains(&"192.0.2.10".parse().unwrap()), "not this machine");
     *id
@@ -1202,25 +1211,23 @@ fn saves(effects: &[Effect]) -> bool {
 
 fn presence_of(network: &Network, address: &str) -> Option<Presence> {
     network
-        .neighbors
-        .iter()
+        .neighbor_rows()
         .find(|row| network.neighborhood.neighbors[row.neighbor].address.to_string() == address)
         .map(|row| row.presence)
 }
 
 #[test]
-fn s_asks_before_scanning_the_selected_neighbor_s_subnet_and_hosts_that_answer_fill_in() {
+fn s_asks_which_network_to_scan_starting_from_the_selected_row_s_and_hosts_that_answer_fill_in() {
     let (mut state, now) = home_opened();
     press(&mut state, KeyCode::Char('s'), KeyModifiers::NONE);
-    let Some(Overlay::Confirm(confirm)) = &state.overlay else { panic!("S asks first: {:?}", state.overlay) };
-    assert_eq!(
-        confirm.message,
-        "Scan 192.0.2.0/24 on en0? Borg pings each of its 253 addresses and tries TCP ports 22, 80, 443."
-    );
+    let Some(Overlay::ScanNetwork(form)) = &state.overlay else { panic!("S asks first: {:?}", state.overlay) };
+    assert_eq!(form.network.text(), "192.0.2.0/24");
     key(&mut state, KeyCode::Esc, now);
+    assert!(state.overlay.is_none());
     let id = started_scan(&mut state, now);
     assert_eq!(state.network.scan.as_ref().map(|scan| (scan.total, scan.done)), Some((253, 0)));
     assert!(press(&mut state, KeyCode::Char('s'), KeyModifiers::NONE).is_empty() && state.overlay.is_none());
+    assert!(press(&mut state, KeyCode::Char('d'), KeyModifiers::NONE).is_empty() && state.overlay.is_none());
     let found = update(
         &mut state,
         Msg::Probed { id, probe: probe("192.0.2.77", Some(2), &[22], false), at: HOME_READ_AT },
@@ -1266,16 +1273,19 @@ fn esc_stops_a_scan_before_it_closes_the_screen_and_the_scan_goes_on_when_it_doe
 }
 
 #[test]
-fn s_elsewhere_or_without_a_subnet_does_not_scan() {
-    let (mut state, _) = home_opened();
+fn s_elsewhere_does_not_scan_and_without_a_subnet_the_form_starts_empty() {
+    let (mut state, now) = home_opened();
     show_page(&mut state.network, NetworkPage::Ports);
     press(&mut state, KeyCode::Char('s'), KeyModifiers::NONE);
     assert!(state.overlay.is_none(), "S belongs to the Neighbors page");
     show_page(&mut state.network, NetworkPage::Neighbors);
     state.network.sample.interfaces[1].kind = InterfaceKind::Tunnel;
     press(&mut state, KeyCode::Char('s'), KeyModifiers::NONE);
-    assert!(state.overlay.is_none());
-    assert!(state.notice.as_deref().is_some_and(|notice| notice.starts_with("No subnet to scan here.")));
+    let Some(Overlay::ScanNetwork(form)) = &state.overlay else { panic!("S opens the form: {:?}", state.overlay) };
+    assert_eq!(form.network.text(), "");
+    assert!(key(&mut state, KeyCode::Enter, now).is_empty());
+    let Some(Overlay::ScanNetwork(form)) = &state.overlay else { panic!("the form stays: {:?}", state.overlay) };
+    assert_eq!(form.problem, Some(ScanProblem::Unreadable));
 }
 
 #[test]
@@ -1286,10 +1296,15 @@ fn a_remembered_host_that_is_gone_shows_offline_until_it_is_forgotten() {
     gone.neighborhood.as_mut().unwrap().neighbors.retain(|neighbor| neighbor.address.to_string() != "192.0.2.61");
     update(&mut state, Msg::Network { id, result: Ok(gone) }, now);
     assert_eq!(presence_of(&state.network, "192.0.2.61"), Some(Presence::Offline(HOME_READ_AT + 1)));
-    assert!(state.network.neighbors.iter().all(|row| !row.shared), "a host that is gone shares no MAC");
+    assert!(state.network.neighbor_rows().all(|row| !row.shared), "a host that is gone shares no MAC");
     press(&mut state, KeyCode::F(8), KeyModifiers::NONE);
     assert_eq!(state.notice.as_deref(), Some("Borg forgets only hosts that are offline."));
-    let row = state.network.neighbors.iter().position(|row| row.presence != Presence::Listed).unwrap();
+    let row = state
+        .network
+        .neighbors
+        .iter()
+        .position(|entry| entry.host().is_some_and(|row| row.presence != Presence::Listed))
+        .unwrap();
     state.network.cursors[NetworkPage::Neighbors.index()] = row;
     press(&mut state, KeyCode::Delete, KeyModifiers::NONE);
     let Some(Overlay::Confirm(confirm)) = &state.overlay else { panic!("F8 asks first: {:?}", state.overlay) };
@@ -1323,7 +1338,7 @@ fn the_remembered_neighbors_are_saved_when_something_is_new_and_once_a_minute_ot
 #[test]
 fn a_gateway_answering_with_another_mac_shows_a_notice_and_keeps_the_row_flagged() {
     let (mut state, now) = home_opened();
-    assert!(state.network.neighbors.iter().all(|row| row.changed.is_none()));
+    assert!(state.network.neighbor_rows().all(|row| row.changed.is_none()));
     let id = asked(&state.network.request()).unwrap().0;
     update(&mut state, Msg::Network { id, result: Ok(home_sample(2, "00:16:3e:44:55:66")) }, now);
     assert_eq!(state.notice.as_deref(), Some("Gateway MAC changed: 00:27:22:4c:01:01 → 00:16:3e:44:55:66"));
@@ -1332,6 +1347,7 @@ fn a_gateway_answering_with_another_mac_shows_a_notice_and_keeps_the_row_flagged
     let id = asked(&state.network.request()).unwrap().0;
     update(&mut state, Msg::Network { id, result: Ok(home_sample(3, ROUTER_MAC)) }, now);
     show_page(&mut state.network, NetworkPage::Neighbors);
+    state.network.select(1);
     let (gateway, row) = state.network.neighbor().unwrap();
     assert_eq!(gateway.address.to_string(), "192.0.2.1");
     assert!(row.gateway && row.changed.is_some(), "the flag outlives closing the screen");
@@ -1363,3 +1379,5 @@ fn ctrl_c_on_a_neighbor_copies_its_address() {
 }
 
 mod port_scans;
+
+mod routed;
