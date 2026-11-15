@@ -53,11 +53,15 @@ nightly-компилятор и `bpf-linker`. Если их нет, сборка
 BORG_NO_EBPF=1 cargo install --locked --git https://github.com/0xcd21h/borg-commander borg-app
 ```
 
-Поддержка Homebrew готова и заработает, как только будет опубликован tap:
+Установка через Homebrew на macOS или Linux:
 
 ```sh
 brew install 0xcd21h/tap/borg-commander
 ```
+
+Homebrew устанавливает Borg под именами `borg` и `borgcmd`. У BorgBackup тоже есть команда `borg`,
+поэтому там, где установлен BorgBackup, Borg запускается только как `borgcmd`. Если вы установите
+BorgBackup позже, сначала выполните `brew reinstall borg-commander`, а затем `brew link borgbackup`.
 
 Запустите `borg` в папке, которую хотите просматривать. F10 закрывает программу, а Ctrl-O
 возвращает из консоли к панелям. Чтобы обновить скачанную копию, выполните `borg update`; если вы устанавливали

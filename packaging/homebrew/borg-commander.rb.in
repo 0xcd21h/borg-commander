@@ -2,7 +2,7 @@ class BorgCommander < Formula
   desc "Two-panel terminal file commander with a real shell behind it"
   homepage "https://github.com/0xcd21h/borg-commander"
   version "@VERSION@"
-  license "MIT"
+  license any_of: ["MIT", "Apache-2.0"]
 
   on_macos do
     on_arm do
@@ -27,12 +27,26 @@ class BorgCommander < Formula
   end
 
   def install
-    bin.install "borg"
+    bin.install "borg" => "borgcmd"
+    bin.install_symlink "borgcmd" => "borg" unless borgbackup_installed?
     (share/"borg-commander").install "fonts" if File.directory?("fonts")
     (share/"borg-commander").install "SYNTAX-LICENSES.md" if File.file?("SYNTAX-LICENSES.md")
   end
 
+  def borgbackup_installed?
+    (HOMEBREW_CELLAR/"borgbackup").directory?
+  end
+
+  def caveats
+    <<~EOS
+      Borg Commander runs as `borg` and as `borgcmd`. BorgBackup also installs a `borg`
+      command, so where BorgBackup is installed, Borg Commander runs only as `borgcmd`.
+      If you install BorgBackup later, run `brew reinstall borg-commander` first and then
+      `brew link borgbackup`.
+    EOS
+  end
+
   test do
-    assert_match version.to_s, shell_output("#{bin}/borg --version")
+    assert_match version.to_s, shell_output("#{bin}/borgcmd --version")
   end
 end

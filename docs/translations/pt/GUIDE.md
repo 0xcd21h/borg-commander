@@ -53,11 +53,16 @@ ouve então os eventos de processo do kernel:
 BORG_NO_EBPF=1 cargo install --locked --git https://github.com/0xcd21h/borg-commander borg-app
 ```
 
-O suporte para Homebrew já está preparado e passará a funcionar quando o tap for publicado:
+Com o Homebrew, em macOS ou Linux:
 
 ```sh
 brew install 0xcd21h/tap/borg-commander
 ```
+
+O Homebrew instala o Borg como `borg` e como `borgcmd`. O BorgBackup também tem um comando `borg`,
+por isso, onde o BorgBackup estiver instalado, o Borg fica disponível apenas como `borgcmd`. Se
+instalar o BorgBackup mais tarde, execute `brew reinstall borg-commander` e depois
+`brew link borgbackup`.
 
 Execute `borg` na pasta que pretende explorar. F10 sai e Ctrl-O passa da consola para os painéis.
 Para atualizar, execute `borg update` numa cópia transferida, ou use o Homebrew ou o cargo se

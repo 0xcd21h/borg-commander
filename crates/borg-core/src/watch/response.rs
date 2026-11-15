@@ -37,6 +37,7 @@ pub const NEVER_FROZEN: &[&str] = &[
     "dbus-daemon",
     "polkitd",
     "borg",
+    "borgcmd",
 ];
 /// Programs that open a session on a terminal for somebody who logged in: over SSH, at the
 /// console, in a terminal multiplexer, as another user or in a terminal window. A terminal any
