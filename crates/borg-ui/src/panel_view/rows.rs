@@ -297,7 +297,7 @@ impl Decor {
         Self {
             icons: scene.icons,
             gap: ICON_GAP.to_string().repeat(usize::from(scene.icon_spacing)),
-            query: scene.find.map(|(find, _)| Query::parse(find.input.text())),
+            query: scene.find.map(|(find, _)| find.query()),
             highlight: Style::new()
                 .fg(look.fg(look.styles().marked).into())
                 .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),

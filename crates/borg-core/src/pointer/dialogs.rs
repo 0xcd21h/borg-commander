@@ -114,7 +114,8 @@ fn pick_search_field(state: &mut AppState, mut form: crate::SearchForm, selected
         return Vec::new();
     }
     form.selected = selected;
-    let toggle = matches!(form.selected, crate::KIND_FIELD | crate::HIDDEN_FIELD | crate::SKIP_FIELD);
+    let toggle =
+        matches!(form.selected, crate::KIND_FIELD | crate::HIDDEN_FIELD | crate::SKIP_FIELD | crate::TYPOS_FIELD);
     state.overlay = Some(Overlay::Search(form));
     if toggle { press(state, KeyCode::Right, now) } else { Vec::new() }
 }

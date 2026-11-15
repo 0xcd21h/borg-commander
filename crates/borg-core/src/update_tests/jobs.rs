@@ -29,6 +29,7 @@ fn selected(state: &AppState) -> Option<u64> {
 
 fn search_home(state: &mut AppState, query: &str) -> (Side, u64) {
     let request = crate::SearchRequest {
+        typos: false,
         root: "/home".into(),
         query: query.into(),
         hidden: false,

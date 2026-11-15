@@ -262,7 +262,8 @@ impl Default for Index {
     }
 }
 
-/// `[search]`: what recursive search leaves out, and whether it remembers searches.
+/// `[search]`: what recursive search leaves out, whether it remembers searches, and whether
+/// it also finds names with typos.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 pub struct Search {
@@ -270,6 +271,7 @@ pub struct Search {
     pub artifacts: bool,
     pub ignore_files: bool,
     pub history: bool,
+    pub typos: bool,
 }
 
 impl Default for Search {
@@ -280,6 +282,7 @@ impl Default for Search {
             artifacts: defaults.artifacts,
             ignore_files: defaults.ignore_files,
             history: defaults.history,
+            typos: defaults.typos,
         }
     }
 }
@@ -362,6 +365,7 @@ impl Config {
             artifacts: search.artifacts,
             ignore_files: search.ignore_files,
             history: search.history,
+            typos: search.typos,
         }
     }
 
@@ -373,6 +377,7 @@ impl Config {
             artifacts: search.artifacts,
             ignore_files: search.ignore_files,
             history: search.history,
+            typos: search.typos,
         };
         self.search = (self.search.is_some() || search != Search::default()).then_some(search);
         self

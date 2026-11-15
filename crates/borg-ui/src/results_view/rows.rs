@@ -16,6 +16,8 @@ use ratatui::{
 use unicode_width::UnicodeWidthStr;
 
 use super::{MARK_WIDTH, match_column, panel_columns, text, tree_indent};
+
+const MATCHED: Modifier = Modifier::BOLD.union(Modifier::UNDERLINED);
 use crate::{format, icons, panel_view::PanelScene, theme::Styles};
 
 /// Where a row draws: its place among the panel's rows, its line, and whether the cursor is on it.
@@ -101,6 +103,14 @@ fn draw_entry(
             styles.meta.patch(style.remove_modifier(Modifier::BOLD))
         };
         text(buf, cell, &value, style);
+        if key == SortKey::Name && results.tree.is_none() {
+            let lit = if place.focused {
+                style.add_modifier(MATCHED)
+            } else {
+                style.patch(Style { fg: styles.marked.fg, ..Style::new() }).add_modifier(MATCHED)
+            };
+            mark_matches(&results.spans(entry), &entry.name, lead(scene, entry).width(), cell, lit, buf);
+        }
     }
     let Some(cell) = match_column(panel, place.area) else { return };
     let (found, current) = crate::find_view::match_styles(styles);
@@ -210,15 +220,31 @@ fn cell_value(
         SortKey::Size if entry.is_dir() => tr!(dir).into(),
         SortKey::Size => format::size(entry.size),
         SortKey::Modified => format::modified(entry.modified, scene.clock),
-        SortKey::Extension => String::new(),
+        SortKey::Extension | SortKey::Match => String::new(),
+    }
+}
+
+/// The icon and gap before an entry's name.
+fn lead(scene: &PanelScene<'_>, entry: &Entry) -> String {
+    let icon = if scene.icons { icons::icon(entry).glyph } else { icons::portable(entry).glyph };
+    format!("{icon} ")
+}
+
+/// Marks the letters of `name` that matched what was looked for, in the cell that shows it
+/// after `lead` columns.
+fn mark_matches(spans: &borg_core::Spans, name: &str, lead: usize, cell: Rect, lit: Style, buf: &mut Buffer) {
+    for span in spans {
+        let (Some(before), Some(matched)) = (name.get(..span.start), name.get(span.clone())) else { continue };
+        let start = (lead + before.width()).min(usize::from(cell.width)) as u16;
+        let width = (matched.width() as u16).min(cell.width - start);
+        buf.set_style(Rect { x: cell.x + start, width, ..cell }, lit);
     }
 }
 
 /// An entry's icon and name; in a tree, indented under its folder after an arrow that says
 /// whether a folder is open.
 fn name(scene: &PanelScene<'_>, results: &Results, entry: &Entry, index: usize, width: u16) -> String {
-    let icon = if scene.icons { icons::icon(entry).glyph } else { icons::portable(entry).glyph };
-    let name = format!("{icon} {}{}", entry.name, if entry.missing { tr!(missing_suffix) } else { "" });
+    let name = format!("{}{}{}", lead(scene, entry), entry.name, if entry.missing { tr!(missing_suffix) } else { "" });
     let Some(tree) = results.tree.as_ref() else { return name };
     let arrow = if !tree.branches.contains(entry.identity()) {
         " "
