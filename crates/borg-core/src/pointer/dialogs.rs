@@ -34,6 +34,10 @@ pub(super) fn on_pointer(state: &mut AppState, pointer: Pointer, overlay: Overla
             crate::network::pick_capture_field(state, dialog, row);
             Vec::new()
         }
+        (Pointer::ListenField(row), Overlay::Listen(form)) => {
+            crate::network::pick_listen_field(state, form, row);
+            Vec::new()
+        }
         (Pointer::DialogMark(row), Overlay::TimeMachine) => {
             state.backup.window.point(row, true);
             Vec::new()

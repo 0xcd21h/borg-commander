@@ -97,9 +97,15 @@ impl ShellStatus {
         self.running || self.observed.foreground == Foreground::Program
     }
 
-    pub(crate) fn observe(&mut self, view: ShellView) {
+    pub(crate) fn observe(&mut self, view: ShellView, echoed: bool) {
         self.observed = view;
+        self.unechoed &= !echoed;
+        self.typed &= !self.seen_empty();
         self.went_full_screen |= self.busy() && self.captured();
+    }
+
+    fn seen_empty(&self) -> bool {
+        self.observed.prompt == PromptState::Empty && !self.unechoed
     }
 
     pub(crate) fn mark_typed(&mut self) {

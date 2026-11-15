@@ -157,7 +157,7 @@ impl Layers {
 }
 
 /// Reads the layers of a packet captured on a link of type `link`.
-pub(super) fn layers(link: u32, data: &[u8]) -> Layers {
+pub(crate) fn layers(link: u32, data: &[u8]) -> Layers {
     let mut layers = Layers::default();
     let Some((ether_type, at)) = link_header(link, data, &mut layers.link) else { return layers };
     layers.link.ether_type = Some(ether_type);

@@ -381,9 +381,15 @@ fn paint_overlay(
             None,
             Unfold::FromCenter,
         ),
+        Overlay::Listen(form) => {
+            (crate::network_view::draw_listen_form(form, theme, screen, buf), None, Unfold::FromCenter)
+        }
         Overlay::Install(offer) => (crate::install_view::draw(offer, theme, screen, buf), None, Unfold::FromCenter),
         Overlay::Service(offer) => (crate::service_view::draw(offer, theme, screen, buf), None, Unfold::FromCenter),
         Overlay::Update(offer) => (crate::update_view::draw(offer, theme, screen, buf), None, Unfold::FromCenter),
+        Overlay::ScanNetwork(form) => {
+            (crate::network_view::draw_scan_form(&state.network, form, theme, screen, buf), None, Unfold::FromCenter)
+        }
         Overlay::PortScan(form) => {
             (crate::port_scan_view::draw_form(state, form, theme, scene.clock, screen, buf), None, Unfold::FromCenter)
         }

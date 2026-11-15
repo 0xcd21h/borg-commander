@@ -86,6 +86,11 @@ pub enum Msg {
         id: u64,
         event: crate::PortScanEvent,
     },
+    /// What listening heard, or how it ended.
+    Listen {
+        id: u64,
+        event: crate::ListenEvent,
+    },
     /// The subnet scan sent its last probe, or stopped.
     ScanFinished {
         id: u64,
@@ -402,8 +407,16 @@ pub enum Effect {
     },
     /// Looks up the names of addresses, in the background.
     ResolveHosts(Vec<std::net::IpAddr>),
-    /// Probes each address with ping and connections to the scanned ports, a few at a time.
+    /// Probes each address with ping and connections to the scanned ports, a few at a time,
+    /// with a `nudge` that makes the system ask each one on the link for its MAC address.
     ScanSubnet {
+        id: u64,
+        addresses: Vec<std::net::Ipv4Addr>,
+        nudge: bool,
+    },
+    /// Pings each address, or connects where ping is not allowed, many at a time, and traces the
+    /// way to each one that answers.
+    Discover {
         id: u64,
         addresses: Vec<std::net::Ipv4Addr>,
     },
@@ -428,6 +441,12 @@ pub enum Effect {
         path: PathBuf,
         text: String,
         replace: bool,
+    },
+    /// Runs `tcpdump` to listen for neighbors as a job, until its time is up or the job's
+    /// control cancels it.
+    Listen {
+        id: u64,
+        request: crate::ListenRequest,
     },
     /// Runs `tcpdump` for the network screen's capture.
     Capture {

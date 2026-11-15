@@ -202,6 +202,11 @@ pub use activity::{STRING_PLACES, junk_string, rank_strings, string_score};
 pub use activity::{ScanChecks, ScanSubject, scan_ask};
 
 pub use network::{
+    Announced, Announcement, Heard, HeardHost, HeardSwitch, Hearing, LISTEN_DURATIONS, LISTEN_FILTER, LONGEST_TEXT,
+    ListenEvent, ListenField, ListenForm, ListenProtocol, ListenRequest, Listening, MOST_KINDS, Said, SwitchPort, hear,
+    heard_line, listen_interfaces, switch_line,
+};
+pub use network::{
     Authority, Dialect, KEY_LOG_VARIABLE, PROXY_VARIABLES, Proxied, ProxyEndpoint, ShellVariables, TRUST_VARIABLES,
     TlsKeys, shell_variables,
 };
@@ -217,9 +222,11 @@ pub use network::{
     TcpState, Traffic, Transport, exposure_label, kind_label, service,
 };
 pub use network::{
-    Gateway, GatewayWatch, KnownHost, KnownNetwork, LocalNetwork, Mac, MacChange, NEIGHBORS_FORMAT, Neighbor,
-    NeighborMemory, NeighborRow, NeighborState, Neighborhood, Presence, Probe, Probed, SCAN_PORTS, SavedNeighbors,
-    ScanRun, Subnet, SubnetScan, neighbor_notes, places, scanned_ports, subnet, vendor,
+    Discovery, Gateway, GatewayWatch, InternetRoute, KnownHost, KnownNetwork, KnownRoute, LocalNetwork, MAX_HOPS, Mac,
+    MacChange, NEIGHBORS_FORMAT, Neighbor, NeighborEntry, NeighborMemory, NeighborRow, NeighborState, Neighborhood,
+    Origin, Presence, Probe, Probed, ROUTER_HOSTS, Route, Routed, SCAN_PORTS, SavedNeighbors, ScanForm, ScanKind,
+    ScanProblem, ScanRun, Subnet, SubnetScan, Trace, Way, neighbor_notes, places, route_way, scanned_ports, subnet,
+    vendor, way_label,
 };
 pub use port_scan::{
     Canary, Ending, FIRST_PORT, FormField, HOST_HISTORY, LAST_PORT, MAX_TARGET, PORT_SCANS_FORMAT, PortAnswer,
@@ -234,8 +241,8 @@ pub use report::{
 
 pub use capture::{
     ACK, App, CONNECTION_BUDGET, CWR, Capture, CaptureError, ConnectionBudget, Datagram, Dns, DnsAnswer, DnsData, ECE,
-    FIN, Flow, FlowKind, Http, Ip, KeyLog, Layers, Link, PACKET_LIMIT, PSH, Packet, PcapCounter, RST, SYN, Stream,
-    StreamRow, Tcp, Turn, URG, dns_type, with_secrets,
+    FIN, Flow, FlowKind, Http, Ip, KeyLog, Layers, Link, LiveFrame, LiveFrames, PACKET_LIMIT, PSH, Packet, PcapCounter,
+    RST, SYN, Stream, StreamRow, Tcp, Turn, URG, dns_type, with_secrets,
 };
 
 pub use delete_check::{DeleteCheck, DeleteFound, DeleteSize, FileHolder};

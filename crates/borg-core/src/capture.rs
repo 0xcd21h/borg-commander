@@ -17,8 +17,9 @@ mod stream;
 mod tls;
 
 pub use apps::{App, Dns, DnsAnswer, DnsData, Http, dns_type};
+pub(crate) use decode::layers;
 pub use decode::{ACK, CWR, Datagram, ECE, FIN, Ip, Layers, Link, PSH, RST, SYN, Tcp, URG};
-pub use files::{ConnectionBudget, PcapCounter, with_secrets};
+pub use files::{ConnectionBudget, LiveFrame, LiveFrames, PcapCounter, with_secrets};
 pub use flows::{Flow, FlowKind};
 pub use keylog::KeyLog;
 pub use stream::{Stream, StreamRow, Turn};

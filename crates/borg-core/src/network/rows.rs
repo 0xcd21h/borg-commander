@@ -5,12 +5,14 @@ use std::{
     net::IpAddr,
 };
 
+const CIDR_SEPARATOR: char = '/';
+
 use borg_i18n::tr;
 
 use super::{
-    GatewayWatch, Haystack, Interface, LocalNetwork, Neighbor, NeighborMemory, NeighborRow, NeighborState,
-    Neighborhood, NetworkSample, PAGES, PortKey, Presence, Probed, Rate, Socket, TcpState, Traffic, Transport,
-    filter::NetworkFilter, model::service, vendor,
+    GatewayWatch, Haystack, Hearing, Interface, InternetRoute, LocalNetwork, Neighbor, NeighborEntry, NeighborMemory,
+    NeighborRow, NeighborState, Neighborhood, NetworkSample, PAGES, PortKey, Presence, Probed, Rate, Routed, Socket,
+    TcpState, Traffic, Transport, filter::NetworkFilter, model::service, vendor,
 };
 
 /// Who can reach a listening port.
@@ -96,6 +98,9 @@ pub(crate) struct Source<'a> {
     pub(crate) probes: &'a HashMap<IpAddr, Probed>,
     pub(crate) memory: &'a NeighborMemory,
     pub(crate) places: &'a [LocalNetwork],
+    pub(crate) routed: &'a [Routed],
+    pub(crate) internet: &'a [InternetRoute],
+    pub(crate) hearing: &'a Hearing,
     pub(crate) filter: &'a NetworkFilter,
 }
 
@@ -246,14 +251,40 @@ impl Source<'_> {
     }
 
     pub(crate) fn neighbors(&self) -> Vec<NeighborRow> {
-        super::neighbors::rows(self.neighborhood, self.presence, &self.sample.interfaces, self.watch, self.scanned)
+        let heard: HashSet<IpAddr> = self
+            .neighborhood
+            .neighbors
+            .iter()
+            .map(|neighbor| neighbor.address)
+            .filter(|address| self.heard(*address))
+            .collect();
+        super::neighbors::rows(
+            self.neighborhood,
+            self.presence,
+            &self.sample.interfaces,
+            self.watch,
+            self.scanned,
+            &heard,
+        )
+    }
+
+    /// Whether listening heard a host, this session or before.
+    fn heard(&self, address: IpAddr) -> bool {
+        self.hearing.host(address).is_some()
+            || self.memory.host(self.places, address).is_some_and(|host| host.heard.is_some())
     }
 
     pub(crate) fn neighbor_haystack(&self, row: &NeighborRow) -> Haystack {
         let neighbor = &self.neighborhood.neighbors[row.neighbor];
+        let announced = super::announced(self.hearing, self.memory, self.places, neighbor.address);
+        let heard_state = matches!(row.presence, Presence::Heard).then(|| tr!(network_heard_state));
         Haystack {
-            hosts: self.host_words(neighbor.address).collect(),
-            state: neighbor.state.map(NeighborState::name),
+            hosts: self
+                .host_words(neighbor.address)
+                .chain(announced.names.iter().map(|name| name.text.clone()))
+                .collect(),
+            state: neighbor.state.map(NeighborState::name).or(heard_state),
+            protocols: announced.protocols.iter().map(|protocol| protocol.name()).collect(),
             interface: Some(neighbor.interface.clone()),
             ports: super::neighbors::open_ports(self.probes, self.memory, self.places, neighbor.address)
                 .map(<[u16]>::to_vec)
@@ -261,11 +292,57 @@ impl Source<'_> {
             labels: neighbor_notes(row, neighbor)
                 .into_iter()
                 .chain(matches!(row.presence, Presence::Offline(_)).then(|| tr!(network_offline_state)))
+                .chain(row.heard.then(|| tr!(network_heard_state)))
                 .map(str::to_owned)
+                .chain(announced.model.iter().map(|model| model.text.clone()))
+                .chain(announced.kinds.iter().cloned())
+                .chain(announced.services.iter().cloned())
+                .chain(announced.client.iter().cloned())
                 .collect(),
             mac: neighbor.mac.map(|mac| mac.to_string()),
             vendor: neighbor.mac.and_then(vendor),
+            network: self.network_of(neighbor),
             ..Haystack::default()
+        }
+    }
+
+    /// The network a host is on: the routed one holding it, or its interface's own subnet.
+    fn network_of(&self, neighbor: &Neighbor) -> Option<String> {
+        let IpAddr::V4(address) = neighbor.address else { return None };
+        if let Some(index) = super::neighbors::holding(self.routed, address) {
+            return Some(self.routed[index].cidr());
+        }
+        let place = self.places.iter().find(|place| place.interface == neighbor.interface && place.contains(address));
+        place.map(|place| format!("{}{CIDR_SEPARATOR}{}", place.network, place.prefix))
+    }
+
+    /// What a heading of the Neighbors page offers the filter: an interface's name, kind and
+    /// addresses, a routed network and the routers on its way, or the way to the internet.
+    pub(crate) fn entry_haystack(&self, entry: NeighborEntry) -> Haystack {
+        match entry {
+            NeighborEntry::Host(row) => self.neighbor_haystack(&row),
+            NeighborEntry::Interface(index) => {
+                self.sample.interfaces.get(index).map_or_else(Haystack::default, |interface| Haystack {
+                    network: super::neighbors::attached(std::slice::from_ref(interface))
+                        .first()
+                        .map(|(network, prefix)| format!("{network}{CIDR_SEPARATOR}{prefix}")),
+                    ..self.interface_haystack(interface)
+                })
+            }
+            NeighborEntry::Network(index) => self.routed.get(index).map_or_else(Haystack::default, |routed| Haystack {
+                hosts: routed.path().iter().map(ToString::to_string).collect(),
+                interface: Some(routed.interface.clone()),
+                network: Some(routed.cidr()),
+                ..Haystack::default()
+            }),
+            NeighborEntry::Internet(index) => {
+                self.internet.get(index).map_or_else(Haystack::default, |route| Haystack {
+                    hosts: route.gateways.iter().map(ToString::to_string).collect(),
+                    interface: Some(route.interface.clone()),
+                    labels: vec![tr!(network_internet).to_owned()],
+                    ..Haystack::default()
+                })
+            }
         }
     }
 

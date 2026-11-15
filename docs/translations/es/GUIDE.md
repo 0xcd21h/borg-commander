@@ -561,9 +561,13 @@ Lo que ofrece el menú depende de la fila:
   identifique la fila. Una fila con un proceso añade **Copiar PID**,
   **Mostrar en el monitor de actividad** y **Señal o prioridad…**. Un vecino ofrece
   **Copiar dirección IP**, **Copiar dirección MAC**, **Escanear puertos…** (P),
-  **Escaneos de puertos…** (O), **Escanear subred** (S) y **Guardar informe…** (Ctrl-S), y un host
-  apagado añade **Olvidar host** (F8). **Escaneos de puertos…** aparece atenuado hasta que el host
-  tiene un escaneo.
+  **Escaneos de puertos…** (O), **Escanear red…** (S), **Descubrir redes…** (D),
+  **Escuchar vecinos…** (H) y **Guardar informe…** (Ctrl-S), y un host apagado o que solo oyó la
+  escucha añade **Olvidar host** (F8). **Escaneos de puertos…** aparece atenuado hasta que el host
+  tiene un escaneo, y mientras Borg escucha, **Detener escucha** ocupa el lugar de
+  **Escuchar vecinos…**. Un encabezado de la página Vecinos ofrece **Copiar dirección** o
+  **Copiar red**, **Escanear red…**, **Descubrir redes…**, **Escuchar vecinos…** y
+  **Guardar informe…**, y una red que Borg recuerda añade **Olvidar red** (F8).
 - **Alertas**: **Copiar PID**, **Copiar ruta del programa** y **Copiar comando**, luego
   **Mostrar en el monitor de actividad**, **Reanudar**, **Terminar** y **Permitir**.
 - **Elementos de inicio**: **Copiar ruta**, **Copiar ruta del programa** y **Copiar comando**,
@@ -2673,9 +2677,11 @@ Pulsa de **1** a **5**, o haz clic en una pestaña, para cambiar de página:
   **Túnel**, **Puente** o **Virtual**), su primera dirección y sus velocidades. ● marca una interfaz
   activa. Los detalles añaden todas sus direcciones, la MTU, los bytes y paquetes que la interfaz ha
   recibido y enviado hasta ahora, y sus errores.
-- **5 Vecinos** lista los dispositivos de la red local cuya dirección MAC conoce este equipo, con su
-  fabricante, nombre y estado, y marca la puerta de enlace y todo lo que parezca sospechoso.
-  Consulta [Vecinos](#neighbors) y [Escanear puertos](#scanning-ports).
+- **5 Vecinos** traza un mapa de cada interfaz, túnel y VPN con los dispositivos de su enlace, las
+  redes a las que llega a través de routers y su salida a internet. Lista el fabricante, el nombre y
+  el estado de cada dispositivo, y marca la puerta de enlace y todo lo que parezca sospechoso.
+  Consulta [Vecinos](#neighbors), [Redes enrutadas](#routed-networks) y
+  [Escanear puertos](#scanning-ports).
 
 El pie muestra la velocidad total de descarga y subida del equipo en todas las interfaces salvo la
 de loopback. Borg busca en segundo plano los nombres de las direcciones remotas y muestra el nombre
@@ -2691,10 +2697,12 @@ en lugar de la dirección en cuanto lo conoce.
 | R | Capturar el tráfico de la fila seleccionada o detener la captura en curso |
 | P | Escanear los puertos del vecino seleccionado (**5 Vecinos**) |
 | O | Mostrar los escaneos de puertos del vecino seleccionado (**5 Vecinos**) |
-| S | Escanear la subred del vecino seleccionado (**5 Vecinos**) |
+| S | Escanear la red de la fila seleccionada, u otra que escribas (**5 Vecinos**) |
+| D | Buscar redes detrás del router al que va el tráfico a internet (**5 Vecinos**) |
+| H | Escuchar a los vecinos que se anuncian, o detener la escucha (**5 Vecinos**) |
 | Ctrl-S | Guardar un informe de todos los vecinos (**5 Vecinos**) |
-| F8 / Delete | Olvidar el host seleccionado que está apagado (**5 Vecinos**) |
-| Ctrl-C | Copiar la dirección del puerto, el PID, el otro extremo, o la dirección de la interfaz o del vecino |
+| F8 / Delete | Olvidar el host seleccionado que está apagado o que solo oyó la escucha, o una red que Borg recuerda (**5 Vecinos**) |
+| Ctrl-C | Copiar la dirección del puerto, el PID, el otro extremo, la dirección de la interfaz o del vecino, o la red |
 | Tab | Alternar entre la lista y los detalles |
 | Space | Pausar o reanudar el muestreo |
 | Alt-W | Maximizar el panel con el foco |
@@ -2715,13 +2723,27 @@ vuelve al monitor. Si el proceso no tiene conexiones ni puertos abiertos, un avi
 
 ### Vecinos
 
-**5 Vecinos** muestra la tabla ARP (IPv4) y la tabla NDP (IPv6) del sistema: cada dispositivo de la
-red local con el que este equipo habló hace poco, con su dirección, dirección MAC, nombre y estado.
-El estado es la palabra que usa el propio sistema para la entrada: **REACHABLE** respondió hace
-poco, **STALE** lleva un tiempo sin comprobarse, **DELAY** y **PROBE** se están comprobando,
+**5 Vecinos** traza un mapa de dónde está este equipo en la red y de a qué llega desde ahí. Cada
+interfaz activa que tiene una dirección más allá de su propio enlace recibe una fila de encabezado
+con su nombre, su tipo y su dirección. Los túneles y las VPN también reciben una, así que una VPN
+del trabajo aparece junto a la interfaz Wi-Fi con las redes a las que lleva. Bajo cada encabezado
+van los dispositivos del enlace de la interfaz, luego las redes a las que la interfaz llega a través
+de un router o de un túnel, cada una en una fila que empieza por › y seguida de los hosts que Borg
+encontró allí, y al final una fila **Internet** cuando el tráfico a internet puede salir por la
+interfaz. [Redes enrutadas](#routed-networks) explica esas filas.
+
+Primero va la interfaz por la que sale el tráfico a internet, luego las demás interfaces con salida
+a internet, después las interfaces Wi-Fi, Ethernet y puente, y por último los túneles. El cursor
+también se detiene en los encabezados, y sus detalles describen la interfaz, la red o la salida.
+
+Los dispositivos salen de la tabla ARP (IPv4) y la tabla NDP (IPv6) del sistema: cada dispositivo de
+la red local con el que este equipo habló hace poco, con su dirección, dirección MAC, nombre y
+estado. El estado es la palabra que usa el propio sistema para la entrada: **REACHABLE** respondió
+hace poco, **STALE** lleva un tiempo sin comprobarse, **DELAY** y **PROBE** se están comprobando,
 **INCOMPLETE** preguntó y aún no tiene respuesta, **FAILED** nunca respondió y **PERMANENT** no
-caduca nunca. Los hosts que solo respondieron a un escaneo van después de las entradas con dirección
-MAC, luego los hosts recordados que están apagados, y las entradas sin dirección MAC van al final.
+caduca nunca. Bajo cada encabezado, los hosts que solo respondieron a un escaneo o que solo oyó la
+escucha van después de las entradas con dirección MAC, luego los hosts recordados que están
+apagados, y las entradas sin dirección MAC van al final.
 Las direcciones de este equipo y las entradas de broadcast y multicast quedan fuera de la lista. Un
 panel ancho añade el fabricante, los puertos abiertos y el tiempo de ping que encontró un escaneo, y
 una nota.
@@ -2753,11 +2775,19 @@ cada nota. En **Esta red** listan las puertas de enlace de la interfaz del vecin
 DNS.
 
 Las tablas solo guardan los dispositivos con los que este equipo habló, y algunos dispositivos no
-dicen nada hasta que alguien llama a la puerta. Pulsa **S**, o elige **Escanear subred** en el menú
-contextual, para encontrarlos. Borg pregunta antes e indica la subred, la interfaz y el número de
-direcciones. Después sondea 16 direcciones a la vez. Cada una recibe un ping, conexiones TCP a los
-puertos 22, 80 y 443 y un datagrama UDP vacío al puerto 9 que hace que el sistema pregunte por su
-dirección MAC, y Borg espera hasta 1 segundo las respuestas. Un host que responde al ping, acepta
+dicen nada hasta que alguien llama a la puerta. Pulsa **S**, o elige **Escanear red…** en el menú
+contextual, para encontrarlos. **Escanear red** pide la **Red** y empieza con la de la fila
+seleccionada: la subred de un host o de una interfaz, o la red enrutada que está bajo el cursor. ↑ y
+↓ recorren las subredes en las que está este equipo y las redes a las que llega, y puedes escribir
+cualquier otra, como 192.168.20.0/24, o una dirección sola para el /24 que la rodea. Debajo del
+campo, Borg cuenta las direcciones e indica la interfaz por la que sale el escaneo. Enter empieza el
+escaneo. Una red fuera de los rangos privados y fuera de todas las redes a las que llega este equipo
+recibe antes una pregunta, y la pregunta empieza en **No**.
+
+Borg sondea 16 direcciones a la vez. Cada una recibe un ping y conexiones TCP a los puertos 22, 80 y
+443, y una dirección del propio enlace de la interfaz recibe además un datagrama UDP vacío al puerto
+9 que hace que el sistema pregunte por su dirección MAC. Borg espera hasta 1 segundo las respuestas.
+Un host que responde al ping, acepta
 una conexión o la rechaza entra en la lista al momento, y un panel ancho muestra sus puertos
 abiertos en **Puertos** y su tiempo de ping en **Ping**. Las direcciones que siguen calladas quedan
 ocultas. El pie cuenta las direcciones sondeadas y los hosts que respondieron, y Esc detiene el
@@ -2765,13 +2795,14 @@ escaneo. Cerrar la pantalla deja el escaneo en marcha, y un aviso te dice cuánd
 
 El ping usa un socket ICMP que no necesita permisos de administrador. Linux solo concede ese socket
 a los grupos de `net.ipv4.ping_group_range`, y donde el sistema lo niega, Borg se salta el ping y se
-guía por los puertos. Un escaneo cubre subredes IPv4 en interfaces Ethernet, Wi-Fi y puente que
-estén activas, y como mucho 254 direcciones: una subred mayor se reduce al /24 que rodea la
-dirección de este equipo. Se salta este equipo, la dirección de red y la dirección de broadcast. Sin
-ninguna fila seleccionada, S escanea la subred de la interfaz de la puerta de enlace predeterminada.
-Escanea solo redes que tengas permiso para escanear, porque algunas redes tratan un escaneo como un
-ataque. Aparte de los escaneos y de las búsquedas de nombres, la página solo lee tablas que mantiene
-el sistema.
+guía por los puertos. Un escaneo cubre una red IPv4 de /24 a /30, como mucho 254 direcciones. El
+formulario ofrece una subred mayor como el /24 que rodea la dirección de este equipo, y una red
+enrutada amplia como el /24 del primer router que Borg encontró dentro de ella, o si no, como su
+primer /24. Un escaneo se salta las direcciones de este equipo, la dirección de red y la dirección de
+broadcast. Sin ninguna fila seleccionada, el formulario empieza en la subred de la interfaz por la
+que sale el tráfico a internet. Escanea solo redes que tengas permiso para escanear, porque algunas
+redes tratan un escaneo como un ataque. Aparte de los escaneos, los descubrimientos y las búsquedas
+de nombres, la página solo lee tablas que mantiene el sistema.
 
 Borg recuerda los hosts que encuentra, en las tablas y en los escaneos, en `neighbors.json` dentro
 de su carpeta de estado, en un archivo que solo tú puedes leer. Los guarda por red, que reconoce por
@@ -2782,6 +2813,138 @@ escaneo anterior. Sus detalles añaden **Visto por última vez**. Escribe **Apag
 para quedarte solo con esos hosts. Pulsa F8 o Delete sobre uno, o elige **Olvidar host** en el menú
 contextual, y Borg pregunta antes de quitar el host del archivo. Borg guarda hasta 1024 hosts por
 red y 32 redes, y deja ir primero los que lleva más tiempo sin ver.
+
+### Redes enrutadas
+
+Un router a menudo lleva a más redes que aquella en la que está este equipo. La puerta de enlace en
+192.168.1.1 puede enrutar también 192.168.2.0/24 hacia otra planta, y una VPN lleva a las redes del
+trabajo. **5 Vecinos** lista cada una de esas redes bajo la interfaz que llega a ella, en una fila de
+encabezado que empieza por ›. La fila da la red, cómo se llega a ella y el número de hosts que Borg
+encontró allí:
+
+- **en la puerta de enlace** nombra una puerta de enlace que respondió por la propia red, a un salto
+  de distancia. La red cuelga de uno de los puertos de la propia puerta de enlace.
+- **vía** nombra los routers del camino, desde la puerta de enlace en adelante, unidos por ›, y la
+  fila añade el número de saltos.
+- Una red detrás de un túnel muestra solo su dirección, porque su tráfico entra directamente en el
+  túnel.
+
+Borg conoce estas redes de dos maneras. La tabla de rutas del sistema lista las redes que anuncia una
+VPN o un router, y Borg la lee junto con las tablas de vecinos. Las demás las encuentra cuando pulsas
+**D**, o eliges **Descubrir redes…** en el menú contextual. Borg pregunta antes, indicando el router
+al que va el tráfico a internet y el número de direcciones que va a probar. Después prueba las dos
+direcciones que los routers usan más a menudo, .1 y .254, en estas redes /24:
+
+- Cada /24 del /16 que rodea cada dirección privada de las interfaces Wi-Fi, Ethernet y puente de
+  este equipo. Una dirección 192.168.1.20 trae de 192.168.0.0/24 a 192.168.255.0/24.
+- Las redes /24 que hay dentro de las rutas que la tabla envía por la misma interfaz, hasta 256 por
+  cada ruta.
+- Siete redes que los routers asignan por defecto, como 10.0.0.0/24 y 192.168.0.0/24.
+
+Deja fuera las redes en las que está este equipo y las que toman las rutas de otra interfaz, así que
+las redes de una VPN se quedan dentro de la VPN. Un descubrimiento prueba como mucho 512 redes, 64
+direcciones a la vez, cada una con un ping y conexiones TCP a los puertos 80 y 443 que tienen 1
+segundo para responder. Cada dirección que responde recibe un trazado: ecos cuyo tiempo de vida
+crece de 1 a 8 saltos. El primer eco que vuelve indica a qué distancia está la red, y los routers
+que descartan los más cortos se identifican por el camino. Donde el ping no está permitido,
+conexiones con un tiempo de vida creciente cuentan los saltos. El pie cuenta las direcciones
+probadas y las redes encontradas, y Esc detiene el descubrimiento.
+
+Una dirección que responde añade su /24 bajo la interfaz por la que salió el descubrimiento, salvo
+que una ruta de la tabla ya lo cubra. Un escaneo de una red escrita a mano que ninguna ruta cubre
+hace lo mismo con cada host que responde. Los hosts de una red enrutada no muestran dirección MAC,
+así que la columna **MAC** muestra **vía** y el router a través del que se llega a ellos, y sus
+detalles añaden **Ruta**. **S** sobre una red enrutada o sobre uno de sus hosts abre
+**Escanear red** con esa red, y el escaneo sale por la interfaz que llega a ella. Los detalles de
+una red enrutada dan la **Ruta** con cada router y la interfaz, los **Saltos**, el **Origen**, que
+es **Tabla de rutas** o **Descubrimiento**, y el número de **Hosts**.
+
+La fila **Internet** bajo una interfaz indica su puerta de enlace. Una VPN que se lleva todo el
+tráfico añade dos rutas que cubren cada una la mitad del espacio de direcciones, 0.0.0.0/1 y
+128.0.0.0/1, y se imponen a la ruta predeterminada porque son más específicas. Borg cuenta cada ruta
+de /1 a /7 como una salida a internet, marca la más específica como **en uso** y, si no hay
+ninguna, marca la ruta predeterminada que el sistema lista primero. Con Wi-Fi y cable, o con una VPN
+encima de cualquiera de los dos, el mapa muestra cada salida y la que toma el tráfico. Los detalles
+listan la **Interfaz**, las direcciones de **Puerta de enlace** y las **Rutas** que abarcan más
+direcciones.
+
+Borg recuerda las redes que encontró un descubrimiento y los hosts que hay detrás en
+`neighbors.json`, bajo la red local desde la que llegó a ellas, así que vuelven cuando te unes otra
+vez a esa red. Guarda hasta 16 por red. Una que no respondió en esta visita muestra **Visto** y la
+hora en su encabezado, y sus detalles añaden **Visto por última vez**. Pulsa F8 o Delete sobre ella,
+o elige **Olvidar red** en el menú contextual, y Borg pregunta antes de quitar la red y sus hosts.
+Las redes de la tabla de rutas vienen y van con la tabla, así que F8 no las toca. Lo que Borg
+encuentra detrás de un túnel dura lo que dura la sesión, porque un túnel no tiene una dirección MAC
+de puerta de enlace con la que distinguir sus redes.
+
+### Escuchar vecinos
+
+Muchos dispositivos se anuncian sin que nadie les pregunte. Las impresoras y los altavoces dicen su
+nombre y sus servicios por mDNS, las smart TV por SSDP, los equipos Windows por NetBIOS y LLMNR, y
+cada dispositivo que entra en la red pide una dirección por DHCP con su nombre de host en la
+solicitud. La escucha recoge esos anuncios. Borg no envía nada mientras escucha.
+
+Pulsa **H** en **5 Vecinos**, o elige **Escuchar vecinos…** en el menú contextual.
+**Escuchar vecinos** pide tres cosas:
+
+- **Interfaz** empieza en la interfaz de la fila seleccionada y, si no, en la que usa el tráfico a
+  internet para salir. Ofrece las interfaces que están activas y tienen dirección, y deja fuera el
+  loopback y los túneles, que no tienen un enlace en el que escuchar.
+- **Duración** es 30 s, 1 min o 5 min, o **Hasta detenerla**. Empieza en 1 min, tiempo suficiente
+  para que la mayoría de los dispositivos se anuncien.
+- **Ejecutar como** aparece donde Borg puede pedir al sistema la contraseña de un administrador,
+  igual que en una captura.
+
+↑↓ eligen un campo, ←→ o Space lo cambian, Enter empieza y Esc cancela. Borg ejecuta `tcpdump` con
+un filtro que solo se queda con estos paquetes:
+
+- Solicitudes y anuncios ARP, y el descubrimiento de vecinos de IPv6, que dan una dirección con su
+  dirección MAC y marcan los routers.
+- mDNS y Bonjour en el puerto UDP 5353, con nombres de host, los servicios que ofrece un
+  dispositivo, como `ipp` o `airplay`, y el modelo que nombran sus registros.
+- SSDP y UPnP en el puerto UDP 1900, con el software del servidor y los tipos de dispositivo y
+  servicios UPnP.
+- El servicio de nombres NetBIOS en el puerto UDP 137 y LLMNR en el puerto UDP 5355, con nombres de
+  Windows y Samba.
+- DHCP en los puertos UDP 67 y 68, con el nombre de host que pide un cliente y la clase de
+  fabricante que envía, que a menudo nombra su sistema operativo.
+- LLDP y CDP, con el switch al que está conectado este equipo y el puerto.
+
+En una red conmutada o en Wi-Fi solo oyes broadcasts, multicasts y el tráfico de este equipo. El
+switch o el punto de acceso entrega cada paquete unicast solo al dispositivo al que va dirigido, así
+que el tráfico entre otros dos hosts nunca te llega. Un dispositivo que se queda callado queda fuera
+del mapa, y **S** encuentra más de esos (consulta [Vecinos](#neighbors)).
+
+La escucha se ejecuta como una tarea, así que puedes cerrar la pantalla de red y seguir trabajando.
+Alt-J muestra cuánto ha avanzado, y al desplegar la tarea se ven la interfaz, la duración, el número
+de hosts oídos, el puerto del switch y los 5 últimos hosts oídos. C la cancela, igual que **H** en
+**5 Vecinos**, donde el botón dice **H Detener escucha**. La escucha no se puede pausar. Cuando
+termina, un aviso como **Escucha terminada · oyó 4 hosts** dice lo que encontró, y **O Abrir** en la
+tarea terminada abre **5 Vecinos**.
+
+Cada host oído en las redes de la propia interfaz se une al mapa bajo la interfaz, y lo mismo las
+direcciones de enlace local. Borg deja fuera las direcciones y los paquetes de este equipo, y las
+direcciones de otras redes. Un host que solo conoce la escucha muestra **Oído** en la columna
+**Estado**, y escribir **Oído** en el filtro deja todos los hosts que oyó la escucha. El nombre que
+anunció un host gana al que da una búsqueda de DNS inversa y, si anunció varios, primero va mDNS,
+luego DHCP, NetBIOS y LLMNR. Los detalles de un host añaden una sección **Escucha** con cada
+**Nombre** y el protocolo por el que llegó, el **Modelo**, los **Tipos de dispositivo**, los
+**Servicios**, el **Cliente DHCP**, los protocolos en **Oído en** y la hora en
+**Oído por última vez**. El puerto del switch aparece al final del encabezado de la interfaz y en
+**Switch** en sus detalles.
+
+Borg recuerda los hosts IPv4 que oyó, con lo que anunciaron, en `neighbors.json`, junto a los hosts
+de las tablas y los escaneos. Un host oído que ya no está en una visita posterior muestra
+**Apagado**, con **Oído** en la columna **Nota**. Los hosts IPv6 y los puertos de switch duran lo
+que dura la sesión. F8 o Delete olvida un host apagado o que solo oyó la escucha, después de
+preguntar. Una sesión guarda hasta 1.024 hosts oídos y 16 tipos de dispositivo y 16 servicios por
+host, y Borg corta en 80 caracteres cada nombre u otro texto que anuncia un host.
+
+tcpdump necesita acceso al dispositivo de captura, igual que para una captura, y
+[Capturar tráfico](#capturing-traffic) explica cómo dárselo una sola vez. Sin acceso, Borg pregunta
+**Escuchar como administrador** donde el sistema puede pedir tu contraseña y, si no, la tarea
+termina con **No tienes permiso para escuchar en** y el nombre de la interfaz. Si falta tcpdump,
+Borg ofrece instalarlo.
 
 ### Escanear puertos
 
@@ -2873,17 +3036,20 @@ El informe de un escaneo tiene la hora, el modo, los puertos pedidos y cuántos 
 abiertos con sus nombres de servicio, el número de puertos cerrados y filtrados, y la subred, la
 interfaz y la puerta de enlace desde las que se hizo el escaneo. Si el host limitó el escaneo o lo
 cancelaste, el informe lo dice y lista los puertos a los que no llegó. El informe de la página tiene
-las subredes, las puertas de enlace y los servidores DNS, luego cada host con su dirección MAC,
-fabricante, nombre, estado, los puertos y el tiempo de ping que encontró un escaneo de la subred y
-sus notas, un host apagado con la última vez que se vio, y el último escaneo de puertos de cada
-host. Las horas están en UTC, igual que la fecha del nombre del archivo. Lo que Borg no averiguó
+las subredes, las puertas de enlace, los servidores DNS, las redes enrutadas con su camino y sus
+saltos, la salida a internet de cada interfaz y el puerto del switch al que, según la escucha, está
+conectada. Luego viene cada host con su red, el router a través del que se llega a él, su dirección
+MAC, fabricante, nombre, estado, los puertos y el tiempo de ping que encontró un escaneo y sus
+notas, un host apagado con la última vez que se vio, y el último escaneo de puertos de cada host.
+Una tabla **Escucha** lista lo que anunció cada host: su nombre, modelo, tipos de dispositivo,
+servicios, los protocolos en los que se oyó y cuándo se oyó por última vez. Las horas están en UTC, igual que la fecha del nombre del archivo. Lo que Borg no averiguó
 queda fuera del informe.
 
 ### Filtrar
 
 El filtro conserva las filas que coinciden con todas las palabras que escribes. Una palabra suelta
 coincide con el proceso, el PID, el puerto, el servicio, la dirección, el nombre del host, el
-estado, el protocolo, la dirección MAC, el fabricante o una etiqueta que muestra la fila, así que
+estado, el protocolo, la dirección MAC, el fabricante, la red o una etiqueta que muestra la fila, así que
 `postgres`, `5432`, `https` y `example.com` funcionan. Una palabra con nombre de campo busca solo en
 ese campo:
 
@@ -2898,10 +3064,12 @@ ese campo:
 | `if:en0`, `interface:en0` | Interfaces y vecinos cuyo nombre de interfaz contiene el texto |
 | `mac:3c:22`, `mac:3c-22` | Vecinos e interfaces cuya dirección MAC contiene el texto |
 | `vendor:synology` | Vecinos cuyo fabricante contiene el texto |
+| `net:10.20` | Vecinos de una red cuya dirección contiene el texto, y el encabezado de esa red |
 
 Pon `!` delante de una palabra para descartar las filas que coinciden con ella: `!state:time_wait`
 oculta las conexiones que se están cerrando, y `!proc:browser` oculta un programa. El filtro se
-aplica a todas las páginas y, mientras escribes, indica cuántas filas de la página conserva.
+aplica a todas las páginas y, mientras escribes, indica cuántas filas de la página conserva. En
+**5 Vecinos**, un encabezado se queda mientras coincida alguna fila que tenga debajo.
 
 ### Capturar tráfico
 
@@ -3207,13 +3375,17 @@ recuentos de bytes de TCP vienen de `ss` cuando está instalado; los sockets UDP
 `ss` muestran **—** en las velocidades, y los detalles dicen **El sistema no informa recuentos de
 bytes aquí**. Los totales y las velocidades de las interfaces funcionan siempre.
 
-En macOS, los vecinos salen de `arp -anl` y `ndp -an`, las puertas de enlace de `netstat -rn` y los
-servidores DNS de `/etc/resolv.conf`. `arp` no informa del estado, así que una entrada IPv4 cuyo
-temporizador sigue en marcha muestra **REACHABLE** y una caducada muestra **STALE**. En Linux, Borg
-lee la tabla de vecinos del kernel por netlink, o `/proc/net/arp` cuando netlink no le está
-permitido, y las puertas de enlace de `/proc/net/route` y `/proc/net/ipv6_route`. Los servidores DNS
-salen de `/etc/resolv.conf`, o de `/run/systemd/resolve/resolv.conf` cuando el primero solo lista el
-stub de systemd-resolved.
+En macOS, los vecinos salen de `arp -anl` y `ndp -an`, las puertas de enlace y las demás rutas de
+`netstat -rn` y los servidores DNS de `/etc/resolv.conf`. `arp` no informa del estado, así que una
+entrada IPv4 cuyo temporizador sigue en marcha muestra **REACHABLE** y una caducada muestra
+**STALE**. En Linux, Borg lee la tabla de vecinos del kernel por netlink, o `/proc/net/arp` cuando
+netlink no le está permitido, y las puertas de enlace y las rutas de `/proc/net/route` y
+`/proc/net/ipv6_route`. Los servidores DNS salen de `/etc/resolv.conf`, o de
+`/run/systemd/resolve/resolv.conf` cuando el primero solo lista el stub de systemd-resolved. macOS
+entrega al socket con el que Borg hace ping los avisos de los routers que descartan los ecos de un
+descubrimiento, así que una red enrutada lista cada router del camino. Linux no deja que esos
+avisos lleguen a ese socket, así que allí un descubrimiento cuenta los saltos y solo nombra la
+puerta de enlace.
 
 ## Elementos de inicio
 

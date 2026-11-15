@@ -158,8 +158,14 @@ pub enum ConfirmPurpose {
         view_filter: String,
     },
     Scan(Box<crate::SubnetScan>),
-    /// Yes drops a remembered host that is gone from the saved neighbors.
-    ForgetNeighbor(std::net::Ipv4Addr),
+    /// Yes drops a host that is gone, or that only listening heard, from what Borg keeps.
+    ForgetNeighbor(std::net::IpAddr),
+    /// A listen the system refused: Yes runs it again as administrator.
+    Listen(Box<crate::ListenRequest>),
+    /// Look for networks behind the router internet traffic goes to.
+    Discover(Box<crate::Discovery>),
+    /// Forget a remembered routed network and the hosts behind it.
+    ForgetRoute(std::net::Ipv4Addr, u8),
     /// Yes starts the port scan as a job.
     ScanPorts(Box<crate::PortScanRequest>),
     /// Yes writes the report over the file that is there, and no goes back to the save dialog.
@@ -216,6 +222,8 @@ pub enum Overlay {
     EntropyScan(crate::EntropyDialog),
     /// What to capture from the network screen, where and for how long.
     Capture(crate::CaptureDialog),
+    /// Where to listen for neighbors, for how long and as whom.
+    Listen(crate::ListenForm),
     /// The command that installs a missing program, before it runs in the shell.
     Install(crate::InstallOffer),
     /// The command that installs or starts the background service, before it runs in the shell.
@@ -226,6 +234,8 @@ pub enum Overlay {
     Storage(crate::StorageWindow),
     /// Which host to scan for open ports, which ports and how fast.
     PortScan(Box<crate::PortScanForm>),
+    /// Which network the subnet scan covers.
+    ScanNetwork(Box<crate::ScanForm>),
     /// A port scan finished in the background.
     PortScanDone(Box<crate::PortScanRecord>),
     /// The open ports a scan found.

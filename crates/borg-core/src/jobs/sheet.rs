@@ -169,6 +169,7 @@ pub(crate) fn open_result(state: &mut AppState, id: u64) -> Vec<Effect> {
             state.overlay = Some(Overlay::PortScanResult(Box::new(view)));
             Vec::new()
         }
+        Reveal::Neighbors => crate::network::show_neighbors(state),
     }
 }
 

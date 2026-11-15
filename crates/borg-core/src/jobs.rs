@@ -57,6 +57,8 @@ pub enum JobKind {
     Index,
     /// A host's TCP ports tried one by one.
     PortScan,
+    /// Broadcast and multicast traffic heard on an interface for the Neighbors map.
+    Listen,
 }
 
 impl JobKind {
@@ -75,6 +77,7 @@ impl JobKind {
             Self::Entropy => tr!(scanning_processes),
             Self::Index => tr!(indexing),
             Self::PortScan => tr!(scanning_ports),
+            Self::Listen => tr!(listening),
         }
     }
 
@@ -94,6 +97,7 @@ impl JobKind {
             Self::Entropy => tr!(job_entropy),
             Self::Index => tr!(job_index),
             Self::PortScan => tr!(job_port_scan),
+            Self::Listen => tr!(job_listen),
         }
     }
 
@@ -120,9 +124,10 @@ impl JobKind {
         !matches!(self, Self::Sizes | Self::Search | Self::Entropy | Self::Index)
     }
 
-    /// Whether the job can wait and go on again.
+    /// Whether the job can wait and go on again. Listening hears only what is said while it
+    /// runs, so it stops instead.
     pub fn pauses(self) -> bool {
-        self.in_footer()
+        self.in_footer() && self != Self::Listen
     }
 
     /// Whether the job can be stopped before it ends.
@@ -147,6 +152,8 @@ pub enum Unit {
     Folders,
     Processes,
     Ports,
+    Seconds,
+    Hosts,
 }
 
 /// How far a job got: what it did, and of how much when that is known.
@@ -234,6 +241,8 @@ pub enum Reveal {
     EntropyHits,
     /// The open ports a port scan found.
     PortScan(Box<crate::PortScanRecord>),
+    /// The hosts listening heard, on the Neighbors page.
+    Neighbors,
 }
 
 /// How a job is steered: what its pause and cancel turn into.

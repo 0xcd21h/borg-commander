@@ -226,6 +226,7 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
         Msg::ScanTargetResolved { name, result } => crate::port_scan::resolved(state, name, result),
         Msg::ReportSaved { path, result } => crate::report::saved(state, path, result),
         Msg::PortScan { id, event } => crate::port_scan::on_event(state, id, event, now),
+        Msg::Listen { id, event } => crate::network::listen_event(state, id, event, now),
         Msg::DockerStats(frame) => {
             crate::docker::stats(state, frame, now);
             Vec::new()

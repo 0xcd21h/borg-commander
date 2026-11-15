@@ -4039,6 +4039,47 @@ fn raw_foreground_program_captures_keys_without_an_alternate_screen() {
     assert_eq!(state.effective_view(), View::Panels);
 }
 
+fn resized_prompt() -> ShellView {
+    ShellView { prompt: PromptState::Unknown, ..idle_prompt() }
+}
+
+fn typed_prompt() -> ShellView {
+    ShellView { prompt: PromptState::Typed, ..idle_prompt() }
+}
+
+#[test]
+fn a_command_line_typed_and_erased_stays_empty_after_a_resize() {
+    let (mut state, now) = setup();
+    update(&mut state, Msg::ShellOutput(idle_prompt()), now);
+    update(&mut state, Msg::Key(key(KeyCode::Char('a'))), now);
+    update(&mut state, Msg::ShellOutput(typed_prompt()), now);
+    update(&mut state, Msg::Key(key(KeyCode::Backspace)), now);
+    update(&mut state, Msg::ShellOutput(idle_prompt()), now);
+    update(&mut state, Msg::Observe(resized_prompt()), now);
+    assert!(state.shell.line_empty());
+    assert!(crate::update::shell_ready(&state));
+}
+
+#[test]
+fn a_command_line_with_text_stays_typed_after_a_resize() {
+    let (mut state, now) = setup();
+    update(&mut state, Msg::ShellOutput(idle_prompt()), now);
+    update(&mut state, Msg::Key(key(KeyCode::Char('a'))), now);
+    update(&mut state, Msg::ShellOutput(typed_prompt()), now);
+    update(&mut state, Msg::Observe(resized_prompt()), now);
+    assert!(!state.shell.line_empty());
+}
+
+#[test]
+fn a_key_not_echoed_yet_keeps_the_line_typed_at_an_empty_prompt() {
+    let (mut state, now) = setup();
+    update(&mut state, Msg::ShellOutput(idle_prompt()), now);
+    update(&mut state, Msg::Key(key(KeyCode::Char('a'))), now);
+    update(&mut state, Msg::Observe(idle_prompt()), now);
+    update(&mut state, Msg::Observe(resized_prompt()), now);
+    assert!(!state.shell.line_empty());
+}
+
 #[test]
 fn remote_mode_updates_do_not_claim_that_pending_input_was_echoed() {
     let (mut state, now) = setup();

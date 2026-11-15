@@ -57,6 +57,14 @@ pub(super) fn dialog_mouse(state: &AppState, mouse: &Mouse, layout: &Layout, now
                 _ => None,
             })
         }
+        Overlay::Listen(form) => {
+            let (rect, at) = crate::network_view::listen_field_at(form, screen, point);
+            Some(match (click, at) {
+                (true, Some(at)) => Some(Msg::Pointer(Pointer::ListenField(at))),
+                (true, None) => hinted(rect, tr!(listen_keys), true, point),
+                _ => None,
+            })
+        }
         Overlay::Settings { .. } | Overlay::Plugins { .. } => {
             let rect = crate::settings_view::rect(state, screen);
             (click && crate::settings_view::item_at(state, point, screen).is_none())
