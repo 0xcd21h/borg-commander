@@ -697,7 +697,7 @@ keep-free-mib = 1024        # stop captures before the disk has less than this f
 
 [watch]
 on = false                  # watch what starts, in the background service
-freeze = true               # stop a process a rule is sure about
+freeze = false              # stop a process a rule is sure about
 learning-days = 7           # learn what is normal here before freezing anything, 365 at most
 alerts-per-minute = 20      # processes written about before Borg only counts them
 freezes-per-minute = 5
@@ -985,7 +985,7 @@ Borg 会先学习这台机器，然后才动手。最初 7 天它记录这里哪
 
 ### 冻结一个进程
 
-学习期结束后，Borg 会冻结触发了警报级或警告级规则的进程。冻结会向该进程及其下的一切发送停止信号。被冻结的进程并未
+冻结默认关闭，要由你自己打开。打开冻结并且学习期结束后，Borg 会冻结触发了警报级或警告级规则的进程。冻结会向该进程及其下的一切发送停止信号。被冻结的进程并未
 退出，因此它所属的服务继续运行，`systemd` 和 Docker 没有什么需要重启，而它正要做的事都停在原处，等你来看。处置列
 会写 **已冻结**，**C** 让它继续，**K** 结束它。终止无法挽回，所以 Borg 会先询问。
 

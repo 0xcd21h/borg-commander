@@ -1857,7 +1857,7 @@ keep-free-mib = 1024        # stop captures before the disk has less than this f
 
 [watch]
 on = false                  # watch what starts, in the background service
-freeze = true               # stop a process a rule is sure about
+freeze = false              # stop a process a rule is sure about
 learning-days = 7           # learn what is normal here before freezing anything, 365 at most
 alerts-per-minute = 20      # processes written about before Borg only counts them
 freezes-per-minute = 5
@@ -2483,8 +2483,8 @@ por encima del límite de 5.
 
 ### Congelar un proceso
 
-Una vez terminado el periodo de aprendizaje, Borg congela el proceso en el que se disparó una
-regla de nivel alerta o aviso. Congelar envía una señal de parada al proceso y a todo lo que está
+La congelación está desactivada hasta que la actives. Una vez activada y terminado el periodo de
+aprendizaje, Borg congela el proceso en el que se disparó una regla de nivel alerta o aviso. Congelar envía una señal de parada al proceso y a todo lo que está
 debajo de él. Un proceso congelado no ha terminado, así que su servicio sigue corriendo,
 `systemd` y Docker no tienen nada que reiniciar, y lo que estaba a punto de hacer espera donde
 está hasta que lo mires. La columna Respuesta dice **Congelado**, **C** lo deja continuar y **K**

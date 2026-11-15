@@ -1105,12 +1105,20 @@ fn the_command_menu_turns_freezing_on_and_off_and_says_where_it_stands() {
     assert_eq!(off.hint, "");
 
     state.settings.preferences.process_watch = true;
+    let untouched = freeze_entry(&state);
+    assert!(untouched.enabled);
+    assert_eq!(untouched.checked, Some(false), "freezing stays off until it is turned on");
+    assert_eq!(untouched.hint, "");
+
+    let toggle = || Msg::Pointer(crate::Pointer::Action(crate::Action::ToggleProcessFreeze));
+    let effects = update(&mut state, toggle(), now);
+    assert!(state.settings.preferences.process_freeze);
+    assert!(effects.contains(&Effect::SaveConfig));
     let learning = freeze_entry(&state);
-    assert!(learning.enabled);
     assert_eq!(learning.checked, Some(true));
     assert_eq!(learning.hint, "learning");
 
-    let effects = update(&mut state, Msg::Pointer(crate::Pointer::Action(crate::Action::ToggleProcessFreeze)), now);
+    let effects = update(&mut state, toggle(), now);
     assert!(!state.settings.preferences.process_freeze);
     assert!(effects.contains(&Effect::SaveConfig));
     assert_eq!(freeze_entry(&state).hint, "", "turned off, it has no stage to show");

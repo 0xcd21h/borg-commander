@@ -12,7 +12,7 @@ expression: describe(&buffer)
 │ @ latest.log   │ [x] Git: status, diffs, stage/unstage                │                │
 │ · README.md    │ [x] System: processes, memory and network            │                │
 │ ? socket       │ [ ] Watch: unusual process starts                    │                │
-│ · 日本語メモ.tx│ [x] Freeze: what the watcher catches                 │                │
+│ · 日本語メモ.tx│ [ ] Freeze: what the watcher catches                 │                │
 │                │ [x] Docker: containers and Compose projects          │                │
 │                │ [x] Follow: remote and container command lines       │                │
 │                │ [x] Remote: keep a log of what it does               │                │
