@@ -1,52 +1,34 @@
-class BorgCommander < Formula
+cask "borg-commander" do
+  arch arm: "aarch64", intel: "x86_64"
+  os macos: "apple-darwin", linux: "unknown-linux-musl"
+
+  version "@VERSION@"
+  sha256 arm:          "@SHA_MAC_ARM@",
+         intel:        "@SHA_MAC_INTEL@",
+         arm64_linux:  "@SHA_LINUX_ARM@",
+         x86_64_linux: "@SHA_LINUX_INTEL@"
+
+  url "https://github.com/0xcd21h/borg-commander/releases/download/v#{version}/borg-#{version}-#{arch}-#{os}.tar.gz"
+  name "Borg Commander"
   desc "Two-panel terminal file commander with a real shell behind it"
   homepage "https://github.com/0xcd21h/borg-commander"
-  version "@VERSION@"
-  license any_of: ["MIT", "Apache-2.0"]
 
-  on_macos do
-    on_arm do
-      url "https://github.com/0xcd21h/borg-commander/releases/download/v@VERSION@/borg-@VERSION@-aarch64-apple-darwin.tar.gz"
-      sha256 "@SHA_MAC_ARM@"
-    end
-    on_intel do
-      url "https://github.com/0xcd21h/borg-commander/releases/download/v@VERSION@/borg-@VERSION@-x86_64-apple-darwin.tar.gz"
-      sha256 "@SHA_MAC_INTEL@"
-    end
-  end
+  binary "borg-#{version}-#{arch}-#{os}/borg"
+  binary "borg-#{version}-#{arch}-#{os}/borg", target: "borgcmd"
+  artifact "borg-#{version}-#{arch}-#{os}/fonts",
+           target: "#{HOMEBREW_PREFIX}/share/borg-commander/fonts"
+  artifact "borg-#{version}-#{arch}-#{os}/SYNTAX-LICENSES.md",
+           target: "#{HOMEBREW_PREFIX}/share/borg-commander/SYNTAX-LICENSES.md"
 
-  on_linux do
-    on_arm do
-      url "https://github.com/0xcd21h/borg-commander/releases/download/v@VERSION@/borg-@VERSION@-aarch64-unknown-linux-musl.tar.gz"
-      sha256 "@SHA_LINUX_ARM@"
-    end
-    on_intel do
-      url "https://github.com/0xcd21h/borg-commander/releases/download/v@VERSION@/borg-@VERSION@-x86_64-unknown-linux-musl.tar.gz"
-      sha256 "@SHA_LINUX_INTEL@"
+  postflight do
+    if OS.mac?
+      system_command "/usr/bin/xattr",
+                     args: ["-d", "com.apple.quarantine", "#{staged_path}/borg-#{version}-#{arch}-#{os}/borg"]
     end
   end
 
-  def install
-    bin.install "borg" => "borgcmd"
-    bin.install_symlink "borgcmd" => "borg" unless borgbackup_installed?
-    (share/"borg-commander").install "fonts" if File.directory?("fonts")
-    (share/"borg-commander").install "SYNTAX-LICENSES.md" if File.file?("SYNTAX-LICENSES.md")
-  end
-
-  def borgbackup_installed?
-    (HOMEBREW_CELLAR/"borgbackup").directory?
-  end
-
-  def caveats
-    <<~EOS
-      Borg Commander runs as `borg` and as `borgcmd`. BorgBackup also installs a `borg`
-      command, so where BorgBackup is installed, Borg Commander runs only as `borgcmd`.
-      If you install BorgBackup later, run `brew reinstall borg-commander` first and then
-      `brew link borgbackup`.
-    EOS
-  end
-
-  test do
-    assert_match version.to_s, shell_output("#{bin}/borgcmd --version")
-  end
+  caveats <<~EOS
+    Borg Commander runs as `borg` and as `borgcmd`. BorgBackup also installs a `borg`
+    command, and where it is installed, Homebrew keeps `borg` for BorgBackup.
+  EOS
 end

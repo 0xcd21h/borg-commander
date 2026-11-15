@@ -57,9 +57,8 @@ With Homebrew on macOS or Linux:
 brew install 0xcd21h/tap/borg-commander
 ```
 
-Homebrew installs Borg as `borg` and as `borgcmd`. BorgBackup also has a `borg` command, so where
-BorgBackup is installed, Borg runs only as `borgcmd`. If you install BorgBackup later, run
-`brew reinstall borg-commander` and then `brew link borgbackup`.
+Homebrew installs Borg as `borg` and as `borgcmd`. BorgBackup also has a `borg` command, and
+where BorgBackup is installed, Homebrew keeps `borg` for it, so Borg runs as `borgcmd`.
 
 Run `borg` in the folder you want to browse. F10 quits, and Ctrl-O switches from the console
 back to the panels. To update, run `borg update` for a downloaded copy, or use Homebrew or cargo

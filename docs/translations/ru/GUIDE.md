@@ -60,8 +60,8 @@ brew install 0xcd21h/tap/borg-commander
 ```
 
 Homebrew устанавливает Borg под именами `borg` и `borgcmd`. У BorgBackup тоже есть команда `borg`,
-поэтому там, где установлен BorgBackup, Borg запускается только как `borgcmd`. Если вы установите
-BorgBackup позже, сначала выполните `brew reinstall borg-commander`, а затем `brew link borgbackup`.
+и там, где установлен BorgBackup, Homebrew оставляет `borg` за ним, поэтому Borg запускается как
+`borgcmd`.
 
 Запустите `borg` в папке, которую хотите просматривать. F10 закрывает программу, а Ctrl-O
 возвращает из консоли к панелям. Чтобы обновить скачанную копию, выполните `borg update`; если вы устанавливали
