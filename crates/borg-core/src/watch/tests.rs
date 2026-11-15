@@ -1087,6 +1087,36 @@ fn turning_the_watcher_on_with_nowhere_to_send_alerts_says_so() {
 }
 
 #[test]
+fn the_command_menu_turns_freezing_on_and_off_and_says_where_it_stands() {
+    let (mut state, now) = state();
+    let freeze_entry = |state: &crate::AppState| {
+        crate::menus(state)
+            .into_iter()
+            .flat_map(|menu| menu.entries)
+            .find_map(|entry| match entry {
+                crate::MenuEntry::Item(item) if item.action == crate::Action::ToggleProcessFreeze => Some(item),
+                _ => None,
+            })
+            .expect("the freeze entry")
+    };
+    state.alerts.log.watch.stage = Some(FreezeStage::Learning);
+    let off = freeze_entry(&state);
+    assert!(!off.enabled, "freezing waits for the watcher to be on");
+    assert_eq!(off.hint, "");
+
+    state.settings.preferences.process_watch = true;
+    let learning = freeze_entry(&state);
+    assert!(learning.enabled);
+    assert_eq!(learning.checked, Some(true));
+    assert_eq!(learning.hint, "learning");
+
+    let effects = update(&mut state, Msg::Pointer(crate::Pointer::Action(crate::Action::ToggleProcessFreeze)), now);
+    assert!(!state.settings.preferences.process_freeze);
+    assert!(effects.contains(&Effect::SaveConfig));
+    assert_eq!(freeze_entry(&state).hint, "", "turned off, it has no stage to show");
+}
+
+#[test]
 fn the_context_menu_on_an_alert_copies_its_pid_and_asks_before_killing() {
     let (mut state, now) = opened();
     let pid = state.alerts.selected().unwrap().process.key.pid;

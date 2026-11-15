@@ -202,7 +202,7 @@ impl Default for Watch {
         let limits = borg_core::Limits::default();
         Self {
             on: borg_core::Preferences::DEFAULT.process_watch,
-            freeze: true,
+            freeze: borg_core::Preferences::DEFAULT.process_freeze,
             learning_days: borg_core::LEARNING_DAYS,
             alerts_per_minute: limits.alerts_per_minute,
             freezes_per_minute: limits.freezes_per_minute,
@@ -339,6 +339,7 @@ impl Config {
             git_plugin: self.plugins.as_ref().map_or(base.git_plugin, |plugins| plugins.git),
             system_plugin: self.plugins.as_ref().map_or(base.system_plugin, |plugins| plugins.system),
             process_watch: self.watch.as_ref().map_or(base.process_watch, |watch| watch.on),
+            process_freeze: self.watch.as_ref().map_or(base.process_freeze, |watch| watch.freeze),
             docker_plugin: self.plugins.as_ref().map_or(base.docker_plugin, |plugins| plugins.docker),
             docker_console: self.plugins.as_ref().map_or(base.docker_console, |plugins| plugins.docker_console),
             agent_log: self.plugins.as_ref().map_or(base.agent_log, |plugins| plugins.agent_log),
@@ -498,7 +499,11 @@ impl Config {
             index: self.index.clone(),
             folders: self.folders.clone(),
             network: self.network.clone(),
-            watch: Some(Watch { on: prefs.process_watch, ..self.watch.clone().unwrap_or_default() }),
+            watch: Some(Watch {
+                on: prefs.process_watch,
+                freeze: prefs.process_freeze,
+                ..self.watch.clone().unwrap_or_default()
+            }),
         }
     }
 }

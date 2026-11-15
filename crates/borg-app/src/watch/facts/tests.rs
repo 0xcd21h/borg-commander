@@ -146,6 +146,14 @@ impl FakeProc {
         self
     }
 
+    /// The network a process is in, as its namespace link names it.
+    fn in_network(&self, pid: u32, network: &str) -> &Self {
+        let at = self.folder.path().join(pid.to_string()).join("ns");
+        fs::create_dir_all(&at).expect("the namespace folder");
+        std::os::unix::fs::symlink(network, at.join("net")).expect("the network link");
+        self
+    }
+
     /// A network table of the process's network, listing a TCP socket with each of these numbers.
     fn network(&self, pid: u32, table: &str, inodes: &[u64]) -> &Self {
         let at = self.folder.path().join(pid.to_string()).join("net");
@@ -201,6 +209,28 @@ fn a_socket_the_network_tables_list_reaches_the_network_and_any_other_stays_on_t
     proc.stream(300, 1, "socket:[7171]");
     let unknown = proc.processes().started(300, at).expect("the process is there");
     assert_eq!(unknown.output, StreamKind::Socket, "a socket Borg cannot look up counts as a network one");
+}
+
+#[test]
+fn a_shell_that_ended_before_its_tables_were_read_has_its_sockets_looked_up_in_its_parents_network() {
+    const BUILD_NETWORK: &str = "net:[4026532100]";
+    const OTHER_NETWORK: &str = "net:[4026532200]";
+    let proc = FakeProc::new();
+    proc.process(1, "systemd", 0, "/sbin/init", &["/sbin/init"]);
+    proc.process(100, "node", 1, "/usr/local/bin/node", &["node", "pnpm", "install"]).in_network(100, BUILD_NETWORK);
+    proc.network(100, "tcp", &[4242]);
+    proc.process(200, "sh", 100, "/bin/sh", &["sh", "-c", "echo"]).in_network(200, BUILD_NETWORK);
+    proc.stream(200, 0, "socket:[5151]").stream(200, 1, "socket:[4242]");
+    let at = SystemTime::UNIX_EPOCH;
+
+    let shell = proc.processes().started(200, at).expect("the process is there");
+    assert_eq!(shell.input, StreamKind::LocalSocket, "the parent's network does not list it");
+    assert_eq!(shell.output, StreamKind::Socket, "the parent's network lists it");
+
+    proc.process(300, "sh", 100, "/bin/sh", &["sh"]).in_network(300, OTHER_NETWORK);
+    proc.stream(300, 0, "socket:[6161]");
+    let elsewhere = proc.processes().started(300, at).expect("the process is there");
+    assert_eq!(elsewhere.input, StreamKind::Socket, "a parent in another network says nothing of its sockets");
 }
 
 #[test]

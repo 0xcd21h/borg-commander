@@ -18,8 +18,8 @@ mod response;
 mod rules;
 
 pub use alerts::{
-    ALERTS_KEPT, Alert, AlertLog, AlertState, AlertsReply, AlertsRequest, Evidence, WatchSource, WatchStatus,
-    filtered as alerts_filtered,
+    ALERTS_KEPT, Alert, AlertLog, AlertState, AlertsReply, AlertsRequest, Evidence, FreezeStage, WatchSource,
+    WatchStatus, filtered as alerts_filtered,
 };
 pub use baseline::{
     Allowance, Baseline, LEARNING_DAYS, LEARNING_DAYS_LIMIT, PAIRS_LIMIT, ParentChild, learning_period, review_ends,

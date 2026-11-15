@@ -230,9 +230,10 @@ fn command_menu(state: &AppState) -> Menu {
             when(item(tr!(network_title), Action::Network), state.settings.preferences.system_plugin),
             when(item(tr!(startup_title), Action::StartupItems), state.settings.preferences.system_plugin),
             when(item(tr!(watch_title), Action::Alerts), state.settings.preferences.system_plugin),
-            when(item(tr!(docker_title), Action::Docker), state.settings.preferences.docker_plugin),
         ]
         .into_iter()
+        .chain(watch_entries(state).map(MenuEntry::Item))
+        .chain([when(item(tr!(docker_title), Action::Docker), state.settings.preferences.docker_plugin)])
         .chain(time_machine)
         .chain([
             item(tr!(find_in_folder), Action::Find),
@@ -253,6 +254,29 @@ fn command_menu(state: &AppState) -> Menu {
         ])
         .collect(),
     }
+}
+
+/// Turning the process watcher on and off, and its freezing, which says where it stands as the
+/// watcher last reported while both are on.
+fn watch_entries(state: &AppState) -> [MenuItem; 2] {
+    let prefs = &state.settings.preferences;
+    let stage = state.alerts.log.watch.stage.filter(|_| prefs.process_watch && prefs.process_freeze);
+    [
+        MenuItem {
+            label: tr!(watch_plugin_label),
+            hint: String::new(),
+            action: Action::ToggleProcessWatch,
+            checked: Some(prefs.process_watch),
+            enabled: prefs.system_plugin,
+        },
+        MenuItem {
+            label: tr!(watch_freeze_label),
+            hint: stage.map(crate::FreezeStage::label).unwrap_or_default().to_owned(),
+            action: Action::ToggleProcessFreeze,
+            checked: Some(prefs.process_freeze),
+            enabled: prefs.system_plugin && prefs.process_watch,
+        },
+    ]
 }
 
 fn remote_menu(state: &AppState) -> Menu {
@@ -315,7 +339,7 @@ pub fn settings_items(state: &AppState) -> Vec<MenuItem> {
 
 pub fn checkbox_items(state: &AppState) -> Vec<MenuItem> {
     if matches!(state.overlay, Some(crate::Overlay::Plugins { .. })) {
-        vec![
+        [
             MenuItem {
                 label: tr!(git_status_diffs_stage_unstage),
                 hint: String::new(),
@@ -330,13 +354,10 @@ pub fn checkbox_items(state: &AppState) -> Vec<MenuItem> {
                 checked: Some(state.settings.preferences.system_plugin),
                 enabled: true,
             },
-            MenuItem {
-                label: tr!(watch_plugin_label),
-                hint: String::new(),
-                action: Action::ToggleProcessWatch,
-                checked: Some(state.settings.preferences.process_watch),
-                enabled: state.settings.preferences.system_plugin,
-            },
+        ]
+        .into_iter()
+        .chain(watch_entries(state))
+        .chain([
             MenuItem {
                 label: tr!(docker_plugin_label),
                 hint: String::new(),
@@ -372,7 +393,8 @@ pub fn checkbox_items(state: &AppState) -> Vec<MenuItem> {
                 checked: Some(state.settings.preferences.agent_ask_reads),
                 enabled: state.settings.preferences.agent_cloud,
             },
-        ]
+        ])
+        .collect()
     } else {
         settings_items(state)
     }

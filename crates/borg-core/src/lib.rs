@@ -158,8 +158,8 @@ pub use viewer::{Content, ENTROPY_STRIP, Image, Profiling, Shown, Viewer, viewer
 pub use watch::{
     ALERTS_KEPT, ALERTS_PER_MINUTE, Alert, AlertDelivery, AlertLog, AlertState, Alerts, AlertsReply, AlertsRequest,
     Allowance, Ancestor, Baseline, COMMAND_CUT, COMMAND_KEPT, Evidence, FIRST_PERSON, FREEZES_PER_MINUTE,
-    FREEZING_SOON, Finding as WatchFinding, Freezing, Guard, History, LEARNING_DAYS, LEARNING_DAYS_LIMIT, Limits,
-    NEVER_FROZEN, Outcome, PAIRS_LIMIT, PRELOAD_VARIABLES, ParentChild, Protection, Response, StartedProcess,
+    FREEZING_SOON, Finding as WatchFinding, FreezeStage, Freezing, Guard, History, LEARNING_DAYS, LEARNING_DAYS_LIMIT,
+    Limits, NEVER_FROZEN, Outcome, PAIRS_LIMIT, PRELOAD_VARIABLES, ParentChild, Protection, Response, StartedProcess,
     StreamKind, Unsent, WatchRule, WatchSource, WatchStatus, Watcher, alerts_filtered, decide as decide_response,
     examine as examine_start, kept_within, learning_period,
 };

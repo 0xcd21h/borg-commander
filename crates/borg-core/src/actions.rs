@@ -48,6 +48,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         Action::Alerts => crate::watch::toggle(state),
         Action::ToggleSystemPlugin => settings::flip(state, |prefs| &mut prefs.system_plugin),
         Action::ToggleProcessWatch => settings::toggle_process_watch(state),
+        Action::ToggleProcessFreeze => settings::flip(state, |prefs| &mut prefs.process_freeze),
         Action::Docker => crate::docker::toggle(state, now),
         Action::DockerAct(action) => crate::docker::act(state, action),
         Action::DockerFiles => crate::docker::browse(state),
