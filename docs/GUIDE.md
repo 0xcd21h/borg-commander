@@ -2129,7 +2129,7 @@ everywhere, including the console, viewer, monitor, dialogs, and screensaver.
 ### Alerts
 
 Borg can watch what starts on a machine and tell you when something looks wrong. Turn on **Watch:
-unusual process starts** in F9 → Options → Plugins. The watcher lives in the background service
+unusual process starts** in the Command menu or in F9 → Options → Plugins. The watcher lives in the background service
 that all your Borgs on the machine share, so every Borg reads the same alerts. That service runs
 while a Borg is open. To keep watching with no terminal open, start the service at boot as
 [Named sessions and the background service](#named-sessions-and-the-background-service) describes.
@@ -2249,6 +2249,13 @@ read, and the watcher notices within a minute. That way you can check what the w
 a harmless program with **A** before anything stops, and a machine nobody looks at is still
 protected. Until then, the page's footer says how long freezing waits, and the details of a new
 alert say that it is waiting.
+
+**Freeze: what the watcher catches**, below the watcher's checkbox in the Command menu and in
+Options → Plugins, turns freezing on and off. It sets `freeze` in the `[watch]` section, and the
+watcher takes the change in within a few seconds. Turned off, Borg still writes every alert down.
+While both are on, the entry shows where freezing stands: **learning** during the learning period,
+**waits for review** while Borg waits for you to see the week's alerts, and **active** once it
+freezes. Right after you turn freezing on, it can show **off** until the watcher takes the change in.
 
 Borg never freezes the system's first process, itself or anything it started, a program on the list
 it never freezes (`init`, `systemd`, `sshd`, `sudo`, `su`, `login` and the like, plus any name you

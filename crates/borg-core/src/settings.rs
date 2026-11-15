@@ -37,6 +37,8 @@ pub struct Preferences {
     pub system_plugin: bool,
     /// The process watcher runs in the background service and may freeze what it finds.
     pub process_watch: bool,
+    /// The watcher freezes what its rules are sure about, once it has learned the machine.
+    pub process_freeze: bool,
     pub docker_plugin: bool,
     /// The command line runs inside a container while its filesystem panel is active.
     pub docker_console: bool,
@@ -64,6 +66,7 @@ impl Preferences {
         git_plugin: true,
         system_plugin: true,
         process_watch: false,
+        process_freeze: true,
         docker_plugin: true,
         docker_console: true,
         agent_log: true,

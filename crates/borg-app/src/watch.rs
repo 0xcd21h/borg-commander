@@ -9,8 +9,9 @@
 
 use anyhow::{Context, Result};
 use borg_core::{
-    Alert, AlertLog, AlertState, AlertsReply, AlertsRequest, Allowance, Baseline, ControlOutcome, Evidence, Guard,
-    Limits, Msg, Outcome, ProcessKey, Response, StartedProcess, Unsent, WatchSource, WatchStatus, Watcher,
+    Alert, AlertLog, AlertState, AlertsReply, AlertsRequest, Allowance, Baseline, ControlOutcome, Evidence,
+    FreezeStage, Guard, Limits, Msg, Outcome, ProcessKey, Response, StartedProcess, Unsent, WatchSource, WatchStatus,
+    Watcher,
 };
 use borg_i18n::tr;
 use std::{
@@ -519,6 +520,7 @@ impl Watch {
             since: watcher.baseline.since,
             learned_at: watcher.baseline.learned_at(),
             freeze: settings.freeze,
+            stage: None,
             seen: 0,
             suppressed: 0,
             delivery: settings.notify.delivery(),
@@ -531,11 +533,11 @@ impl Watch {
         let first_person = facts::first_person();
         let host = settings.notify.name.clone().unwrap_or_else(host_name);
         let notifier = notify::Notifier::start(settings.notify.clone(), host, state.clone());
-        let armed = armed(&settings, &watcher, &log, SystemTime::now());
+        let armed = stage(&settings, &watcher, &log, SystemTime::now()) == FreezeStage::Freezing;
         if let Some(notifier) = &notifier {
             notifier.send(notify::Event::Started { source: log.watch.source, freezing: armed });
         }
-        let watch = Self {
+        let mut watch = Self {
             processes,
             settings,
             jobs,
@@ -550,6 +552,7 @@ impl Watch {
             armed,
         };
         watch.report_health();
+        watch.report_stage(SystemTime::now())?;
         Ok(watch)
     }
 
@@ -565,9 +568,11 @@ impl Watch {
         }
     }
 
-    /// Says off the machine when freezing begins.
-    fn report_armed(&mut self, now: SystemTime) {
-        let armed = armed(&self.settings, &self.watcher, &self.log, now);
+    /// Writes down where freezing stands whenever that changes, so the menus show it, and says
+    /// off the machine when freezing begins.
+    fn report_stage(&mut self, now: SystemTime) -> Result<()> {
+        let stage = stage(&self.settings, &self.watcher, &self.log, now);
+        let armed = stage == FreezeStage::Freezing;
         if armed
             && !self.armed
             && let Some(notifier) = &self.notifier
@@ -575,6 +580,11 @@ impl Watch {
             notifier.send(notify::Event::Armed);
         }
         self.armed = armed;
+        if self.log.watch.stage != Some(stage) {
+            self.log.watch.stage = Some(stage);
+            self.change_log(|_| {})?;
+        }
+        Ok(())
     }
 
     /// Watches until nothing reports processes any more. Each process that starts is looked at,
@@ -628,7 +638,7 @@ impl Watch {
         self.log = log::read_log(&self.state);
         self.log.watch = watch;
         self.report_health();
-        self.report_armed(SystemTime::now());
+        self.report_stage(SystemTime::now())?;
         log::write_baseline(&self.state, &self.watcher.baseline)
     }
 
@@ -749,10 +759,18 @@ fn change_log(state: &Path, watch: &WatchStatus, change: impl FnOnce(&mut AlertL
     Ok(log)
 }
 
-/// Whether Borg freezes what it is sure about: freezing is on, learning is over and the review
-/// of the learning week no longer holds it back.
-fn armed(settings: &Settings, watcher: &Watcher, log: &AlertLog, now: SystemTime) -> bool {
-    settings.freeze && !watcher.baseline.learning(now) && log.freezing_waits(now).is_none()
+/// Where freezing stands: Borg freezes what it is sure about once freezing is on, learning is
+/// over and the review of the learning week no longer holds it back.
+fn stage(settings: &Settings, watcher: &Watcher, log: &AlertLog, now: SystemTime) -> FreezeStage {
+    if !settings.freeze {
+        FreezeStage::Off
+    } else if watcher.baseline.learning(now) {
+        FreezeStage::Learning
+    } else if log.freezing_waits(now).is_some() {
+        FreezeStage::Review
+    } else {
+        FreezeStage::Freezing
+    }
 }
 
 /// This machine's name, as alerts give it.

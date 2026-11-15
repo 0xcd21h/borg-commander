@@ -43,6 +43,29 @@ impl WatchSource {
     }
 }
 
+/// Where freezing stands, as the watcher last said.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FreezeStage {
+    /// Freezing is turned off.
+    Off,
+    /// Borg learns what is normal here and freezes nothing yet.
+    Learning,
+    /// Learning is over, and freezing waits until the user has seen what it would have frozen.
+    Review,
+    Freezing,
+}
+
+impl FreezeStage {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Off => tr!(watch_stage_off),
+            Self::Learning => tr!(watch_stage_learning),
+            Self::Review => tr!(watch_stage_review),
+            Self::Freezing => tr!(watch_stage_freezing),
+        }
+    }
+}
+
 /// How the watcher stands, as the Alerts page tells the user.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WatchStatus {
@@ -52,6 +75,9 @@ pub struct WatchStatus {
     pub learned_at: SystemTime,
     /// Whether Borg may freeze what it finds.
     pub freeze: bool,
+    /// Where freezing stands, once the watcher has said.
+    #[serde(default)]
+    pub stage: Option<FreezeStage>,
     /// Processes the watcher has seen start.
     #[serde(default)]
     pub seen: u64,
@@ -70,6 +96,7 @@ impl Default for WatchStatus {
             since: SystemTime::UNIX_EPOCH,
             learned_at: SystemTime::UNIX_EPOCH,
             freeze: false,
+            stage: None,
             seen: 0,
             suppressed: 0,
             delivery: AlertDelivery::default(),

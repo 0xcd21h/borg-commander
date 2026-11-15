@@ -2304,7 +2304,7 @@ as caixas de diálogo e a proteção de ecrã.
 ### Alertas
 
 O Borg pode observar o que arranca numa máquina e avisá-lo quando algo parece errado. Ative
-**Vigiar: arranques de processos invulgares** em F9 → Opções → Plugins. O observador vive no
+**Vigiar: arranques de processos invulgares** no menu Comando ou em F9 → Opções → Plugins. O observador vive no
 serviço em segundo plano que todos os seus Borg na máquina partilham, por isso todos os Borg leem
 os mesmos alertas. Esse serviço corre enquanto houver um Borg aberto. Para continuar a observar
 sem nenhum terminal aberto, inicie o serviço no arranque do sistema como descreve
@@ -2432,6 +2432,14 @@ de alertas marca-os como lidos, e o observador nota-o no espaço de um minuto. A
 que a semana apanhou e permitir um programa inofensivo com **A** antes de algo parar, e uma máquina
 que ninguém vê continua protegida. Até lá, o rodapé da página diz até quando o congelamento espera,
 e os detalhes de um novo alerta dizem que está à espera.
+
+**Congelar: o que a vigilância apanha**, por baixo da caixa do observador no menu Comando e em
+Opções → Plugins, liga e desliga o congelamento. Define `freeze` na secção `[watch]`, e o
+observador adota a alteração em poucos segundos. Desligado, o Borg continua a registar todos os
+alertas. Com ambos ligados, a entrada mostra em que ponto está o congelamento: **a aprender** durante
+o período de aprendizagem, **aguarda revisão** enquanto o Borg espera que veja os alertas da semana,
+e **ativo** quando já congela. Logo depois de ligar o congelamento, pode mostrar **desligado** até o
+observador adotar a alteração.
 
 O Borg nunca congela o primeiro processo do sistema, nem a si mesmo nem nada que tenha iniciado, nem
 um programa da lista que nunca congela (`init`, `systemd`, `sshd`, `sudo`, `su`, `login` e

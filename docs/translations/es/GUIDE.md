@@ -2313,7 +2313,7 @@ el salvapantallas.
 ### Alertas
 
 Borg puede vigilar lo que arranca en una máquina y avisarte cuando algo parece mal. Activa
-**Vigilar: arranques de procesos inusuales** en F9 → Opciones → Complementos. El vigilante vive
+**Vigilar: arranques de procesos inusuales** en el menú Comando o en F9 → Opciones → Complementos. El vigilante vive
 en el servicio en segundo plano que comparten todos tus Borg de la máquina, así que todos leen las
 mismas alertas. Ese servicio funciona mientras haya un Borg abierto. Para seguir vigilando sin
 ninguna terminal abierta, haz que el servicio arranque con el sistema como describe
@@ -2443,6 +2443,14 @@ página de alertas las marca como leídas, y el vigilante lo nota en menos de un
 revisar lo que encontró la semana y permitir un programa inofensivo con **A** antes de que nada se
 detenga, y una máquina que nadie mira sigue protegida. Mientras tanto, el pie de la página dice
 hasta cuándo espera la congelación, y los detalles de una alerta nueva dicen que está esperando.
+
+**Congelar: lo que detecta la vigilancia**, debajo de la casilla del vigilante en el menú Comando y
+en Opciones → Complementos, activa y desactiva la congelación. Cambia `freeze` en la sección
+`[watch]`, y el vigilante aplica el cambio en unos segundos. Desactivada, Borg sigue anotando todas
+las alertas. Con ambas activas, la entrada muestra en qué punto está la congelación: **aprendiendo**
+durante el periodo de aprendizaje, **espera revisión** mientras Borg espera a que veas las alertas de
+la semana, y **activo** cuando ya congela. Justo después de activar la congelación, puede mostrar
+**desactivado** hasta que el vigilante aplique el cambio.
 
 Borg nunca congela el primer proceso del sistema, ni a sí mismo ni nada que haya iniciado, ni un
 programa de la lista que nunca congela (`init`, `systemd`, `sshd`, `sudo`, `su`, `login` y

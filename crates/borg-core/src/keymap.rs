@@ -13,6 +13,7 @@ pub enum Action {
     Alerts,
     ToggleSystemPlugin,
     ToggleProcessWatch,
+    ToggleProcessFreeze,
     Docker,
     ToggleDockerPlugin,
     ToggleDockerConsole,
