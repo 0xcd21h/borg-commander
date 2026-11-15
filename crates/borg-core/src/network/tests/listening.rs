@@ -194,6 +194,27 @@ fn a_refused_listen_asks_to_run_as_administrator_and_yes_runs_it_so() {
     );
 }
 
+/// A tap device or a ZeroTier network carries Ethernet and has a MAC address, so listening hears
+/// its link; WireGuard and utun carry only IP packets. Only tunnels need the MAC address: macOS
+/// gives none for a bridge with a long name such as bridge100.
+#[test]
+fn listening_offers_the_tunnels_that_carry_ethernet() {
+    let (mut state, _) = home_opened();
+    let linked = |name: &str, kind, address: [u8; 4], mac: Option<&str>| Interface {
+        addresses: vec![(IpAddr::from(address), 24)],
+        mac: mac.map(str::to_owned),
+        ..interface(name, kind, 0, 0)
+    };
+    state.network.sample.interfaces.extend([
+        linked("utun4", InterfaceKind::Tunnel, [198, 51, 100, 2], None),
+        linked("wg0", InterfaceKind::Tunnel, [10, 99, 0, 7], None),
+        linked("tap0", InterfaceKind::Tunnel, [10, 8, 0, 6], Some("02:00:00:00:00:06")),
+        linked("ztabcdef12", InterfaceKind::Tunnel, [172, 22, 0, 9], Some("02:00:00:00:00:09")),
+        linked("bridge100", InterfaceKind::Bridge, [198, 18, 0, 1], None),
+    ]);
+    assert_eq!(listen_interfaces(&state.network), ["en0", "bridge100", "tap0", "ztabcdef12"]);
+}
+
 #[test]
 fn listening_without_tcpdump_offers_to_install_it() {
     let (mut state, now) = home_opened();

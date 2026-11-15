@@ -2714,8 +2714,10 @@ Press **H** on **5 Neighbors**, or choose **Listen for neighbors…** in the con
 **Listen for neighbors** asks for three things:
 
 - **Interface** starts on the selected row's interface, then the one internet traffic leaves
-  through. It offers the interfaces that are up and have an address, leaving out loopback and
-  tunnels, which have no link to hear on.
+  through. It offers the interfaces that are up and have an address, leaving out loopback and the
+  tunnels that carry only IP packets, such as WireGuard and most VPNs, which have no link to hear
+  on. A tunnel that carries Ethernet, such as an OpenVPN tap device or a ZeroTier network, has a
+  MAC address, and Borg offers it.
 - **Duration** is 30 s, 1 min or 5 min, or **Until stopped**. It starts on 1 min, long enough for
   most devices to announce themselves.
 - **Run as** shows where Borg can ask the system for an administrator's password, as it does for

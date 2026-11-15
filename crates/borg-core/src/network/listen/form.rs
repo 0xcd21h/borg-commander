@@ -7,8 +7,21 @@ use crate::network::{CaptureAccess, Interface, InterfaceKind, NeighborEntry, Net
 pub const LISTEN_DURATIONS: [Option<u64>; 4] = [Some(30), Some(60), Some(300), None];
 /// The duration the form starts on: a minute, which hears most devices announce themselves.
 const FIRST_DURATION: usize = 1;
-/// Interfaces with no link to hear on.
-const LINKLESS: [InterfaceKind; 2] = [InterfaceKind::Loopback, InterfaceKind::Tunnel];
+
+/// Whether `interface` has a link to hear on. Loopback has none. A tunnel has one when it carries
+/// Ethernet, as tap devices and ZeroTier do, and its MAC address shows it; a tunnel that carries
+/// only IP packets, as WireGuard and most VPNs do, has no MAC address.
+fn has_link(interface: &Interface) -> bool {
+    match interface.kind {
+        InterfaceKind::Loopback => false,
+        InterfaceKind::Tunnel => interface.mac.is_some(),
+        InterfaceKind::WiFi
+        | InterfaceKind::Ethernet
+        | InterfaceKind::Bridge
+        | InterfaceKind::Virtual
+        | InterfaceKind::Other => true,
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ListenField {
@@ -97,7 +110,7 @@ pub fn listen_interfaces(network: &Network) -> Vec<String> {
         .sample
         .interfaces
         .iter()
-        .filter(|interface| interface.up && !LINKLESS.contains(&interface.kind) && !interface.addresses.is_empty())
+        .filter(|interface| interface.up && has_link(interface) && !interface.addresses.is_empty())
         .collect();
     up.sort_by_key(|interface| {
         (Some(&interface.name) != selected.as_ref(), Some(&interface.name) != exit.as_ref(), interface.name.clone())

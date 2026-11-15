@@ -357,7 +357,9 @@ services and the length of each text. `neighbors::merge` marks hosts only listen
 `Presence::Heard`, and `NeighborMemory::note_heard` keeps IPv4 ones with `heard` and `announced`,
 both left out of `neighbors.json` when empty, so the format stays 2. `borg-app::network::capture::listen`
 runs tcpdump with `LISTEN_FILTER` as you or through the administrator helper, feeds the stream to
-`LiveFrames`, and sends `Msg::Listen` with what it heard every second. Each listen is a
+`LiveFrames`, and sends `Msg::Listen` with what it heard every second. `LISTEN_FILTER` matches
+Ethernet fields, which tcpdump refuses on a link that carries only IP packets, so
+`listen_interfaces` offers a tunnel only when it has a MAC address. Each listen is a
 `JobKind::Listen` job that cancels and cannot pause. Its tests run a stand-in tcpdump script over a
 made-up pcap.
 
