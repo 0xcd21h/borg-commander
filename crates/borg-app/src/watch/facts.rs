@@ -43,6 +43,8 @@ const STREAMS: [&str; 3] = ["fd/0", "fd/1", "fd/2"];
 /// tenth column.
 const NETWORK_TABLES: &[&str] = &["net/tcp", "net/tcp6", "net/udp", "net/udp6"];
 const INODE_COLUMN: usize = 9;
+/// The link that names the network a process is in, the same for every process in it.
+const NETWORK_NAMESPACE: &str = "ns/net";
 /// How long Borg trusts what it found out about a socket. The children of a service share its
 /// sockets, so one look serves them all, and the kernel takes far longer than this to give a
 /// socket's number out again.
@@ -175,6 +177,15 @@ pub fn lists_socket(table: &str, inode: u64) -> bool {
         .any(|line| line.split_whitespace().nth(INODE_COLUMN).and_then(|field| field.parse().ok()) == Some(inode))
 }
 
+/// A process whose sockets Borg looks up, its parent, and the network it is in, as its
+/// namespace link names it.
+#[derive(Debug)]
+struct SocketOwner {
+    pid: u32,
+    parent: u32,
+    network: Option<String>,
+}
+
 /// What Borg found out lately about sockets, by their numbers.
 #[derive(Debug, Default)]
 struct SocketKinds {
@@ -290,35 +301,48 @@ impl Processes {
         Some(named.unwrap_or_else(|| stat.terminal.to_string()))
     }
 
-    fn stream(&self, pid: u32, stream: &str) -> StreamKind {
-        let Some(target) = self.link(pid, stream) else { return StreamKind::default() };
+    fn stream(&self, owner: &SocketOwner, stream: &str) -> StreamKind {
+        let Some(target) = self.link(owner.pid, stream) else { return StreamKind::default() };
         match socket_inode(&target) {
-            Some(inode) => self.socket(pid, inode),
+            Some(inode) => self.socket(owner, inode),
             None => stream_kind(&target),
         }
     }
 
-    /// What a process's standard input, output and error lead to.
-    fn streams(&self, pid: u32) -> [StreamKind; 3] {
-        STREAMS.map(|stream| self.stream(pid, stream))
+    /// What a process's standard input, output and error lead to. Its network is read first,
+    /// while the process is surely there, since a short one can end before its sockets are
+    /// looked up.
+    fn streams(&self, pid: u32, parent: u32) -> [StreamKind; 3] {
+        let owner = SocketOwner { pid, parent, network: self.link(pid, NETWORK_NAMESPACE) };
+        STREAMS.map(|stream| self.stream(&owner, stream))
     }
 
-    /// Whether a socket of a process reaches the network or stays on the machine. A socket Borg
-    /// cannot look up counts as a network one, so no rule misses a remote shell for want of a
-    /// read.
-    fn socket(&self, pid: u32, inode: u64) -> StreamKind {
+    /// The network tables a process sees, or nothing when Borg can read none of them.
+    fn network_tables(&self, pid: u32) -> Option<Vec<String>> {
+        let tables: Vec<String> = NETWORK_TABLES.iter().filter_map(|table| self.text(pid, table)).collect();
+        (!tables.is_empty()).then_some(tables)
+    }
+
+    /// The network tables of a process's parent, when the parent is in the same network and so
+    /// sees the same tables.
+    fn shared_network_tables(&self, owner: &SocketOwner) -> Option<Vec<String>> {
+        let network = owner.network.as_deref()?;
+        let shared = self.link(owner.parent, NETWORK_NAMESPACE).as_deref() == Some(network);
+        if shared { self.network_tables(owner.parent) } else { None }
+    }
+
+    /// Whether a socket of a process reaches the network or stays on the machine. When the
+    /// process has ended before its tables were read, its parent's serve if they share a
+    /// network. A socket Borg still cannot look up counts as a network one, so no rule misses a
+    /// remote shell for want of a read.
+    fn socket(&self, owner: &SocketOwner, inode: u64) -> StreamKind {
         let now = Instant::now();
         if let Some(kind) = self.sockets.lock().ok().and_then(|kinds| kinds.known(inode, now)) {
             return kind;
         }
-        let mut read_any = false;
-        let listed = NETWORK_TABLES.iter().filter_map(|table| self.text(pid, table)).any(|table| {
-            read_any = true;
-            lists_socket(&table, inode)
-        });
-        if !read_any {
-            return StreamKind::Socket;
-        }
+        let tables = self.network_tables(owner.pid).or_else(|| self.shared_network_tables(owner));
+        let Some(tables) = tables else { return StreamKind::Socket };
+        let listed = tables.iter().any(|table| lists_socket(table, inode));
         let kind = if listed { StreamKind::Socket } else { StreamKind::LocalSocket };
         if let Ok(mut kinds) = self.sockets.lock() {
             kinds.remember(inode, kind, now);
@@ -336,7 +360,7 @@ impl Processes {
             program,
             terminal: stat.terminal != 0,
             command: command_of(&self.block(pid, "cmdline")).join(" "),
-            streams: self.streams(pid),
+            streams: self.streams(pid, stat.parent),
         };
         Some((ancestor, stat.parent))
     }
@@ -402,7 +426,7 @@ impl Processes {
         let command = command_of(&self.block(pid, "cmdline"));
         let link = program.as_deref().and_then(|program| self.started_by_link(pid, &stat.name, &command, program));
         let ancestors = self.ancestors(stat.parent);
-        let [input, output, errors] = self.streams(pid);
+        let [input, output, errors] = self.streams(pid, stat.parent);
         Some(StartedProcess {
             key: ProcessKey { pid, start: stat.started_at },
             name: stat.name.clone(),
