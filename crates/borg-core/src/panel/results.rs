@@ -1,6 +1,6 @@
 //! Search results and collections in a panel: their filter, groups, tree and size view, and the edits and refreshes they take.
 
-use super::{Anchor, Listing, ListingMode, Panel, Row, SortKey, order};
+use super::{Anchor, Listing, ListingMode, Panel, Row, SortKey, listing::ranks, order};
 use borg_vfs::Entry;
 use std::{collections::HashSet, path::PathBuf};
 
@@ -52,10 +52,13 @@ impl Panel {
         }
     }
 
-    pub fn filter_results(&mut self, filter: String) {
+    /// Shows the results whose name or path holds `filter`, or with `typos`, when none does,
+    /// those whose name holds it closely.
+    pub fn filter_results(&mut self, filter: String, typos: bool) {
         let anchor = self.anchor();
         if let Some(results) = &mut self.results {
             results.filter = filter;
+            results.filter_typos = typos;
         }
         self.rebuild_results();
         self.restore(anchor);
@@ -163,7 +166,8 @@ impl Panel {
         let anchor = self.anchor();
         self.entries = entries;
         self.prune_marks();
-        self.entries.sort_by(|a, b| order(a, b, self.sort));
+        let (sort, ranks) = (self.sort, ranks(&self.results));
+        self.entries.sort_by(|a, b| order(a, b, sort, ranks));
         self.rebuild_results();
         self.restore(anchor);
     }

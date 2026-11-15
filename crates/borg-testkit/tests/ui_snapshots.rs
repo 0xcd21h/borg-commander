@@ -1287,6 +1287,7 @@ fn busy_jobs(stage: &mut Stage) -> Result<()> {
     stage.send(Msg::SizeProgress { id: sizes, progress });
     stage.send(key(KeyCode::Tab));
     let request = SearchRequest {
+        typos: false,
         skip: None,
         root: "/home/me/projects".into(),
         query: "*.log".into(),
@@ -1957,7 +1958,7 @@ fn virtual_collection_expanded_and_grouped() -> Result<()> {
     stage.state.panels[0].group_results(borg_core::ResultGroup::Folder);
     let buffer = stage.render(stage.started)?;
     check("collection_grouped", &stage, buffer)?;
-    stage.state.panels[0].filter_results("/web/".into());
+    stage.state.panels[0].filter_results("/web/".into(), false);
     let buffer = stage.render(stage.started)?;
     check("collection_filtered_hidden_marks", &stage, buffer)
 }
@@ -1980,6 +1981,7 @@ fn recursive_search_partial_and_cancelled() -> Result<()> {
     stage.state.panels[0].open_results(
         borg_core::ResultSource::Search {
             request: borg_core::SearchRequest {
+                typos: false,
                 skip: None,
                 root: "/workspace".into(),
                 query: "*.toml".into(),
@@ -2021,6 +2023,7 @@ fn contents_results(stage: &mut Stage) -> Result<String> {
     let offset = source.find("TODO").context("the match")? as u64;
     let contents = borg_view::Query { text: "todo".into(), words: true, ..Default::default() };
     let request = borg_core::SearchRequest {
+        typos: false,
         skip: None,
         root: "/workspace".into(),
         query: "*".into(),
@@ -2136,6 +2139,7 @@ fn rules_search_dialog_and_results_name_the_rules_each_file_matched() -> Result<
     stage.send(key(KeyCode::Esc));
 
     let request = borg_core::SearchRequest {
+        typos: false,
         skip: None,
         root: "/home/me/Downloads".into(),
         query: "*".into(),
@@ -2221,6 +2225,7 @@ fn packed_executables_show_how_much_of_their_code_has_high_entropy() -> Result<(
     stage.send(key(KeyCode::Esc));
 
     let request = borg_core::SearchRequest {
+        typos: false,
         skip: None,
         root: "/home/me/Downloads".into(),
         query: "*".into(),
@@ -2380,6 +2385,7 @@ fn discovery_windows_and_folder_totals() -> Result<()> {
     stage.state.panels[0].open_results(
         ResultSource::Search {
             request: SearchRequest {
+                typos: false,
                 skip: None,
                 root: "/workspace".into(),
                 query: "*".into(),
@@ -2815,6 +2821,7 @@ fn size_tree_stage() -> Result<Stage> {
     stage.state.panels[0].open_results(
         ResultSource::Search {
             request: SearchRequest {
+                typos: false,
                 skip: None,
                 root: "/workspace/project".into(),
                 query: "*".into(),
@@ -2847,10 +2854,10 @@ fn size_tree_fresh_cached_filtered_and_narrow() -> Result<()> {
     stage.send(key(KeyCode::Insert)).send(key(KeyCode::Left)).send(key(KeyCode::Left));
     let buffer = stage.render(stage.started)?;
     check("size_tree_cached", &stage, buffer)?;
-    stage.state.panels[0].filter_results("deps".into());
+    stage.state.panels[0].filter_results("deps".into(), false);
     let buffer = stage.render(stage.started)?;
     check("size_tree_filtered", &stage, buffer)?;
-    stage.state.panels[0].filter_results(String::new());
+    stage.state.panels[0].filter_results(String::new(), false);
     stage.send(Msg::Resize { cols: 44, rows: 12 });
     let buffer = stage.render(stage.started)?;
     check("size_tree_narrow", &stage, buffer)?;
@@ -6927,4 +6934,39 @@ fn start_window_names_a_new_session_and_fits_a_narrow_screen() -> Result<()> {
     ensure_text(&buffer, "A session named \"web\" already exists.")?;
     start_window("start_sessions_narrow", &borg_core::SessionPicker::new(start_sessions()), NARROW)?;
     Ok(())
+}
+
+#[test]
+fn searches_list_close_names_after_exact_ones_and_mark_what_matched() -> Result<()> {
+    use borg_core::{Action, Overlay, Pointer, SearchProgress, Side, SortKey};
+    let mut stage = stage(GridSize { cols: 160, rows: 20 }, Motion::STILL)?;
+    stage.send(Msg::Pointer(Pointer::Action(Action::Search)));
+    anyhow::ensure!(matches!(&stage.state.overlay, Some(Overlay::Search(form)) if form.typos), "on by default");
+    ensure_text(&stage.render(stage.started)?, "[x] Also find names with typos and shuffled digits")?;
+    stage.send(key(KeyCode::Backspace));
+    for msg in chars("reciept") {
+        stage.send(msg);
+    }
+    stage.send(key(KeyCode::Enter));
+    let generation = stage.state.panels[0].generation();
+    let found = [
+        ("receipts/receipt-march.pdf", EntryKind::File),
+        ("scans/Receipts 2023.zip", EntryKind::File),
+        ("receipt.pdf", EntryKind::File),
+        ("receipts", EntryKind::Dir),
+        ("docs/reciept-template.md", EntryKind::File),
+    ]
+    .map(|(path, kind)| {
+        let mut file = entry(path.rsplit('/').next().unwrap_or(path), kind, 2_048, RECENT, false);
+        file.source = Some(PathBuf::from("/home/me/projects/borg").join(path));
+        file
+    });
+    stage.send(Msg::Batch { side: Side::Left, generation, entries: found.to_vec() });
+    let progress = SearchProgress { visited: 1_204, ..Default::default() };
+    stage.send(Msg::SearchProgress { side: Side::Left, generation, progress });
+    stage.send(Msg::Listed { side: Side::Left, generation, error: None });
+    anyhow::ensure!(stage.state.panels[0].sort().key == SortKey::Match, "results open best match first");
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "close matches: 4")?;
+    check("search_close_matches", &stage, buffer)
 }

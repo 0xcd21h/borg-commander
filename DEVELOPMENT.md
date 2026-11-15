@@ -357,7 +357,9 @@ services and the length of each text. `neighbors::merge` marks hosts only listen
 `Presence::Heard`, and `NeighborMemory::note_heard` keeps IPv4 ones with `heard` and `announced`,
 both left out of `neighbors.json` when empty, so the format stays 2. `borg-app::network::capture::listen`
 runs tcpdump with `LISTEN_FILTER` as you or through the administrator helper, feeds the stream to
-`LiveFrames`, and sends `Msg::Listen` with what it heard every second. Each listen is a
+`LiveFrames`, and sends `Msg::Listen` with what it heard every second. `LISTEN_FILTER` matches
+Ethernet fields, which tcpdump refuses on a link that carries only IP packets, so
+`listen_interfaces` offers a tunnel only when it has a MAC address. Each listen is a
 `JobKind::Listen` job that cancels and cannot pause. Its tests run a stand-in tcpdump script over a
 made-up pcap.
 
@@ -668,8 +670,11 @@ batches, coalesces obsolete requests, and stops at the documented match limit. Q
 generations reject late messages; the update loop and renderer perform no search I/O.
 
 `borg-core::query` parses the search language and matches entries; `name_search` resolves a
-request's `hidden:` and `excluded:` switches against the window's settings in core, so the
-worker only applies them. The worker walks with the `ignore` crate: ignore files, configured
+request's `hidden:`, `excluded:` and `typos:` switches against the window's settings in core, so
+the worker only applies them. `borg-core::close_match` finds names with typos, shuffled digits
+and left out letters: two letter bit masks reject most names before the edit distance runs, and
+`MatchRank` orders the tiers. `Results` keeps each entry's rank for the match sort, and the index
+ranks its hits the same way. The worker walks with the `ignore` crate: ignore files, configured
 globs as overrides, and a `filter_entry` that drops hidden names and generated folders
 (`borg-core::exclude`, plus `CACHEDIR.TAG`). A dropped folder is still tested against the query.
 A contents search compiles the find bar's `borg_view::Query` once, and the worker reads each file
@@ -1051,16 +1056,25 @@ borg uses semantic versioning. The version lives once, in `[workspace.package]` 
   attaches the result as `<archive>.tar.gz.sha256.sig` (`scripts/sign-release.sh`); the step
   fails when the secret is missing or its public half is not in `RELEASE_PUBLIC_KEYS`,
 - creates the GitHub release with generated notes and attaches everything,
-- renders the Homebrew formula from `packaging/homebrew/borg-commander.rb.in`
-  (`scripts/homebrew-formula.sh`) and, when the `HOMEBREW_TAP_TOKEN` secret is set, pushes it
-  to the tap repository (`vars.HOMEBREW_TAP`, default `0xcd21h/homebrew-tap`).
+- renders the Homebrew cask from `packaging/homebrew/borg-commander.rb.in`
+  (`scripts/homebrew-cask.sh`) and, when the `HOMEBREW_TAP_TOKEN` secret is set, pushes it
+  to `Casks/` in the tap repository (`vars.HOMEBREW_TAP`, default `0xcd21h/homebrew-tap`)
+  (`scripts/publish-cask.sh`).
+
+Borg ships to Homebrew as a cask because the archives hold prebuilt binaries: Homebrew installs
+a cask without the developer tools that a formula without bottles needs. The cask links the
+binary as `borg` and `borgcmd`; Homebrew skips the `borg` link where BorgBackup's formula owns
+it. Homebrew quarantines cask downloads, and the binary is signed ad hoc without notarization,
+so the cask's `postflight` removes the quarantine attribute from the binary. The publish script
+also deletes the old `Formula/borg-commander.rb` and writes `tap_migrations.json`, which moves
+anyone who installed the formula to the cask on their next upgrade.
 
 One-time setup for Homebrew: create the public repository `homebrew-tap` and add a
 fine-grained token with *Contents: read and write* on it as the `HOMEBREW_TAP_TOKEN` secret of
 this repository. Users then install with `brew install 0xcd21h/tap/borg-commander`.
 
-Without the tap token, GitHub Releases still publishes the binaries and the generated formula
-is saved as a workflow artifact. After adding the token, run the **Publish Homebrew formula**
+Without the tap token, GitHub Releases still publishes the binaries and the generated cask
+is saved as a workflow artifact. After adding the token, run the **Publish Homebrew cask**
 action with the released version (for example `0.2.0`) to publish it without making another tag.
 
 `borg update` and the daily check live in `crates/borg-update`: they read the latest release

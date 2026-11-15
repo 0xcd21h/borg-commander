@@ -51,11 +51,14 @@ kernel's process events instead:
 BORG_NO_EBPF=1 cargo install --locked --git https://github.com/0xcd21h/borg-commander borg-app
 ```
 
-Homebrew support is ready and will work once the tap is published:
+With Homebrew on macOS or Linux:
 
 ```sh
 brew install 0xcd21h/tap/borg-commander
 ```
+
+Homebrew installs Borg as `borg` and as `borgcmd`. BorgBackup also has a `borg` command, and
+where BorgBackup is installed, Homebrew keeps `borg` for it, so Borg runs as `borgcmd`.
 
 Run `borg` in the folder you want to browse. F10 quits, and Ctrl-O switches from the console
 back to the panels. To update, run `borg update` for a downloaded copy, or use Homebrew or cargo
@@ -108,7 +111,8 @@ preview.
   press Ctrl-P and Ctrl-N in the query field, to reuse it. The dialog opens with the query and
   the choices you last left in it, set to the folder you are in. Names match in any alphabet whatever
   the case of a glob, and accented letters match however the file system stores them. Matches
-  close to the search folder appear first, while the rest of the tree is still being read.
+  close to the search folder appear first, while the rest of the tree is still being read. Plain
+  words also find [names with typos](#names-with-typos).
 - **Alt-K:** collect the marked files, or the current file, into a collection in the other panel.
   A collection holds references, so the file's contents are not copied.
 - **Alt-V:** choose a saved collection from a scrollable list that shows how many entries each
@@ -124,7 +128,45 @@ preview.
 - **Alt-W:** maximize or restore the active result pane. Results open in a normal pane by
   default. The `[+]` (maximize), `[=]` (restore), and `[-]` (fold) controls in the title bar can
   be clicked. Folding hides the view; Alt-Shift-R brings it back with its layout and selection.
-- **Ctrl-S:** filter the results by name or source path. An empty filter shows everything.
+- **Ctrl-S:** filter the results by name or source path. An empty filter shows everything. When
+  nothing matches the filter as typed, it shows the names that match it closely.
+
+### Names with typos
+
+A misspelled or half-remembered name still turns up. While **Also find names with typos and
+shuffled digits** is checked in the Ctrl-F dialog, which it is by default, a plain word also finds
+names that match it closely:
+
+- **Typos:** a word of 4 to 8 letters may have one typo, and a longer word two. A missing, extra
+  or wrong letter counts as one typo, and so do two neighboring letters typed the wrong way around,
+  so `reciept` finds `receipt.pdf`. The first letter has to be right, or swapped with the second.
+  Words of 3 letters or fewer match only as typed. Below 6 letters, a word that stops inside a
+  longer word of the name costs one more typo, so `note` finds `nose.txt` and leaves out
+  `notification.log`.
+- **Shuffled digits:** a number of 4 digits or more finds a whole number in the name with the same
+  digits in any order, so `1986` finds `scan_8619.pdf`. Digits are never added, dropped or
+  changed, so `2024` never finds `2023`.
+- **Letters left out:** from 4 letters on, `qtrly` finds `quarterly-sales.csv`. Each word of the
+  name is entered at its start, and the letters have to cover at least half of every word they
+  touch.
+
+Close matching passes over spaces, dashes, dots and underscores, so `meetingnotes` finds
+`Meeting Notes.md`, and over accents, so `resume` finds `Résumé.pdf`. A word with both letters
+and digits matches them apart: `invoice8619` finds `Invoice 1986.pdf`. A word with an uppercase
+letter still matches case, and names in Chinese, Japanese and Korean match only as typed.
+
+Quoted words, globs, paths, `-word` and the filters always match exactly, and so do size scans.
+Add `typos:no` to a query to leave close matches out once, or `typos:yes` to include them while
+the box is cleared. Set `typos = false` under `[search]` to start with the box cleared; quick find
+and the results filter follow that setting too.
+
+Results open with the best matches first: names that are the word, then names that start with it,
+have it at the start of a word, or have it anywhere, then names with fewer typos before those with
+more, then shuffled digits, then letters left out. When a query has several words, a name ranks by
+its worst one. Shallower folders and shorter names come first among equals. The letters that
+matched are underlined, and the context line counts the close matches, which count toward the
+20,000 limit like any other. Click a column heading to sort another way, and choose **Search →
+Sort by match** to bring back the match order.
 
 ### Searching inside files
 
@@ -251,10 +293,10 @@ process](#entropy-scan-of-every-process) looks at programs that way.
 ### Working with results
 
 Click a column heading to sort by it, and click again to reverse the order. The Left and Right
-menus also offer sorting, and the Search menu adds sorting by source folder and grouping by
-folder or file type. Enter on a group heading folds the group; Insert marks the matching files
-in it. Marks are kept when you sort or filter, and the footer also counts marked files that the
-filter hides.
+menus also offer sorting, and the Search menu adds **Sort by match**, sorting by source folder,
+and grouping by folder or file type. Enter on a group heading folds the group; Insert marks the
+matching files in it. Marks are kept when you sort or filter, and the footer also counts marked
+files that the filter hides.
 
 F3 and Ctrl-Q open the original file, and after a search for text they open it at its first match.
 The quick view follows the cursor through the results and shows each file at its match, with the
@@ -1272,7 +1314,9 @@ the bytes it carried, and each limit reached with the client's address.
 
 Ctrl-S opens quick find. Type a name or a glob such as `*.rs`; Down and Up move between matches,
 Insert marks a match, Ctrl-A marks all matches, and Enter or Esc closes the search. Matching
-ignores case unless the query contains uppercase letters.
+ignores case unless the query contains uppercase letters. When nothing in the panel matches what
+you typed, the cursor goes to the closest name, by the rules of
+[names with typos](#names-with-typos), and Down and Up move between the close matches.
 
 ### Copying, moving, and deleting
 
@@ -1646,6 +1690,7 @@ exclude = ["*.min.js", "fixtures/large"]  # paths below the search folder, as in
 artifacts = true            # leave out node_modules, Cargo's target and cache-tagged folders
 ignore-files = true         # follow .gitignore, .ignore, .rgignore and .borgignore
 history = true              # remember searches for Ctrl-P and Ctrl-N
+typos = true                # also find names with typos and shuffled digits
 
 [index]
 roots = ["~/Projects"]      # folders indexed for instant search
@@ -2676,8 +2721,10 @@ Press **H** on **5 Neighbors**, or choose **Listen for neighbors…** in the con
 **Listen for neighbors** asks for three things:
 
 - **Interface** starts on the selected row's interface, then the one internet traffic leaves
-  through. It offers the interfaces that are up and have an address, leaving out loopback and
-  tunnels, which have no link to hear on.
+  through. It offers the interfaces that are up and have an address, leaving out loopback and the
+  tunnels that carry only IP packets, such as WireGuard and most VPNs, which have no link to hear
+  on. A tunnel that carries Ethernet, such as an OpenVPN tap device or a ZeroTier network, has a
+  MAC address, and Borg offers it.
 - **Duration** is 30 s, 1 min or 5 min, or **Until stopped**. It starts on 1 min, long enough for
   most devices to announce themselves.
 - **Run as** shows where Borg can ask the system for an administrator's password, as it does for

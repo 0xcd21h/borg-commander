@@ -93,11 +93,13 @@ pub struct SearchSettings {
     pub ignore_files: bool,
     /// Searches are remembered for Ctrl-P and Ctrl-N.
     pub history: bool,
+    /// Plain words also find names with typos, shuffled digits or letters left out.
+    pub typos: bool,
 }
 
 impl Default for SearchSettings {
     fn default() -> Self {
-        Self { exclude: Vec::new(), artifacts: true, ignore_files: true, history: true }
+        Self { exclude: Vec::new(), artifacts: true, ignore_files: true, history: true, typos: true }
     }
 }
 

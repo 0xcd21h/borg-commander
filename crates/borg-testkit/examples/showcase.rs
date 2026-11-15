@@ -192,6 +192,7 @@ fn editor(output: &Path) -> Result<()> {
     });
     let contents = borg_view::Query { text: "TODO".into(), case: true, ..Default::default() };
     let request = SearchRequest {
+        typos: false,
         skip: None,
         root: ATLAS.into(),
         query: "*".into(),
@@ -262,6 +263,7 @@ fn size_tree(output: &Path) -> Result<()> {
     stage.state.panels[0].open_results(
         ResultSource::Search {
             request: SearchRequest {
+                typos: false,
                 skip: None,
                 root: ATLAS.into(),
                 query: "*".into(),
@@ -303,6 +305,7 @@ fn folder_totals(output: &Path) -> Result<()> {
     stage.state.panels[0].open_results(
         ResultSource::Search {
             request: SearchRequest {
+                typos: false,
                 skip: None,
                 root: PROJECTS.into(),
                 query: "*".into(),

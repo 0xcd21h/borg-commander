@@ -405,6 +405,7 @@ fn results_menu(state: &AppState) -> Menu {
     let result = panel.is_results();
     let collection = matches!(panel.results.as_ref().map(|r| &r.source), Some(crate::ResultSource::Collection(_)));
     let group = panel.results.as_ref().map(|r| r.group);
+    let ranked = panel.results.as_ref().is_some_and(|r| r.query.is_some());
     Menu {
         title: tr!(search).into(),
         entries: vec![
@@ -455,6 +456,14 @@ fn results_menu(state: &AppState) -> Menu {
                     group == Some(crate::ResultGroup::Type),
                 ),
                 result && !panel.is_tree(),
+            ),
+            when(
+                check(
+                    tr!(sort_by_match),
+                    Action::SetSort(state.active, SortKey::Match),
+                    panel.sort().key == SortKey::Match,
+                ),
+                ranked,
             ),
             when(item(tr!(sort_by_source_folder), Action::SetSort(state.active, SortKey::Source)), result),
             when(check(tr!(expanded_results), Action::ToggleExpanded, state.results_expanded()), result),

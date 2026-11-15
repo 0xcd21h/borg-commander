@@ -2,11 +2,14 @@
 
 use anyhow::{Result, bail};
 use std::{
+    ffi::OsStr,
     os::unix::fs::{DirBuilderExt, MetadataExt},
     path::{Path, PathBuf},
 };
 
 pub(crate) const SOCKET_PREFIX: &str = "session-";
+
+const PROGRAM_NAME: &str = "borg";
 
 pub(crate) use borg_core::SOCKET_SUFFIX;
 
@@ -128,14 +131,19 @@ pub fn connect_info() -> borg_core::ConnectInfo {
 /// manager's versioned folder changes with each upgrade.
 pub fn program_path() -> String {
     let exe = crate::program::path().ok();
-    let real = exe.as_ref().and_then(|exe| std::fs::canonicalize(exe).ok());
-    if let (Some(path), Some(real)) = (std::env::var_os("PATH"), &real) {
-        for dir in std::env::split_paths(&path).filter(|dir| dir.is_absolute()) {
-            let candidate = dir.join("borg");
-            if std::fs::canonicalize(&candidate).ok().as_ref() == Some(real) {
-                return candidate.display().to_string();
-            }
-        }
-    }
-    exe.map_or_else(|| "borg".to_owned(), |exe| exe.display().to_string())
+    let linked = exe.zip(std::env::var_os("PATH")).and_then(|(exe, path)| linked_on_path(exe, &path));
+    linked
+        .or_else(|| exe.map(Path::to_path_buf))
+        .map_or_else(|| PROGRAM_NAME.to_owned(), |exe| exe.display().to_string())
+}
+
+/// The first name in `path` that leads to `exe`: `borg`, or the name the program file has,
+/// such as `borgcmd` where Homebrew leaves `borg` to BorgBackup.
+pub(super) fn linked_on_path(exe: &Path, path: &OsStr) -> Option<PathBuf> {
+    let real = std::fs::canonicalize(exe).ok()?;
+    let names = [Some(OsStr::new(PROGRAM_NAME)), exe.file_name(), real.file_name()];
+    std::env::split_paths(path)
+        .filter(|dir| dir.is_absolute())
+        .flat_map(|dir| names.into_iter().flatten().map(move |name| dir.join(name)))
+        .find(|candidate| std::fs::canonicalize(candidate).ok().as_ref() == Some(&real))
 }

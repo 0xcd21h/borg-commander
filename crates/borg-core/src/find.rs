@@ -4,7 +4,7 @@ use std::ops::Range;
 use borg_vfs::Entry;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use crate::{AppState, Effect, LineInput, Overlay, Pattern, Seek, Side, input::Edit};
+use crate::{AppState, Effect, LineInput, MatchRank, Needle, Overlay, Pattern, Seek, Side, input::Edit};
 
 const GLOB_CHARS: [char; 3] = ['*', '?', '['];
 const NEXT_KEY: char = 's';
@@ -15,12 +15,26 @@ const ALL_KEY: char = 'a';
 pub struct Find {
     pub side: Side,
     pub input: LineInput,
+    /// Nothing in the panel matches what was typed, so names that match it closely count.
+    pub close: bool,
+}
+
+impl Find {
+    pub fn query(&self) -> Query {
+        let query = Query::parse(self.input.text());
+        if self.close { query.closely() } else { query }
+    }
 }
 
 #[derive(Debug, Clone)]
 pub enum Query {
     Empty,
-    Text { needle: Vec<char>, fold: bool },
+    /// Text found in names as typed, or with `near`, closely when not as typed.
+    Text {
+        needle: Vec<char>,
+        fold: bool,
+        near: Option<Box<Needle>>,
+    },
     Glob(Pattern),
 }
 
@@ -39,22 +53,44 @@ impl Query {
             return Self::Glob(pattern);
         }
         let fold = !text.chars().any(char::is_uppercase);
-        Self::Text { needle: text.chars().map(|c| if fold { fold_char(c) } else { c }).collect(), fold }
+        Self::Text { needle: text.chars().map(|c| if fold { fold_char(c) } else { c }).collect(), fold, near: None }
+    }
+
+    /// The query that also finds names close to its text, when the text can match closely.
+    pub fn closely(self) -> Self {
+        match self {
+            Self::Text { needle, fold, .. } => {
+                let near = Some(Needle::new(&needle.iter().collect::<String>(), true)).filter(Needle::can_be_close);
+                Self::Text { needle, fold, near: near.map(Box::new) }
+            }
+            other => other,
+        }
     }
 
     pub fn hits(&self, entry: &Entry) -> Option<Vec<Range<usize>>> {
         match self {
             Self::Empty => None,
             Self::Glob(pattern) => pattern.matches(entry).then(Vec::new),
-            Self::Text { needle, fold } => {
+            Self::Text { needle, fold, near } => {
                 let found = occurrences(&entry.name, needle, *fold);
-                (!found.is_empty()).then_some(found)
+                if !found.is_empty() {
+                    return Some(found);
+                }
+                near.as_ref().filter(|near| near.close_to(&entry.name))?.locate(&entry.name, true).map(|(_, s)| s)
             }
         }
     }
 
     pub fn accepts(&self, entry: &Entry) -> bool {
         self.hits(entry).is_some()
+    }
+
+    /// How well `entry`'s name matches the text closely.
+    fn rank(&self, entry: &Entry) -> Option<MatchRank> {
+        match self {
+            Self::Text { near: Some(near), .. } => near.rank(&entry.name, true),
+            _ => None,
+        }
     }
 }
 
@@ -76,7 +112,7 @@ fn occurrences(name: &str, needle: &[char], fold: bool) -> Vec<Range<usize>> {
 }
 
 pub(crate) fn open(state: &mut AppState) -> Vec<Effect> {
-    state.overlay = Some(Overlay::Find(Find { side: state.active, input: LineInput::default() }));
+    state.overlay = Some(Overlay::Find(Find { side: state.active, input: LineInput::default(), close: false }));
     Vec::new()
 }
 
@@ -93,6 +129,7 @@ pub(crate) fn on_key(state: &mut AppState, mut find: Find, key: &KeyEvent) -> Ve
         KeyCode::Char(NEXT_KEY) if ctrl && find.input.text().is_empty() => {
             if let Some(last) = state.last_find.clone() {
                 find.input = LineInput::new(last);
+                find.close = only_close(state, &find);
                 jump(state, &find, Seek::Here);
             }
         }
@@ -105,12 +142,13 @@ pub(crate) fn on_key(state: &mut AppState, mut find: Find, key: &KeyEvent) -> Ve
             jump(state, &find, Seek::Next);
         }
         KeyCode::Char(ALL_KEY) if ctrl => {
-            let query = Query::parse(find.input.text());
+            let query = find.query();
             let count = state.panel_mut(find.side).mark_where(|entry| query.accepts(entry), true);
             state.notice = Some(tr!(marked_count, count = count));
         }
         _ => {
             if find.input.apply(key) == Edit::Changed {
+                find.close = only_close(state, &find);
                 jump(state, &find, Seek::Here);
             }
         }
@@ -119,13 +157,29 @@ pub(crate) fn on_key(state: &mut AppState, mut find: Find, key: &KeyEvent) -> Ve
     Vec::new()
 }
 
-fn jump(state: &mut AppState, find: &Find, step: Seek) {
+/// Whether names count when they match `find` only closely: close matches are allowed and
+/// nothing in the panel matches what was typed.
+fn only_close(state: &AppState, find: &Find) -> bool {
     let query = Query::parse(find.input.text());
-    state.panel_mut(find.side).seek(step, |entry| query.accepts(entry));
+    state.settings.search.typos
+        && matches!(query, Query::Text { .. })
+        && !state.panel(find.side).entries().iter().any(|entry| query.accepts(entry))
+}
+
+/// Moves to the next or previous match; on typing, to the nearest one or, among close matches,
+/// the best.
+fn jump(state: &mut AppState, find: &Find, step: Seek) {
+    let query = find.query();
+    let panel = state.panel_mut(find.side);
+    if find.close && step == Seek::Here {
+        panel.seek_best(|entry| query.rank(entry));
+    } else {
+        panel.seek(step, |entry| query.accepts(entry));
+    }
 }
 
 pub fn summary(state: &AppState, find: &Find) -> (usize, usize) {
-    let query = Query::parse(find.input.text());
+    let query = find.query();
     let panel = state.panel(find.side);
     let matches: Vec<usize> = (0..panel.len())
         .filter(|index| matches!(panel.row(*index), Some(crate::Row::Entry(entry)) if query.accepts(entry)))
@@ -165,6 +219,21 @@ mod tests {
         assert_eq!(spans("o", "foo"), Some(vec![(1, 2), (2, 3)]));
         assert_eq!(spans("é", "cafÉ.txt"), Some(vec![(3, 5)]));
         assert_eq!(spans("", "x"), None);
+    }
+
+    #[test]
+    fn close_matches_count_only_once_asked_for() {
+        assert_eq!(spans("reciept", "receipt.pdf"), None);
+        let close = |query: &str, name: &str| {
+            Query::parse(query)
+                .closely()
+                .hits(&entry(name))
+                .map(|hits| hits.into_iter().map(|h| (h.start, h.end)).collect())
+        };
+        assert_eq!(close("reciept", "my receipt.pdf"), Some(vec![(3, 10)]));
+        assert_eq!(close("rec", "my receipt.pdf"), Some(vec![(3, 6)]), "what matches as typed still does");
+        assert_eq!(close("cat", "chat.log"), None);
+        assert!(matches!(Query::parse("*.rs").closely(), Query::Glob(_)));
     }
 
     #[test]

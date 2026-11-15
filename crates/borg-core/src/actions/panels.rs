@@ -203,8 +203,9 @@ pub(super) fn set_listing(state: &mut AppState, side: Side, mode: ListingMode) -
     Vec::new()
 }
 
+/// Sorts by `key` in the order the panel has, except that the best matches always come first.
 pub(super) fn set_sort(state: &mut AppState, side: Side, key: SortKey) -> Vec<Effect> {
-    let reverse = state.panel(side).sort().reverse;
+    let reverse = key != SortKey::Match && state.panel(side).sort().reverse;
     state.panel_mut(side).set_sort(Sort { key, reverse });
     Vec::new()
 }

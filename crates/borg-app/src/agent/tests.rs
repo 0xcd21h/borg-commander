@@ -128,6 +128,32 @@ fn socket_folders_are_short_and_owner_only() {
 }
 
 #[test]
+fn the_program_is_found_on_the_path_under_borg_or_its_own_name() {
+    let place = tempfile::tempdir().unwrap();
+    let keg = place.path().join("keg");
+    let bin = place.path().join("bin");
+    std::fs::create_dir_all(&keg).unwrap();
+    std::fs::create_dir_all(&bin).unwrap();
+    let program = keg.join("borgcmd");
+    std::fs::write(&program, b"").unwrap();
+    std::os::unix::fs::symlink(&program, bin.join("borgcmd")).unwrap();
+    assert_eq!(socket::linked_on_path(&program, bin.as_os_str()), Some(bin.join("borgcmd")));
+    std::os::unix::fs::symlink(&program, bin.join("borg")).unwrap();
+    assert_eq!(socket::linked_on_path(&program, bin.as_os_str()), Some(bin.join("borg")));
+}
+
+#[test]
+fn a_borg_on_the_path_that_is_another_program_is_passed_over() {
+    let place = tempfile::tempdir().unwrap();
+    let bin = place.path().join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let program = place.path().join("borgcmd");
+    std::fs::write(&program, b"").unwrap();
+    std::fs::write(bin.join("borg"), b"").unwrap();
+    assert_eq!(socket::linked_on_path(&program, bin.as_os_str()), None);
+}
+
+#[test]
 fn a_socket_folder_that_links_elsewhere_is_refused() {
     let place = tempfile::tempdir().unwrap();
     let real = socket::owner_only(&place.path().join("real")).unwrap();

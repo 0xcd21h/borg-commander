@@ -55,25 +55,37 @@ pub struct SearchRequest {
     pub options: crate::SearchOptions,
     /// What the search leaves out; `None` searches everything.
     pub skip: Option<crate::SearchSettings>,
+    /// Plain words also find names with typos, shuffled digits or letters left out.
+    pub typos: bool,
 }
 
-/// A name search for `query` below `root`, after the query's own `hidden:` and `excluded:`
-/// switches. Size scans never skip anything, so their totals stay true.
+/// What a name search looks for besides its query: hidden names, what it leaves out, and close
+/// matches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Reach {
+    pub hidden: bool,
+    pub skip: bool,
+    pub typos: bool,
+}
+
+/// A name search for `query` below `root`, after the query's own `hidden:`, `excluded:` and
+/// `typos:` switches. Size scans never skip anything, so their totals stay true, and match
+/// names only as typed.
 pub(crate) fn name_search(
     state: &AppState,
     root: PathBuf,
     query: &str,
-    hidden: bool,
-    skip: bool,
+    reach: Reach,
     options: crate::SearchOptions,
 ) -> Result<SearchRequest, crate::QueryError> {
     let parsed = crate::SearchQuery::parse(query)?;
     let sizes = matches!(options.kind, crate::SearchKind::FolderTotals | crate::SearchKind::FolderTree);
-    let skip = parsed.excluded.map_or(skip, |excluded| !excluded) && !sizes;
+    let skip = parsed.excluded.map_or(reach.skip, |excluded| !excluded) && !sizes;
     Ok(SearchRequest {
+        typos: parsed.typos.unwrap_or(reach.typos) && !sizes,
         root,
         query: query.into(),
-        hidden: parsed.hidden.unwrap_or(hidden),
+        hidden: parsed.hidden.unwrap_or(reach.hidden),
         options,
         skip: skip.then(|| state.settings.search.clone()),
     })
@@ -106,6 +118,16 @@ pub struct Results {
     pub rule_hits: HashMap<PathBuf, Vec<RuleMatch>>,
     /// The entropy of the code of each program a search for packed ones found, by its path.
     pub packed: HashMap<PathBuf, Tally>,
+    /// The name search's query, which ranks the results and marks what matched in their names.
+    pub query: Option<crate::SearchQuery>,
+    /// How well each result matches the query, by its path.
+    pub ranks: crate::Ranks,
+    /// Results that match the query only closely.
+    pub close_matches: usize,
+    /// Whether the filter also finds names closely when nothing matches it as typed.
+    pub filter_typos: bool,
+    /// The filter as a word for close matching, while nothing matches it as typed.
+    near: Option<crate::Needle>,
 }
 
 /// Where a contents search found its first match in a file, and the query it found it with.
@@ -144,7 +166,18 @@ impl Results {
             }
             _ => None,
         };
+        let query = match &source {
+            ResultSource::Search { request, .. } if !request.options.kind.measures_sizes() => {
+                crate::SearchQuery::parse(&request.query).ok().map(|query| query.with_typos(request.typos))
+            }
+            _ => None,
+        };
         Self {
+            query: query.filter(crate::SearchQuery::looks_for_names),
+            ranks: crate::Ranks::new(),
+            close_matches: 0,
+            filter_typos: false,
+            near: None,
             tree,
             expanded: false,
             source,
@@ -228,10 +261,41 @@ impl Results {
         }
     }
 
+    /// Notes how well each of `entries` matches the query.
+    pub fn note(&mut self, entries: &[Entry]) {
+        let Some(query) = &self.query else { return };
+        for entry in entries {
+            if let Some(rank) = query.rank(&entry.name) {
+                self.ranks.insert(entry.identity().to_path_buf(), rank);
+            }
+        }
+    }
+
+    /// The bytes of `entry`'s name that matched the query or, while it finds names only
+    /// closely, the filter.
+    pub fn spans(&self, entry: &Entry) -> crate::Spans {
+        if let Some(near) = &self.near {
+            return near.locate(&entry.name, true).map(|(_, spans)| spans).unwrap_or_default();
+        }
+        self.query.as_ref().map(|query| query.spans(&entry.name)).unwrap_or_default()
+    }
+
+    /// Whether the filter finds names only closely, since nothing matches it as typed.
+    pub fn filter_is_close(&self) -> bool {
+        self.near.is_some()
+    }
+
     pub fn matches(&self, entry: &Entry) -> bool {
         if self.filter.is_empty() {
             return true;
         }
+        if let Some(near) = &self.near {
+            return near.close_to(&entry.name);
+        }
+        self.matches_typed(entry)
+    }
+
+    fn matches_typed(&self, entry: &Entry) -> bool {
         let text = format!("{} {}", entry.name, entry.identity().display());
         if self.filter.chars().any(char::is_uppercase) {
             text.contains(&self.filter)
@@ -254,6 +318,12 @@ impl Results {
 
     pub fn rebuild(&mut self, entries: &[Entry]) {
         self.rows.clear();
+        self.close_matches =
+            entries.iter().filter(|entry| self.ranks.get(entry.identity()).is_some_and(|rank| rank.is_close())).count();
+        self.near = None;
+        if self.filter_typos && !self.filter.is_empty() && !entries.iter().any(|entry| self.matches_typed(entry)) {
+            self.near = Some(crate::Needle::new(&self.filter, true)).filter(crate::Needle::can_be_close);
+        }
         if let Some(tree) = self.tree.as_mut() {
             tree.branches = entries
                 .iter()
@@ -390,8 +460,13 @@ pub(crate) fn start_search(state: &mut AppState, request: SearchRequest) -> Vec<
         generation,
     );
     state.panel_mut(side).begin_search(generation);
-    if matches!(request.options.kind, crate::SearchKind::FolderTotals | crate::SearchKind::FolderTree) {
+    let ranked = state.panel(side).results.as_ref().is_some_and(|results| results.query.is_some());
+    if request.options.kind.measures_sizes() {
         state.panel_mut(side).set_sort(crate::Sort { key: crate::SortKey::Size, reverse: true });
+    } else if ranked {
+        state.panel_mut(side).set_sort(crate::Sort { key: crate::SortKey::Match, reverse: false });
+    } else if state.panel(side).sort().key == crate::SortKey::Match {
+        state.panel_mut(side).set_sort(crate::Sort::default());
     }
     state.refit();
     vec![Effect::Search { side, generation, request }]
@@ -575,6 +650,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action) -> Vec<Effect> {
             start_search(
                 state,
                 SearchRequest {
+                    typos: false,
                     skip: None,
                     root,
                     query: "*".into(),

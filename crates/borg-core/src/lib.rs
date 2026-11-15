@@ -9,6 +9,7 @@ mod backup;
 mod busy;
 mod capture;
 mod clipboard;
+mod close_match;
 mod command;
 mod contents;
 mod context_menu;
@@ -82,12 +83,13 @@ pub use backup::{
 };
 pub use busy::{Busy, SPINNER_DELAY, Task};
 pub use clipboard::Clipboard;
+pub use close_match::{MatchRank, Needle, Spans, Tier as MatchTier};
 pub use contents::{CONTENTS_SIZE_LIMIT, LineMatch, Scan, scan as scan_contents};
 pub use context_menu::{ContextCommand, ContextMenu};
 pub use delight::{About, RAIN_DURATION, UNLOCK_WORD};
 pub use discovery::{
     CONTENTS_FIELD, CollectionPicker, FILES_FIELD, HIDDEN_FIELD, KIND_FIELD, MINIMUM_FIELD, PATTERN_FIELD, ROOT_FIELD,
-    SKIP_FIELD, SearchForm, SearchKind, SearchOptions,
+    SKIP_FIELD, SearchForm, SearchKind, SearchOptions, TYPOS_FIELD,
 };
 pub use docker::{
     ContainerShell, CpuUse, Disk, DiskFamily, DiskGroup, DiskItem, DiskKind, DiskRow, DiskTotals, Docker, DockerData,
@@ -120,7 +122,7 @@ pub use menu::{Menu, MenuEntry, MenuItem, checkbox_items, menus, settings_items}
 pub use motion::{Pace, PanelMotion, empty_glitch};
 pub use msg::{Effect, Msg};
 pub use pager_find::{FoundInPager, PagerFind, PagerSlot, find_in};
-pub use panel::{Listing, ListingMode, Panel, RemoteMount, Row, Seek, Sort, SortKey, order};
+pub use panel::{Listing, ListingMode, Panel, Ranks, RemoteMount, Row, Seek, Sort, SortKey, order};
 pub use pattern::{Pattern, PatternError, composed};
 pub use plugins::{GitPanel, Plugins};
 pub use pointer::Pointer;

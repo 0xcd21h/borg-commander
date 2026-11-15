@@ -154,7 +154,7 @@ pub fn sample(second: u64) -> NetworkSample {
         kind,
         up,
         addresses: addresses.iter().map(|(address, prefix)| (address.parse().unwrap(), *prefix)).collect(),
-        mac: (kind != InterfaceKind::Loopback).then(|| "02:00:5e:10:00:20".to_owned()),
+        mac: (!matches!(kind, InterfaceKind::Loopback | InterfaceKind::Tunnel)).then(|| "02:00:5e:10:00:20".to_owned()),
         mtu: Some(if kind == InterfaceKind::Loopback { 16_384 } else { 1_500 }),
         received,
         sent,

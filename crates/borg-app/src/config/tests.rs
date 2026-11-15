@@ -27,7 +27,9 @@ fn search_settings_default_to_skipping_artifacts_and_survive_saving_preferences(
     let config: Config = toml::from_str("[search]\nexclude = [\"*.min.js\"]\nignore-files = false\n").unwrap();
     let search = config.search();
     assert_eq!(search.exclude, ["*.min.js"]);
-    assert!(search.artifacts && !search.ignore_files && search.history);
+    assert!(search.artifacts && !search.ignore_files && search.history && search.typos);
+    let exact: Config = toml::from_str("[search]\ntypos = false\n").unwrap();
+    assert!(!exact.search().typos);
     assert!(Config::default().search().ignore_files);
     let saved = config.capture(None, &Preferences::default(), &[]);
     assert_eq!(saved.search(), search);
