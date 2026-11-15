@@ -65,6 +65,8 @@ crates/
   borg-jobs     the copy / move / delete engine with progress, conflicts, pause and cancel
   borg-archive  archives as folders: zip, 7z and tar read and changed in process, RAR through
                 7-Zip or bsdtar, and unpacking that cannot write outside its destination
+  borg-crypt    encrypted files: age files with a passphrase and Paranoia Text Encryption texts,
+                with decrypted text kept in buffers that are wiped
   borg-rules    YARA rules through boreal: Borg's own rules and the user's, compiled file by file,
                 and what they match with its evidence, severity and caveat
   borg-link     the end-to-end encrypted channel between two borgs through a relay (Noise IK)
