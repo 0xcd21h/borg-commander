@@ -501,7 +501,7 @@ impl From<ModeName> for ListingMode {
 impl From<SortKey> for SortName {
     fn from(key: SortKey) -> Self {
         match key {
-            SortKey::Name => Self::Name,
+            SortKey::Name | SortKey::Match => Self::Name,
             SortKey::Extension => Self::Extension,
             SortKey::Size => Self::Size,
             SortKey::Modified => Self::Modified,

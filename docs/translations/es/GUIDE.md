@@ -119,7 +119,8 @@ funcionan con el visor y la vista previa rápida.
   consulta y las opciones que dejaste en él la última vez, en la carpeta donde estás. Los nombres
   coinciden en cualquier alfabeto sean cuales sean las mayúsculas del patrón glob, y las letras acentuadas
   coinciden sin importar cómo las guarde el sistema de archivos. Las coincidencias cercanas a la
-  carpeta de búsqueda aparecen primero, mientras se sigue leyendo el resto del árbol.
+  carpeta de búsqueda aparecen primero, mientras se sigue leyendo el resto del árbol. Las palabras
+  simples también encuentran [nombres con erratas](#names-with-typos).
 - **Alt-K:** reúne los archivos marcados, o el archivo actual, en una colección en el otro panel.
   Una colección guarda referencias, así que el contenido de los archivos no se copia.
 - **Alt-V:** elige una colección guardada en una lista desplazable que muestra cuántas entradas
@@ -139,6 +140,51 @@ funcionan con el visor y la vista previa rápida.
   (restaurar) y `[-]` (plegar) de la barra de título. Plegar oculta la vista; Alt-Shift-R la
   recupera con su disposición y su selección.
 - **Ctrl-S:** filtra los resultados por nombre o ruta de origen. Un filtro vacío lo muestra todo.
+  Si nada coincide con el filtro tal como lo escribiste, muestra los nombres que coinciden con él
+  de forma aproximada.
+
+### Nombres con erratas
+
+Un nombre mal escrito o recordado a medias aparece igualmente. Mientras **Encontrar también
+nombres con erratas y dígitos en otro orden** esté marcada en el diálogo de Ctrl-F, como lo está
+por defecto, una palabra simple también encuentra los nombres que coinciden con ella de forma
+aproximada:
+
+- **Erratas:** una palabra de 4 a 8 letras puede tener una errata, y una más larga, dos. Una letra
+  que falta, sobra o está mal cuenta como una errata, y también dos letras vecinas escritas en
+  orden inverso, así que `reciept` encuentra `receipt.pdf`. La primera letra tiene que ser
+  correcta, o estar intercambiada con la segunda. Las palabras de 3 letras o menos solo coinciden
+  tal como se escriben. Por debajo de 6 letras, una palabra que termina dentro de una palabra más
+  larga del nombre cuesta una errata más, así que `note` encuentra `nose.txt` y deja fuera
+  `notification.log`.
+- **Dígitos en otro orden:** un número de 4 dígitos o más encuentra un número completo del nombre
+  con los mismos dígitos en cualquier orden, así que `1986` encuentra `scan_8619.pdf`. Nunca se
+  añaden, quitan ni cambian dígitos, así que `2024` nunca encuentra `2023`.
+- **Letras omitidas:** a partir de 4 letras, `qtrly` encuentra `quarterly-sales.csv`. En cada
+  palabra del nombre se entra por su inicio, y las letras deben cubrir al menos la mitad de cada
+  palabra que tocan.
+
+La coincidencia aproximada pasa por alto espacios, guiones, puntos y guiones bajos, así que
+`meetingnotes` encuentra `Meeting Notes.md`, y también los acentos, así que `resume` encuentra
+`Résumé.pdf`. Una palabra con letras y dígitos busca unas y otros por separado: `invoice8619`
+encuentra `Invoice 1986.pdf`. Una palabra con alguna mayúscula sigue distinguiendo mayúsculas, y
+los nombres en chino, japonés y coreano solo coinciden tal como se escriben.
+
+Las palabras entre comillas, los patrones glob, las rutas, `-word` y los filtros siempre coinciden
+de forma exacta, igual que los análisis de tamaño. Añade `typos:no` a una consulta para dejar
+fuera las coincidencias aproximadas una vez, o `typos:yes` para incluirlas cuando la casilla está
+desmarcada. Pon `typos = false` en `[search]` para empezar con la casilla desmarcada; la búsqueda
+rápida y el filtro de resultados también siguen ese ajuste.
+
+Los resultados se abren con las mejores coincidencias primero: los nombres que son la palabra,
+luego los que empiezan por ella, los que la tienen al inicio de una palabra y los que la tienen en
+cualquier parte, después los nombres con menos erratas antes que los que tienen más, luego los
+dígitos en otro orden y al final las letras omitidas. Cuando una consulta tiene varias palabras,
+un nombre se ordena por la peor de ellas. A igualdad, primero van las carpetas menos profundas y
+los nombres más cortos. Las letras que coinciden aparecen subrayadas, y la línea de contexto
+cuenta las coincidencias aproximadas, que cuentan para el límite de 20 000 como cualquier otra.
+Haz clic en el encabezado de una columna para ordenar de otra forma, y elige **Buscar → Ordenar
+por coincidencia** para volver al orden por coincidencia.
 
 ### Buscar dentro de los archivos
 
@@ -280,10 +326,11 @@ procesos](#entropy-scan-of-every-process) examina los programas de esa forma.
 ### Trabajar con los resultados
 
 Haz clic en el encabezado de una columna para ordenar por ella, y otra vez para invertir el orden.
-Los menús Izquierda y Derecha también permiten ordenar, y el menú Buscar añade la ordenación por
-carpeta de origen y la agrupación por carpeta o por tipo de archivo. Enter sobre el encabezado de
-un grupo lo pliega; Insert marca los archivos coincidentes que contiene. Las marcas se conservan
-al ordenar o filtrar, y el pie también cuenta los archivos marcados que el filtro oculta.
+Los menús Izquierda y Derecha también permiten ordenar, y el menú Buscar añade **Ordenar por
+coincidencia**, la ordenación por carpeta de origen y la agrupación por carpeta o por tipo de
+archivo. Enter sobre el encabezado de un grupo lo pliega; Insert marca los archivos coincidentes que
+contiene. Las marcas se conservan al ordenar o filtrar, y el pie también cuenta los archivos
+marcados que el filtro oculta.
 
 F3 y Ctrl-Q abren el archivo original y, tras una búsqueda de texto, lo abren en su primera
 coincidencia. La vista rápida sigue al cursor por los resultados y muestra cada archivo en su
@@ -1384,7 +1431,9 @@ cliente.
 Ctrl-S abre la búsqueda rápida. Escribe un nombre o un patrón glob como `*.rs`; Down y Up se mueven
 entre las coincidencias, Insert marca una coincidencia, Ctrl-A las marca todas, y Enter o Esc
 cierran la búsqueda. No se distinguen mayúsculas y minúsculas salvo que la consulta contenga
-mayúsculas.
+mayúsculas. Si nada del panel coincide con lo que escribiste, el cursor va al nombre más
+parecido, según las reglas de [nombres con erratas](#names-with-typos), y Down y Up se mueven
+entre las coincidencias aproximadas.
 
 ### Copiar, mover y eliminar
 
@@ -1793,6 +1842,7 @@ exclude = ["*.min.js", "fixtures/large"]  # paths below the search folder, as in
 artifacts = true            # leave out node_modules, Cargo's target and cache-tagged folders
 ignore-files = true         # follow .gitignore, .ignore, .rgignore and .borgignore
 history = true              # remember searches for Ctrl-P and Ctrl-N
+typos = true                # also find names with typos and shuffled digits
 
 [index]
 roots = ["~/Projects"]      # folders indexed for instant search

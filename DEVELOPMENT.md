@@ -670,8 +670,11 @@ batches, coalesces obsolete requests, and stops at the documented match limit. Q
 generations reject late messages; the update loop and renderer perform no search I/O.
 
 `borg-core::query` parses the search language and matches entries; `name_search` resolves a
-request's `hidden:` and `excluded:` switches against the window's settings in core, so the
-worker only applies them. The worker walks with the `ignore` crate: ignore files, configured
+request's `hidden:`, `excluded:` and `typos:` switches against the window's settings in core, so
+the worker only applies them. `borg-core::close_match` finds names with typos, shuffled digits
+and left out letters: two letter bit masks reject most names before the edit distance runs, and
+`MatchRank` orders the tiers. `Results` keeps each entry's rank for the match sort, and the index
+ranks its hits the same way. The worker walks with the `ignore` crate: ignore files, configured
 globs as overrides, and a `filter_entry` that drops hidden names and generated folders
 (`borg-core::exclude`, plus `CACHEDIR.TAG`). A dropped folder is still tested against the query.
 A contents search compiles the find bar's `borg_view::Query` once, and the worker reads each file

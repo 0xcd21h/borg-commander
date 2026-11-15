@@ -26,6 +26,7 @@ async fn a_contents_search_reads_text_files_for_their_first_match_and_leaves_bin
         Side::Left,
         3,
         SearchRequest {
+            typos: false,
             skip: None,
             root: root.path().into(),
             query: "*".into(),
@@ -79,6 +80,7 @@ async fn a_rules_search_lists_the_files_rules_match_and_passes_over_pipes() {
         Side::Left,
         4,
         SearchRequest {
+            typos: false,
             skip: None,
             root: root.path().into(),
             query: "*".into(),
@@ -149,6 +151,7 @@ async fn a_search_for_packed_programs_lists_those_whose_code_is_mostly_high_entr
         Side::Left,
         5,
         SearchRequest {
+            typos: false,
             skip: None,
             root: root.path().into(),
             query: "*".into(),
@@ -189,6 +192,7 @@ async fn folder_totals_find_many_small_files_and_filter_only_after_measuring() {
         Side::Left,
         9,
         SearchRequest {
+            typos: false,
             skip: None,
             root: root.path().into(),
             query: "node_modules".into(),
@@ -221,6 +225,7 @@ async fn folder_totals_find_many_small_files_and_filter_only_after_measuring() {
         Side::Left,
         10,
         SearchRequest {
+            typos: false,
             skip: None,
             root: root.path().into(),
             query: "node_modules".into(),
@@ -255,6 +260,7 @@ async fn recursive_search_preserves_sources_and_does_not_follow_symlink_loops() 
         Side::Left,
         7,
         SearchRequest {
+            typos: false,
             skip: None,
             root: root.path().into(),
             query: "*.toml".into(),
@@ -291,6 +297,7 @@ async fn matches_near_the_search_folder_come_first_and_nothing_is_counted_twice(
         Side::Left,
         7,
         SearchRequest {
+            typos: false,
             skip: None,
             root: root.path().into(),
             query: "*регламент*".into(),
@@ -323,7 +330,7 @@ async fn other_apps_data_is_left_out_from_above_and_read_when_searched_in_its_ow
     fs::write(root.path().join("Library/report.txt"), "mine").unwrap();
     async fn found(search: &mut Search, root: &std::path::Path, id: u64) -> (Vec<std::path::PathBuf>, usize) {
         let (skip, query, hidden, options) = (None, "report".into(), false, Default::default());
-        search.search(Side::Left, id, SearchRequest { skip, root: root.into(), query, hidden, options });
+        search.search(Side::Left, id, SearchRequest { typos: false, skip, root: root.into(), query, hidden, options });
         let mut found = Vec::new();
         loop {
             match tokio::time::timeout(Duration::from_secs(5), search.incoming.recv()).await.unwrap().unwrap() {
@@ -368,8 +375,14 @@ async fn name_searches_leave_out_generated_ignored_and_configured_paths_unless_a
     let run = |query: &str, skip: Option<borg_core::SearchSettings>| {
         let base = base.clone();
         let mut search = Search::with_cache(crate::size_cache::SizeCache::at(None));
-        let request =
-            SearchRequest { root: base.clone(), query: query.into(), hidden: false, options: Default::default(), skip };
+        let request = SearchRequest {
+            typos: false,
+            root: base.clone(),
+            query: query.into(),
+            hidden: false,
+            options: Default::default(),
+            skip,
+        };
         async move {
             search.search(Side::Left, 1, request);
             let mut found = Vec::new();
@@ -414,6 +427,7 @@ async fn indexed_folders_answer_from_their_index_and_searching_everything_walks(
     let mut search = Search::with_stores(crate::size_cache::SizeCache::at(None), indexes, None);
     for (skip, from_index) in [(Some(borg_core::SearchSettings::default()), true), (None, false)] {
         let request = SearchRequest {
+            typos: false,
             root: root.path().join("src"),
             query: "main".into(),
             hidden: false,
@@ -474,6 +488,7 @@ async fn replacing_a_search_cancels_backpressure_without_blocking_the_next_reque
         Side::Left,
         1,
         SearchRequest {
+            typos: false,
             skip: None,
             root: root.path().into(),
             query: "*".into(),
@@ -486,6 +501,7 @@ async fn replacing_a_search_cancels_backpressure_without_blocking_the_next_reque
         Side::Left,
         2,
         SearchRequest {
+            typos: false,
             skip: None,
             root: root.path().into(),
             query: "file-1499".into(),
@@ -509,6 +525,7 @@ async fn measured_tree(
     measured_request(
         search,
         SearchRequest {
+            typos: false,
             skip: None,
             root: root.into(),
             query: "*".into(),
@@ -583,6 +600,7 @@ async fn cancelled_tree_refresh_never_replaces_the_previous_saved_scan() {
     }
     fs::write(root.join("data"), "updated").unwrap();
     let request = SearchRequest {
+        typos: false,
         skip: None,
         root: root.clone(),
         query: "*".into(),
@@ -623,6 +641,7 @@ async fn space_analysis_reuses_complete_snapshots_and_applies_filters_to_saved_t
     measured_tree(&mut search, &root, false).await;
     fs::write(root.join("cache/nested/data"), "changed outside Borg").unwrap();
     let request = SearchRequest {
+        typos: false,
         skip: None,
         root: root.clone(),
         query: "cache".into(),
@@ -684,6 +703,7 @@ async fn space_analysis_rescans_a_truncated_tree_snapshot_instead_of_hiding_larg
     let (fresh, progress) = measured_request(
         &mut search,
         SearchRequest {
+            typos: false,
             skip: None,
             root: root.clone(),
             query: "*".into(),

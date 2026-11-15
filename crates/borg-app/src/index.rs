@@ -244,14 +244,13 @@ impl Index {
         false
     }
 
-    /// The paths below `request.root` that match, best first: names that are the first word,
-    /// then names starting with it, then shallower and shorter paths. `None` when the folder
-    /// is not in the index, so a live search has to answer.
+    /// The paths below `request.root` that match, best first: by how well the names match,
+    /// then shallower and shorter paths. `None` when the folder is not in the index, so a live
+    /// search has to answer.
     pub fn search(&self, request: &borg_core::SearchRequest, query: &SearchQuery, limit: usize) -> Option<Search> {
         let within = self.folder(&request.root)?;
         let range = within..self.dirs[within as usize].end;
         let now = SystemTime::now();
-        let primary = query.primary().map(str::to_lowercase);
         let mut ranked = Vec::new();
         let mut limited = false;
         for (at, row) in self.rows.iter().enumerate() {
@@ -272,12 +271,7 @@ impl Index {
             {
                 continue;
             }
-            let name = borg_core::composed(&candidate.name()).to_lowercase();
-            let rank = match &primary {
-                Some(word) if name == *word => 0u8,
-                Some(word) if name.starts_with(word.as_str()) => 1,
-                _ => 2,
-            };
+            let Some(rank) = query.rank(&candidate.name()) else { continue };
             let mut depth = 0u16;
             let mut dir = row.dir;
             while dir != within && dir != NONE {
@@ -595,6 +589,7 @@ mod tests {
 
     fn request(root: &Path, query: &str, hidden: bool) -> borg_core::SearchRequest {
         borg_core::SearchRequest {
+            typos: false,
             root: root.into(),
             query: query.into(),
             hidden,
@@ -631,6 +626,23 @@ mod tests {
                 .search(&request(&root.path().join("missing"), "a", false), &SearchQuery::parse("a").unwrap(), 9)
                 .is_none()
         );
+    }
+
+    #[test]
+    fn indexes_find_names_with_typos_after_those_typed_right() {
+        let root = tree();
+        let index = Index::build(root.path(), &SearchSettings::default(), &AtomicBool::new(false)).unwrap();
+        let close = |query: &str| {
+            let request = borg_core::SearchRequest { typos: true, ..request(root.path(), query, false) };
+            let query = SearchQuery::parse(query).unwrap().with_typos(true);
+            let search = index.search(&request, &query, 100).unwrap();
+            search.paths.iter().map(|path| path.strip_prefix(&index.root).unwrap().display().to_string()).collect()
+        };
+        let found: Vec<String> = close("mian");
+        assert_eq!(found, ["docs/main", "src/main.rs", "src/lib/main.rs"]);
+        let found: Vec<String> = close("main | mian");
+        assert_eq!(found.last().map(String::as_str), Some("src/lib/mainframe.rs"));
+        assert!(found.len() == 4 && close("nots").first().is_some_and(|first| first == "notes.md"));
     }
 
     #[test]

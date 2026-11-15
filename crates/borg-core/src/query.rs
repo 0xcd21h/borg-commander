@@ -7,7 +7,7 @@ use std::{
 
 use borg_vfs::{Entry, EntryKind};
 
-use crate::{Pattern, pattern::composed};
+use crate::{MatchRank, Needle, Pattern, Spans, pattern::composed};
 
 const GLOB_CHARS: [char; 3] = ['*', '?', '['];
 const OR: &str = "|";
@@ -16,7 +16,8 @@ const DAY: u64 = 24 * HOUR;
 
 /// The recursive search's query: words that must all match, `|` between alternatives,
 /// quoted phrases, globs, paths, and filters such as `ext:rs`, `size:>10M` or `mod:<7d`.
-/// A word in lowercase ignores case; one with an uppercase letter matches it exactly.
+/// A word in lowercase ignores case; one with an uppercase letter matches it exactly. Once
+/// allowed, plain words also find names with typos, shuffled digits or letters left out.
 #[derive(Debug, Clone)]
 pub struct SearchQuery {
     alternatives: Vec<Vec<Condition>>,
@@ -24,6 +25,9 @@ pub struct SearchQuery {
     pub hidden: Option<bool>,
     /// `excluded:yes` also searches artifact folders and ignored files; `excluded:no` skips them.
     pub excluded: Option<bool>,
+    /// `typos:yes` or `typos:no`, over the search window's setting.
+    pub typos: Option<bool>,
+    close: bool,
 }
 
 /// What a query looks at: an entry from a listing, or a row of the search index.
@@ -62,7 +66,7 @@ struct Condition {
 
 #[derive(Debug, Clone)]
 enum Term {
-    Name(Text),
+    Name(Needle),
     Path(Text),
     Glob(Pattern),
     Ext(Vec<String>),
@@ -193,7 +197,8 @@ fn words(text: &str) -> Result<Vec<Word>, QueryError> {
 impl SearchQuery {
     /// An empty query, or `*`, matches everything.
     pub fn parse(text: &str) -> Result<Self, QueryError> {
-        let mut query = Self { alternatives: vec![Vec::new()], hidden: None, excluded: None };
+        let mut query =
+            Self { alternatives: vec![Vec::new()], hidden: None, excluded: None, typos: None, close: false };
         let mut last = String::new();
         for word in words(text)? {
             if !word.literal && word.text == OR {
@@ -210,7 +215,7 @@ impl SearchQuery {
             };
             let error = |problem| QueryError { word: word.text.clone(), problem };
             let term = if word.literal {
-                Some(Term::Name(Text::new(body)))
+                Some(Term::Name(Needle::new(body, false)))
             } else {
                 match body.split_once(':') {
                     Some(("hidden", value)) => {
@@ -219,6 +224,10 @@ impl SearchQuery {
                     }
                     Some(("excluded", value)) => {
                         query.excluded = Some(switch(value).ok_or_else(|| error(Problem::Switch))? != negated);
+                        None
+                    }
+                    Some(("typos", value)) => {
+                        query.typos = Some(switch(value).ok_or_else(|| error(Problem::Switch))? != negated);
                         None
                     }
                     Some(("ext", value)) => Some(Term::Ext(
@@ -260,14 +269,47 @@ impl SearchQuery {
         self.alternatives.iter().flatten().any(|c| matches!(c.term, Term::Size { .. } | Term::Age { .. }))
     }
 
-    pub fn accepts(&self, candidate: &impl Candidate, now: SystemTime) -> bool {
-        self.alternatives.iter().any(|all| all.iter().all(|c| c.term.matches(candidate, now) != c.negated))
+    /// The query with close matching of its plain words on or off.
+    pub fn with_typos(self, typos: bool) -> Self {
+        Self { close: typos, ..self }
     }
 
-    /// The first word to look for, for ranking: names that are it, then those starting with it.
-    pub fn primary(&self) -> Option<&str> {
-        self.alternatives.first()?.iter().find_map(|c| match &c.term {
-            Term::Name(text) if !c.negated => Some(text.text.as_str()),
+    pub fn accepts(&self, candidate: &impl Candidate, now: SystemTime) -> bool {
+        self.alternatives
+            .iter()
+            .any(|all| all.iter().all(|c| c.term.matches(candidate, now, self.close && !c.negated) != c.negated))
+    }
+
+    /// Whether the query has words to look for in names, which results can be ranked by.
+    pub fn looks_for_names(&self) -> bool {
+        self.positive_names().next().is_some()
+    }
+
+    /// How well `name` matches: by the worst of its words in the alternative it matches best.
+    pub fn rank(&self, name: &str) -> Option<MatchRank> {
+        self.alternatives
+            .iter()
+            .filter_map(|all| {
+                all.iter().filter(|c| !c.negated).try_fold(MatchRank::EXACT, |worst, c| match &c.term {
+                    Term::Name(needle) => needle.rank(name, self.close).map(|rank| worst.max(rank)),
+                    _ => Some(worst),
+                })
+            })
+            .min()
+    }
+
+    /// The bytes of `name` the query's words matched.
+    pub fn spans(&self, name: &str) -> Spans {
+        let mut spans: Spans =
+            self.positive_names().filter_map(|needle| needle.locate(name, self.close)).flat_map(|(_, s)| s).collect();
+        spans.sort_by_key(|span| (span.start, span.end));
+        spans.dedup();
+        spans
+    }
+
+    fn positive_names(&self) -> impl Iterator<Item = &Needle> {
+        self.alternatives.iter().flatten().filter_map(|c| match &c.term {
+            Term::Name(needle) if !c.negated => Some(needle),
             _ => None,
         })
     }
@@ -288,7 +330,7 @@ fn plain(text: &str, quoted: bool) -> Result<Term, ()> {
     if inner.len() < text.len() && !quoted {
         return Pattern::parse(&format!("*{inner}*/")).map(Term::Glob).map_err(|_| ());
     }
-    Ok(Term::Name(Text::new(text)))
+    Ok(Term::Name(Needle::new(text, !quoted)))
 }
 
 fn switch(value: &str) -> Option<bool> {
@@ -349,10 +391,13 @@ fn age(text: &str) -> Option<u64> {
 }
 
 impl Term {
-    fn matches(&self, candidate: &impl Candidate, now: SystemTime) -> bool {
+    fn matches(&self, candidate: &impl Candidate, now: SystemTime, close: bool) -> bool {
         let kind = candidate.kind();
         match self {
-            Self::Name(text) => text.found_in(&candidate.name()),
+            Self::Name(needle) => {
+                let name = candidate.name();
+                needle.found_in(&name) || (close && needle.close_to(&name))
+            }
             Self::Path(text) => text.found_in(&candidate.path().to_string_lossy()),
             Self::Glob(pattern) => pattern.matches_name(&candidate.name(), kind.is_dir()),
             Self::Ext(exts) => {
@@ -478,6 +523,36 @@ mod tests {
         assert_eq!((query.hidden, query.excluded), (Some(true), Some(false)));
         assert!(!query.needs_metadata() && SearchQuery::parse("size:>1k").unwrap().needs_metadata());
         assert!(file("weird:colon", "/a weird:colon b"), "unknown prefixes are plain words");
+    }
+
+    fn close(query: &str, path: &str) -> bool {
+        let (entry, path) = entry(path, EntryKind::File, 100, 1);
+        let query = SearchQuery::parse(query).unwrap().with_typos(true);
+        query.accepts(&(&entry, path.as_path()), SystemTime::UNIX_EPOCH + NOW)
+    }
+
+    #[test]
+    fn typos_find_close_names_while_quotes_and_negations_stay_exact() {
+        assert!(close("reciept", "/a/receipt.pdf") && !file("reciept", "/a/receipt.pdf"));
+        assert!(close("invoice 1986", "/a/Invoice 8619.pdf") && close("budegt | x", "/a/budget.xlsx"));
+        assert!(!close("\"reciept\"", "/a/receipt.pdf"), "a quoted word stays exact");
+        assert!(close("-reciept", "/a/receipt.pdf"), "a negated word leaves out only what it matches exactly");
+        assert!(!close("reciept/", "/a/receipt"), "folder words are globs");
+        let query = SearchQuery::parse("typos:no budget").unwrap();
+        assert_eq!(query.typos, Some(false));
+        assert_eq!(SearchQuery::parse("-typos:no").unwrap().typos, Some(true));
+    }
+
+    #[test]
+    fn ranks_by_the_worst_word_of_the_best_alternative() {
+        let query = SearchQuery::parse("budget 2024 | reciept").unwrap().with_typos(true);
+        let tier = |name: &str| query.rank(name).map(|rank| rank.tier);
+        assert_eq!(tier("budget 2024.xlsx"), Some(crate::MatchTier::WordStart));
+        assert_eq!(tier("receipt.pdf"), Some(crate::MatchTier::Typo));
+        assert_eq!(tier("notes.txt"), None);
+        let globs = SearchQuery::parse("*.pdf -draft").unwrap();
+        assert!(!globs.looks_for_names() && globs.rank("a.pdf") == Some(MatchRank::EXACT));
+        assert_eq!(query.spans("my budget 2024.xlsx"), [3..9, 10..14]);
     }
 
     #[test]

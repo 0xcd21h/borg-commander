@@ -1120,6 +1120,7 @@ fn alt_o_goes_to_the_shell_while_a_command_is_typed() {
 fn alt_o_from_search_results_opens_the_folder_the_search_started_from() {
     let (mut state, now) = setup();
     let request = crate::SearchRequest {
+        typos: false,
         root: "/var/log".into(),
         query: "*.log".into(),
         hidden: false,
@@ -1572,6 +1573,7 @@ fn found_in_log(state: &mut AppState, now: Instant, query: &borg_view::Query, li
 /// A contents search for `query` that found its first match in each file of `/home` named, at its line.
 fn found_in(state: &mut AppState, now: Instant, query: &borg_view::Query, files: Vec<(&str, crate::LineMatch)>) {
     let request = crate::SearchRequest {
+        typos: false,
         root: "/home".into(),
         query: "*".into(),
         hidden: false,
@@ -1730,6 +1732,7 @@ fn a_rules_search_lists_files_with_the_rules_they_match_and_f3_lands_on_the_evid
 
     let (mut state, now) = setup();
     let request = crate::SearchRequest {
+        typos: false,
         root: "/home".into(),
         query: "*".into(),
         hidden: false,
@@ -1789,6 +1792,7 @@ fn a_search_for_packed_programs_shows_their_code_entropy_and_f3_opens_the_first_
 
     let (mut state, now) = setup();
     let request = crate::SearchRequest {
+        typos: false,
         root: "/home".into(),
         query: "*".into(),
         hidden: false,
@@ -2307,6 +2311,27 @@ fn quick_find_jumps_cycles_marks_and_remembers() {
     press(&mut state, now, ctrl_key('s'));
     let Some(Overlay::Find(find)) = state.overlay.clone() else { panic!("find closed") };
     assert_eq!(find.input.text(), "js");
+}
+
+#[test]
+fn quick_find_goes_to_the_best_close_match_when_nothing_matches_as_typed() {
+    let names = ["budget.xlsx", "receipts-2023.pdf", "recital.txt", "the receipt.pdf"];
+    let (mut state, now) = setup_with(names.into_iter().map(file).collect());
+    press(&mut state, now, ctrl_key('s'));
+    type_text(&mut state, now, "reciept");
+    assert_eq!(hovered_name(&state).as_deref(), Some("the receipt.pdf"), "a whole word beats the start of one");
+    let Some(Overlay::Find(find)) = state.overlay.clone() else { panic!("find closed") };
+    assert!(find.close);
+    assert_eq!(crate::find_summary(&state, &find), (2, 2));
+    press(&mut state, now, key(KeyCode::Down));
+    assert_eq!(hovered_name(&state).as_deref(), Some("receipts-2023.pdf"));
+    press(&mut state, now, key(KeyCode::Esc));
+
+    state.settings.search.typos = false;
+    press(&mut state, now, ctrl_key('s'));
+    type_text(&mut state, now, "reciept");
+    let Some(Overlay::Find(find)) = state.overlay.clone() else { panic!("find closed") };
+    assert!(!find.close && crate::find_summary(&state, &find) == (0, 0), "close matches wait for the setting");
 }
 
 #[test]
