@@ -1,5 +1,5 @@
 use std::io::{BufReader, Read, Write};
-use std::path::Path;
+use std::path::PathBuf;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
@@ -14,7 +14,7 @@ use super::*;
 const PASSPHRASE: &[u8] = b"correct horse battery staple";
 const FAST: WorkFactor = WorkFactor::MIN;
 const ARMOR_COLUMNS: usize = 64;
-const TESTKIT_VARIABLE: &str = "BORG_AGE_TESTKIT";
+const TESTKIT: &str = "tests/fixtures/age/testdata";
 const TESTKIT_SKIPPED: [&str; 2] = ["x25519", "hybrid"];
 const TESTKIT_MINIMUM: usize = 100;
 
@@ -288,10 +288,9 @@ fn reencodes(vector: &Vector, plain: &[u8]) -> bool {
 }
 
 #[test]
-#[ignore = "needs the age testkit: set BORG_AGE_TESTKIT to its testdata folder"]
-fn testkit() {
-    let folder = std::env::var_os(TESTKIT_VARIABLE).expect("BORG_AGE_TESTKIT is set");
-    let mut entries: Vec<_> = std::fs::read_dir(Path::new(&folder)).expect("testkit folder").flatten().collect();
+fn passes_the_age_testkit() {
+    let folder = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(TESTKIT);
+    let mut entries: Vec<_> = std::fs::read_dir(folder).expect("testkit folder").flatten().collect();
     entries.sort_by_key(|entry| entry.file_name());
     let mut checked = 0;
     for entry in entries {
