@@ -147,16 +147,16 @@ jobs:
           files: dist/*
           generate_release_notes: true
 
-      - name: Render the Homebrew formula
+      - name: Render the Homebrew cask
         shell: bash
-        run: scripts/homebrew-formula.sh "${GITHUB_REF_NAME#v}" dist > borg-commander.rb
+        run: scripts/homebrew-cask.sh "${GITHUB_REF_NAME#v}" dist > borg-commander.rb
 
       - uses: actions/upload-artifact@v4
         with:
-          name: homebrew-formula
+          name: homebrew-cask
           path: borg-commander.rb
 
       - name: Publish to the Homebrew tap
         if: env.HOMEBREW_TAP_TOKEN != ''
         shell: bash
-        run: scripts/publish-formula.sh borg-commander.rb "${HOMEBREW_TAP}" "${GITHUB_REF_NAME}"
+        run: scripts/publish-cask.sh borg-commander.rb "${HOMEBREW_TAP}" "${GITHUB_REF_NAME}"

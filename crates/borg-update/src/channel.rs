@@ -1,6 +1,6 @@
 use std::path::Path;
 
-const HOMEBREW_MARKERS: [&str; 3] = ["/Cellar/", "homebrew/", "linuxbrew/"];
+const HOMEBREW_MARKERS: [&str; 4] = ["/Cellar/", "/Caskroom/", "homebrew/", "linuxbrew/"];
 const CARGO_MARKER: &str = "/.cargo/bin/";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,6 +39,10 @@ mod tests {
     fn recognises_package_managers_by_path() {
         assert_eq!(channel(Path::new("/opt/homebrew/Cellar/borg-commander/0.2.0/bin/borg")), Channel::Homebrew);
         assert_eq!(channel(Path::new("/home/me/.linuxbrew/bin/borg")), Channel::Homebrew);
+        assert_eq!(
+            channel(Path::new("/usr/local/Caskroom/borg-commander/0.11.1/borg-0.11.1-x86_64-apple-darwin/borg")),
+            Channel::Homebrew
+        );
         assert_eq!(channel(Path::new("/home/me/.cargo/bin/borg")), Channel::Cargo);
         assert_eq!(channel(Path::new("/usr/local/bin/borg")), Channel::Standalone);
         assert!(Channel::Standalone.upgrade_hint().is_none());
