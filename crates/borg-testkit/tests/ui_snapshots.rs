@@ -188,6 +188,7 @@ fn command_menu_open() -> Result<()> {
 fn command_menu_shows_where_freezing_stands() -> Result<()> {
     let mut stage = stage(SIZE, Motion::STILL)?;
     stage.state.settings.preferences.process_watch = true;
+    stage.state.settings.preferences.process_freeze = true;
     stage.state.alerts.log.watch.stage = Some(borg_core::FreezeStage::Review);
     let index = borg_core::menus(&stage.state).iter().position(|menu| menu.title == "Command").unwrap();
     stage.send(Msg::Pointer(borg_core::Pointer::Menu(index)));

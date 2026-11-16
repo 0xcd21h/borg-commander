@@ -10,6 +10,18 @@ fn missing_keys_fall_back_to_defaults() {
 }
 
 #[test]
+fn freezing_stays_off_until_it_is_turned_on() {
+    let watching: Config = toml::from_str("[watch]\non = true\n").unwrap();
+    assert!(watching.preferences().process_watch);
+    assert!(!watching.preferences().process_freeze);
+    assert!(!watching.watch().freeze);
+    assert!(!Config::default().watch().freeze);
+    assert!(!crate::watch::Settings::default().freeze);
+    let turned_on: Config = toml::from_str("[watch]\non = true\nfreeze = true\n").unwrap();
+    assert!(turned_on.watch().freeze);
+}
+
+#[test]
 fn captured_preferences_round_trip() {
     let prefs = Preferences { menu_bar: true, after_command: AfterCommand::ReturnToPanels, ..Preferences::default() };
     let original = Config { screensaver_after: Some(42), ..Config::default() };

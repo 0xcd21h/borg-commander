@@ -66,7 +66,7 @@ impl Preferences {
         git_plugin: true,
         system_plugin: true,
         process_watch: false,
-        process_freeze: true,
+        process_freeze: false,
         docker_plugin: true,
         docker_console: true,
         agent_log: true,

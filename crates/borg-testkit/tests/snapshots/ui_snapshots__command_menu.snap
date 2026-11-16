@@ -9,7 +9,7 @@ expression: describe(&buffer)
 │ @ target        │  Startup items                   M-u │             5.0G Jun  1  2024 │
 │ * build.sh      │  Alerts                          M-l │             717K Jan 10 09:30 │
 │ · Cargo.toml    │  Watch: unusual process starts       │             2.3M Jan 10 09:30 │
-│ @ latest.log    │✓ Freeze: what the watcher catches    │                               │
+│ @ latest.log    │  Freeze: what the watcher catches    │                               │
 │ · README.md     │  Docker                          M-c │                               │
 │ ? socket        │  Find in folder                  C-s │                               │
 │ · 日本語メモ.txt│  Folder hotlist                  C-\ │                               │

@@ -208,8 +208,8 @@ Ctrl-O switches between the panels and the console.
 - **Watch what starts.** On Linux, turn on Watch in Options and `borg service start` keeps an eye
   on every process that begins: a shell opened by a web server, a program running from `/tmp` or
   from a deleted file, a forced library, a run of commands looking around the machine. Borg learns
-  what is normal here for a week first, then freezes what it is sure about, which stops the
-  process where it is without giving a supervisor anything to restart. Alt-L lists the alerts with
+  what is normal here for a week first. Turn on Freeze too, and it then freezes what it is sure
+  about, which stops the process where it is without giving a supervisor anything to restart. Alt-L lists the alerts with
   the evidence, and C, K or A lets it go on, ends it, or allows that start for good.
 
 <p align="center">

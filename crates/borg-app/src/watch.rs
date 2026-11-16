@@ -71,7 +71,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             on: false,
-            freeze: true,
+            freeze: borg_core::Preferences::DEFAULT.process_freeze,
             learning: borg_core::learning_period(borg_core::LEARNING_DAYS),
             limits: Limits::default(),
             allow: Vec::new(),

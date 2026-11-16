@@ -1706,7 +1706,7 @@ keep-free-mib = 1024        # stop captures before the disk has less than this f
 
 [watch]
 on = false                  # watch what starts, in the background service
-freeze = true               # stop a process a rule is sure about
+freeze = false              # stop a process a rule is sure about
 learning-days = 7           # learn what is normal here before freezing anything, 365 at most
 alerts-per-minute = 20      # processes written about before Borg only counts them
 freezes-per-minute = 5
@@ -2282,11 +2282,12 @@ processes a minute that Borg would have frozen past its limit of 5 are written d
 
 ### Freezing a process
 
-Once the learning period is over, Borg freezes the process an alert-level or warning-level rule
-fired on. Freezing sends a stop signal to the process and everything below it. A frozen process has
-not exited, so its service keeps running, `systemd` and Docker have nothing to restart, and
-whatever it was about to do waits where it is until you look. The Response column says **Frozen**,
-and **C** lets it go on while **K** ends it. Killing is final, so Borg asks first.
+Freezing is off until you turn it on. Once it is on and the learning period is over, Borg freezes
+the process an alert-level or warning-level rule fired on. Freezing sends a stop signal to the
+process and everything below it. A frozen process has not exited, so its service keeps running,
+`systemd` and Docker have nothing to restart, and whatever it was about to do waits where it is
+until you look. The Response column says **Frozen**, and **C** lets it go on while **K** ends it.
+Killing is final, so Borg asks first.
 
 Borg starts freezing once you have seen every alert from the learning week that says **Would
 freeze**, or 3 days after the week ends, whichever comes first. Opening the Alerts page marks them
