@@ -1,0 +1,5 @@
+# Advisories npm audit may report for the website without failing scripts/check-npm-audit.py.
+# Each entry says why the advisory cannot reach the site and when to remove the entry.
+ignore = [
+    { id = "GHSA-fc5q-39xc-vjpf", reason = "picomatch comes in through Astro, Vite and tinyglobby, which match the site's own glob patterns while the static site builds. No picomatch release fixes it yet. Remove once a fixed picomatch is 7 days old and locked." },
+]

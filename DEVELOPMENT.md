@@ -1179,7 +1179,7 @@ Before adding or bumping a dependency, look up the exact version in:
   whether the repository link leads to the real source, and whether recent versions were yanked
   or deprecated.
 
-`npm audit --prefix website` covers the website. A crate that bundles a C library, such as
+`python3 scripts/check-npm-audit.py` runs `npm audit` for the website. A crate that bundles a C library, such as
 SQLite in `libsqlite3-sys`, also needs the bundled library's version checked against that
 project's own advisories, because RustSec rarely tracks them.
 
@@ -1224,11 +1224,13 @@ Monday:
 - `cargo deny --locked check advisories bans sources` with `deny.toml`. It fails on RustSec
   vulnerabilities, unmaintained and unsound notices, yanked crates, crates from anywhere but
   crates.io, unused `[workspace.dependencies]` entries and the banned UnRAR crates,
-- `npm audit` for the website.
+- `scripts/check-npm-audit.py`, which runs `npm audit` for the website and fails on every
+  advisory that `.config/npm-audit.toml` does not ignore.
 
-When a new advisory fails the check, update the crate. If no fixed version is 7 days old yet,
-or the advisory cannot reach the code Borg runs, add it to `ignore` in `deny.toml` with the
-reason, and remove the entry when the fix is locked.
+When a new advisory fails the check, update the crate or npm package. If no fixed version is
+7 days old yet, or the advisory cannot reach the code Borg runs or the site it builds, add it to
+`ignore` in `deny.toml` or `.config/npm-audit.toml` with the reason, and remove the entry when
+the fix is locked. The npm script names entries that npm audit no longer reports.
 
 The tools follow the same rules: CI pins cargo-deny to a release that is at least 7 days old.
 To run it locally, install the version `dependencies.yml` pins:
