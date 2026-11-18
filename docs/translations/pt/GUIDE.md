@@ -221,9 +221,9 @@ pergunta indica o texto e os ficheiros e abre com **Não** selecionado. Prima Y 
 Borg não guarda uma cópia do texto antigo. Os interruptores da pesquisa aplicam-se, por isso uma
 pesquisa de palavras inteiras substitui palavras inteiras, e com uma expressão regular `$1` repõe o
 primeiro grupo. O Borg escreve cada ficheiro como o seu editor guarda, por isso as permissões e as
-ligações mantêm-se. Ignora os ficheiros que não são texto, que têm mais de 32 MiB ou que mudaram
-enquanto a tarefa corria. A tarefa aparece em Alt-J, e os resultados atualizam-se quando ela
-termina.
+ligações mantêm-se. Ignora os ficheiros cifrados e os que não são texto, que têm mais de 32 MiB ou
+que mudaram enquanto a tarefa corria. A tarefa aparece em Alt-J, e os resultados atualizam-se quando
+ela termina.
 
 ### Analisar ficheiros com regras
 
@@ -1822,6 +1822,30 @@ Ctrl-N trazem de volta pesquisas recentes. Esc fecha a barra; a seguir, `n` e `N
 e na pré-visualização, ou F3 e Shift-F3 no editor, percorrem as correspondências. Num ficheiro
 grande, o visualizador e a pré-visualização procuram em segundo plano, mostram até onde chegaram e
 param quando prime Esc. O Borg conta as correspondências em ficheiros até 64 MiB, até 10 000 delas.
+
+### Ficheiros cifrados
+
+O Borg abre ficheiros de texto cifrados com palavra-passe em dois formatos:
+[age](https://age-encryption.org), cujos ficheiros costumam terminar em `.age`, e Paranoia Text
+Encryption, um formato para notas cifradas. F3, F4 ou Alt-E num destes ficheiros abre a caixa de
+diálogo **Ficheiro cifrado**, que pede a palavra-passe e esconde o que escreve. O Borg desencripta o
+ficheiro em memória e nunca escreve o texto no disco. Uma palavra-passe errada volta a perguntar, e
+Esc deixa o ficheiro fechado. A pré-visualização indica o formato e não pergunta.
+
+O visualizador mostra o texto como o mostraria o nome do ficheiro sem `.age`, por isso
+`notes.md.age` lê-se como Markdown. No editor, F2 ou Ctrl-S volta a cifrar o texto antes de escrever
+o ficheiro, com a mesma palavra-passe e o mesmo formato, e a linha de estado diz **Guardado, cifrado
+com age**. Um ficheiro age escrito como linhas de texto, a que o age chama armored, mantém-se assim.
+O Borg esquece a palavra-passe assim que desencripta o ficheiro, e mantém a chave necessária para
+guardar apenas enquanto o editor tem o ficheiro aberto. O Borg preenche com zeros cada bloco de
+memória que liberta, por isso a palavra-passe e o texto não ficam na memória depois de o Borg
+terminar de os usar.
+
+O Borg desencripta até 256 KiB de texto, e o editor não guarda mais do que isso. Um ficheiro que
+contém mais indica-o, e um muito grande abre tal como está, com os bytes cifrados. Um ficheiro age
+cujo fator de trabalho precisa de mais de metade da memória livre não abre; o Borg lê fatores de
+trabalho até 22, que precisam de 4 GiB. Um ficheiro cifrado para uma chave age indica que uma
+palavra-passe não o consegue abrir.
 
 ## Configuração
 

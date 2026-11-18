@@ -108,6 +108,10 @@ impl App {
         let cell = self.graphics.capabilities().cell;
         let messages = self.messages.clone();
         tokio::task::spawn_blocking(move || {
+            if let Some(format) = crate::encrypted::detect(&path) {
+                let _ = messages.send(Msg::Sealed(borg_core::SealedFile { path, format, then: borg_core::Then::View }));
+                return;
+            }
             let content = crate::document::open_on(
                 &path,
                 at.as_ref(),

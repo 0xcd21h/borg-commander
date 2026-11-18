@@ -72,6 +72,7 @@ linux-keyutils     = { version = "0.2", features = ["std"] }
 hkdf               = "0.12"
 hmac               = "0.12"
 zeroize            = "1"
+zeroizing-alloc    = "0.1.1"
 rusqlite           = { version = "0.41", features = ["bundled"] }
 unicode-normalization = "0.1"
 unicode-segmentation = "1"

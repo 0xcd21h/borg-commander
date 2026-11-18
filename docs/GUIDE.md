@@ -196,8 +196,8 @@ Enter; leave the field empty to remove the text. A second question names the tex
 starts on **No**. Press Y to change them. Borg keeps no copy of the old text. The search's switches
 apply, so a whole-word search replaces whole words, and with a regular expression `$1` puts back the
 first group. Borg writes each file the way its editor saves, so permissions and links stay. It skips
-files that are not text, are larger than 32 MiB, or changed while the job ran. The job shows in
-Alt-J, and the results refresh when it ends.
+encrypted files and files that are not text, are larger than 32 MiB, or changed while the job ran.
+The job shows in Alt-J, and the results refresh when it ends.
 
 ### Scanning files with rules
 
@@ -1676,6 +1676,28 @@ Ctrl-N bring back recent queries. Esc closes the bar; after that, `n` and `N` in
 quick view, or F3 and Shift-F3 in the editor, step through the matches. In a large file, the viewer
 and the quick view search in the background, show how far they have got, and stop when you press
 Esc. Borg counts matches in files up to 64 MiB, up to 10,000 of them.
+
+### Encrypted files
+
+Borg opens text files encrypted with a password in two formats: [age](https://age-encryption.org),
+whose files usually end in `.age`, and Paranoia Text Encryption, a format for encrypted notes. F3,
+F4 or Alt-E on such a file opens the **Encrypted file** dialog, which asks for the password and
+hides what you type. Borg decrypts the file in memory and never writes the text to disk. A wrong
+password asks again, and Esc leaves the file closed. The quick view names the format and does not
+ask.
+
+The viewer shows the text as the file's name without `.age` would show, so `notes.md.age` reads as
+Markdown. In the editor, F2 or Ctrl-S encrypts the text again before writing the file, with the same
+password and format, and the status line says **Saved, encrypted with age**. An age file written as
+text lines, which age calls armored, stays that way. Borg forgets the password once the file is
+decrypted, and keeps the key it needs for saving only while the editor has the file open. Borg fills
+every block of memory it frees with zeros, so the password and the text do not stay behind in memory
+once Borg is done with them.
+
+Borg decrypts up to 256 KiB of text, and the editor saves no more than that. A file that holds more
+says so, and a very large one opens as it is, showing its encrypted bytes. An age file whose work
+factor needs more memory than half of what is free does not open; Borg reads work factors up to 22,
+which need 4 GiB. A file encrypted for an age key says that a password cannot open it.
 
 ## Configuration
 

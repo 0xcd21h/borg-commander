@@ -49,7 +49,8 @@ busy machine.
 
 ```
 crates/
-  borg-app      the `borg` binary: terminal setup, event loop, effects, config, session
+  borg-app      the `borg` binary: terminal setup, event loop, effects, config, session, and an
+                allocator that zeroes every block it frees
   borg-i18n     shared UI labels, message templates and plural forms
   borg-core     pure state and logic: update(state, msg, now) -> effects
   borg-ui       rendering: panels, dialogs, themes, effects, art (ratatui buffers in, nothing out)

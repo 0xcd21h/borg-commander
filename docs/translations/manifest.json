@@ -1,12 +1,12 @@
 {
   "locales": {
     "zh-CN": {
-      "source": "b8e586be479c231ef8099b75d11c9c60fc219b603b47fc5508e07029091ddeb3",
+      "source": "107a4a666def05b499338f82553ad2441e72d505972d2614d0b0068d7b19ac9a",
       "protected": {
         "code blocks": "d5c90f398adf2e739c6aead73f98c911a70f7aff321c8dabfdc0c5495ed62b80",
-        "inline code": "db36bfd0b8fc7317ac140ae5c31b88f5f6f6930ef461cdcb89c4831eabf9bd02",
-        "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "368e62bdb40137488cc16ddf16478a0b3f4b703d92921478bd40f0b785555c30"
+        "inline code": "c6e0e1e65cb893cbe02ca7d4ba91e1d30ee5d6ef2c9bfee68fb15a5f983b940e",
+        "external links": "dd769629fa51a4cd29a2076407519abe9983ffb1506d0c3a4be16ea135a7f01c",
+        "heading levels": "ba05c302cdbd85112348da03233c735336d7922708997057f3b1d36c055de611"
       },
       "headings": [
         {
@@ -180,6 +180,10 @@
         {
           "level": 3,
           "title": "Editor"
+        },
+        {
+          "level": 3,
+          "title": "Encrypted files"
         },
         {
           "level": 2,
@@ -316,12 +320,12 @@
       ]
     },
     "pt": {
-      "source": "b8e586be479c231ef8099b75d11c9c60fc219b603b47fc5508e07029091ddeb3",
+      "source": "107a4a666def05b499338f82553ad2441e72d505972d2614d0b0068d7b19ac9a",
       "protected": {
         "code blocks": "d5c90f398adf2e739c6aead73f98c911a70f7aff321c8dabfdc0c5495ed62b80",
-        "inline code": "db36bfd0b8fc7317ac140ae5c31b88f5f6f6930ef461cdcb89c4831eabf9bd02",
-        "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "368e62bdb40137488cc16ddf16478a0b3f4b703d92921478bd40f0b785555c30"
+        "inline code": "c6e0e1e65cb893cbe02ca7d4ba91e1d30ee5d6ef2c9bfee68fb15a5f983b940e",
+        "external links": "dd769629fa51a4cd29a2076407519abe9983ffb1506d0c3a4be16ea135a7f01c",
+        "heading levels": "ba05c302cdbd85112348da03233c735336d7922708997057f3b1d36c055de611"
       },
       "headings": [
         {
@@ -495,6 +499,10 @@
         {
           "level": 3,
           "title": "Editor"
+        },
+        {
+          "level": 3,
+          "title": "Encrypted files"
         },
         {
           "level": 2,
@@ -631,12 +639,12 @@
       ]
     },
     "es": {
-      "source": "b8e586be479c231ef8099b75d11c9c60fc219b603b47fc5508e07029091ddeb3",
+      "source": "107a4a666def05b499338f82553ad2441e72d505972d2614d0b0068d7b19ac9a",
       "protected": {
         "code blocks": "d5c90f398adf2e739c6aead73f98c911a70f7aff321c8dabfdc0c5495ed62b80",
-        "inline code": "db36bfd0b8fc7317ac140ae5c31b88f5f6f6930ef461cdcb89c4831eabf9bd02",
-        "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "368e62bdb40137488cc16ddf16478a0b3f4b703d92921478bd40f0b785555c30"
+        "inline code": "c6e0e1e65cb893cbe02ca7d4ba91e1d30ee5d6ef2c9bfee68fb15a5f983b940e",
+        "external links": "dd769629fa51a4cd29a2076407519abe9983ffb1506d0c3a4be16ea135a7f01c",
+        "heading levels": "ba05c302cdbd85112348da03233c735336d7922708997057f3b1d36c055de611"
       },
       "headings": [
         {
@@ -810,6 +818,10 @@
         {
           "level": 3,
           "title": "Editor"
+        },
+        {
+          "level": 3,
+          "title": "Encrypted files"
         },
         {
           "level": 2,
@@ -946,12 +958,12 @@
       ]
     },
     "ru": {
-      "source": "b8e586be479c231ef8099b75d11c9c60fc219b603b47fc5508e07029091ddeb3",
+      "source": "107a4a666def05b499338f82553ad2441e72d505972d2614d0b0068d7b19ac9a",
       "protected": {
         "code blocks": "d5c90f398adf2e739c6aead73f98c911a70f7aff321c8dabfdc0c5495ed62b80",
-        "inline code": "db36bfd0b8fc7317ac140ae5c31b88f5f6f6930ef461cdcb89c4831eabf9bd02",
-        "external links": "fe11355d2ab5545f02e8e44497dc5d8dc8727a6fe6bcb8caf2d69898769141d3",
-        "heading levels": "368e62bdb40137488cc16ddf16478a0b3f4b703d92921478bd40f0b785555c30"
+        "inline code": "c6e0e1e65cb893cbe02ca7d4ba91e1d30ee5d6ef2c9bfee68fb15a5f983b940e",
+        "external links": "dd769629fa51a4cd29a2076407519abe9983ffb1506d0c3a4be16ea135a7f01c",
+        "heading levels": "ba05c302cdbd85112348da03233c735336d7922708997057f3b1d36c055de611"
       },
       "headings": [
         {
@@ -1125,6 +1137,10 @@
         {
           "level": 3,
           "title": "Editor"
+        },
+        {
+          "level": 3,
+          "title": "Encrypted files"
         },
         {
           "level": 2,

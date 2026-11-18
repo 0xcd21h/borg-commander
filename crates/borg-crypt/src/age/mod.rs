@@ -24,6 +24,7 @@ pub const SALT_LEN: usize = 16;
 pub const NONCE_LEN: usize = 16;
 
 const BINARY_INTRO: &[u8] = b"age-encryption.org/";
+const FREE_MEMORY_SHARE: u64 = 2;
 
 const RAW_BASE64: GeneralPurpose = GeneralPurpose::new(
     &alphabet::STANDARD,
@@ -55,6 +56,15 @@ impl WorkFactor {
 
     pub fn log_n(self) -> u8 {
         self.0
+    }
+
+    pub fn memory(self) -> u64 {
+        passphrase::BYTES_PER_COST << self.0
+    }
+
+    pub fn within(free_memory: u64) -> Option<Self> {
+        let budget = free_memory / FREE_MEMORY_SHARE;
+        (Self::MIN.0..=Self::MAX.0).rev().map(Self).find(|work_factor| work_factor.memory() <= budget)
     }
 }
 
@@ -127,7 +137,47 @@ pub fn encrypt_text(text: &[u8], passphrase: &[u8], work_factor: WorkFactor, fre
 }
 
 pub fn decrypt_text(file: &[u8], passphrase: &[u8], max: WorkFactor) -> Result<Zeroizing<Vec<u8>>, Error> {
-    let mut decryptor = decrypt(file, passphrase, max)?;
+    read_text(decrypt(file, passphrase, max)?)
+}
+
+pub fn open_text(file: &[u8], passphrase: &[u8], max: WorkFactor) -> Result<(Zeroizing<Vec<u8>>, Rekey), Error> {
+    let mut input = BufReader::new(Input::detect(file)?);
+    let armored = matches!(input.get_ref(), Input::Armored(_));
+    let header = header::read(&mut input)?;
+    let file_key = passphrase::unwrap(&header.stanzas, passphrase, max)?;
+    let rekey = Rekey { header: header.encoded(), file_key: file_key.clone(), armored };
+    let text = read_text(open_payload(input, &header, &file_key)?)?;
+    Ok((text, rekey))
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct Rekey {
+    header: Vec<u8>,
+    file_key: Zeroizing<[u8; FILE_KEY_LEN]>,
+    armored: bool,
+}
+
+impl Rekey {
+    pub fn seal_text(&self, text: &[u8], nonce: &[u8; NONCE_LEN]) -> Result<Vec<u8>, Error> {
+        if text.len() > TEXT_LIMIT {
+            return Err(Error::TooLong { limit: TEXT_LIMIT });
+        }
+        let mut out = self.header.clone();
+        out.extend_from_slice(nonce);
+        let mut encryptor = Encryptor::new(out, &self.file_key, nonce);
+        encryptor.write_all(text)?;
+        let binary = encryptor.finish()?;
+        Ok(if self.armored { armor::encode(&binary) } else { binary })
+    }
+}
+
+impl std::fmt::Debug for Rekey {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.debug_struct("Rekey").field("armored", &self.armored).finish_non_exhaustive()
+    }
+}
+
+fn read_text<R: Read>(mut decryptor: Decryptor<R>) -> Result<Zeroizing<Vec<u8>>, Error> {
     let mut text = Zeroizing::new(vec![0; TEXT_LIMIT + 1]);
     let mut filled = 0;
     while filled < text.len() {

@@ -296,6 +296,16 @@ pub enum Msg {
         packed: crate::PackedFile,
         result: Result<crate::EditorFile, crate::OpenError>,
     },
+    Sealed(crate::SealedFile),
+    UnsealFailed {
+        file: crate::SealedFile,
+        error: crate::UnsealError,
+    },
+    SealedEditorOpened {
+        slot: crate::EditorSlot,
+        file: crate::EditorFile,
+        seal: borg_crypt::sealed::Seal,
+    },
     /// The save of the editor in a slot landed, with the file's new stamp, or did not.
     EditorSaved(crate::EditorSlot, Result<crate::FileStamp, crate::SaveError>),
     /// What the search `id` through the viewer's or the quick view's text found, or why it
@@ -619,6 +629,11 @@ pub enum Effect {
         expected: crate::FileStamp,
         force: bool,
         slot: crate::EditorSlot,
+        seal: Option<borg_crypt::sealed::Seal>,
+    },
+    Unseal {
+        file: crate::SealedFile,
+        password: crate::Password,
     },
     RemoteView {
         machine: String,
