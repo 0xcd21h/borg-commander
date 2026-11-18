@@ -1731,11 +1731,13 @@ program that runs as you can read them. To open a vault with its recovery key in
 password, run `gocryptfs -masterkey=stdin` with the vault's folder and an empty folder to show it
 in, and type the key.
 
-Vaults need gocryptfs and FUSE. When gocryptfs is missing on Linux, Enter on a vault offers to
-install it, and the **Install gocryptfs** dialog works like the one for tcpdump in
-[Capturing traffic](#capturing-traffic). Inside a container, a vault also needs `/dev/fuse` from the
-host. On a Mac, vaults need [macFUSE](https://github.com/macfuse/macfuse) and gocryptfs, which you
-install as their pages describe.
+Vaults need gocryptfs and FUSE. Creating a vault needs gocryptfs 2.5 or newer, the first version
+that keeps the recovery key Borg gives it; older versions, such as the one in Debian 12, still open
+vaults. When gocryptfs is missing on Linux, Enter on a vault offers to install it, and the
+**Install gocryptfs** dialog works like the one for tcpdump in [Capturing traffic](#capturing-traffic).
+Inside a container, a vault also needs `/dev/fuse` from the host. On a Mac, vaults need
+[macFUSE](https://github.com/macfuse/macfuse) and gocryptfs, which you install as their pages
+describe.
 
 ## Configuration
 

@@ -2073,6 +2073,7 @@
   "vault_closed": "Хранилище {name} закрыто.",
   "vault_busy": "В хранилище {name} ещё открыты файлы какой-то программы. Закройте их и попробуйте ещё раз.",
   "vault_failed": "Хранилище {name}: {error}",
+  "vault_gocryptfs_too_old": "Для создания хранилища нужен gocryptfs 2.5 или новее, чтобы задать ключ восстановления, а здесь версия {version}. Хранилища, созданные в другом месте, по-прежнему открываются.",
   "vault_no_gocryptfs": "Для хранилищ нужен gocryptfs, а он не установлен: https://github.com/rfjakob/gocryptfs. На Mac также нужен macFUSE: https://github.com/macfuse/macfuse",
   "vault_no_fuse_mac": "Для хранилищ нужен macFUSE, а он не установлен: https://github.com/macfuse/macfuse",
   "vault_no_fuse_linux": "Для хранилищ нужен FUSE, а /dev/fuse отсутствует. Загрузите модуль командой modprobe fuse или передайте /dev/fuse в контейнер.",

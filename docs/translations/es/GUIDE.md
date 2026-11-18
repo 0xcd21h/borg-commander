@@ -1887,7 +1887,9 @@ leerlos. Para abrir una bóveda con su clave de recuperación en lugar de la con
 `gocryptfs -masterkey=stdin` con la carpeta de la bóveda y una carpeta vacía donde mostrarla, y
 escribe la clave.
 
-Las bóvedas necesitan gocryptfs y FUSE. Si falta gocryptfs en Linux, Enter sobre una bóveda ofrece
+Las bóvedas necesitan gocryptfs y FUSE. Crear una bóveda necesita gocryptfs 2.5 o posterior, la
+primera versión que conserva la clave de recuperación que Borg le da; las versiones anteriores, como
+la de Debian 12, siguen abriendo bóvedas. Si falta gocryptfs en Linux, Enter sobre una bóveda ofrece
 instalarlo, y el diálogo **Instalar gocryptfs** funciona como el de tcpdump en
 [Capturar tráfico](#capturing-traffic). Dentro de un contenedor, una bóveda también necesita
 `/dev/fuse` del host. En un Mac, las bóvedas necesitan [macFUSE](https://github.com/macfuse/macfuse)

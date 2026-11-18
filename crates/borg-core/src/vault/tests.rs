@@ -252,3 +252,11 @@ fn the_recovery_key_reads_in_two_lines_of_four_groups() {
     assert_eq!(shown.lines(), ["0a1b2c3d-4e5f6a7b-8c9d0e1f-2a3b4c5d-", "6e7f8a9b-0c1d2e3f-4a5b6c7d-8e9f0a1b"]);
     assert_eq!(shown.lines().concat(), key);
 }
+
+#[test]
+fn an_old_gocryptfs_says_creating_needs_a_newer_one() {
+    let (mut state, now) = state();
+    let error = VaultError::TooOld("2.3".into());
+    update(&mut state, Msg::VaultFailed { side: Side::Left, cipher: CIPHER.into(), error }, now);
+    assert_eq!(state.notice.as_deref(), Some(tr!(vault_gocryptfs_too_old, version = "2.3").as_str()));
+}

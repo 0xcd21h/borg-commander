@@ -2073,6 +2073,7 @@
   "vault_closed": "O cofre {name} está fechado.",
   "vault_busy": "Um programa ainda tem ficheiros abertos no cofre {name}. Feche-os e tente novamente.",
   "vault_failed": "Cofre {name}: {error}",
+  "vault_gocryptfs_too_old": "Criar um cofre requer o gocryptfs 2.5 ou mais recente para definir a chave de recuperação, e este é o {version}. Os cofres criados noutro lado continuam a abrir.",
   "vault_no_gocryptfs": "Os cofres precisam do gocryptfs, que não está instalado: https://github.com/rfjakob/gocryptfs. Num Mac precisam também do macFUSE: https://github.com/macfuse/macfuse",
   "vault_no_fuse_mac": "Os cofres precisam do macFUSE, que não está instalado: https://github.com/macfuse/macfuse",
   "vault_no_fuse_linux": "Os cofres precisam do FUSE, e falta /dev/fuse. Carregue-o com modprobe fuse ou passe /dev/fuse para o contentor.",

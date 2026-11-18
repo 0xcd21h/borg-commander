@@ -56,6 +56,11 @@ const OCTAL_DIGITS: usize = 3;
 const OCTAL_RADIX: u32 = 8;
 const FSNAME_COMMA: char = ',';
 const FSNAME_COMMA_SHOWN: &str = "_";
+const VERSION_FLAG: &str = "-version";
+const VERSION_PREFIX: char = 'v';
+const VERSION_END: char = ';';
+const VERSION_SEPARATOR: char = '.';
+const KEPT_KEY_SINCE: (u32, u32) = (2, 5);
 
 #[derive(Debug, Clone)]
 pub(crate) struct Vaults {
@@ -127,6 +132,7 @@ impl Vaults {
     pub(crate) fn create(&self, cipher: &Path, password: &Password) -> Result<(VaultMount, Password), VaultError> {
         let program = program()?;
         fuse_ready()?;
+        keeps_given_key(&program)?;
         match fs::create_dir(cipher) {
             Ok(()) => fs::set_permissions(cipher, fs::Permissions::from_mode(PRIVATE_DIR)).map_err(failed)?,
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => return Err(VaultError::Exists),
@@ -316,6 +322,28 @@ fn remove_new(cipher: &Path) {
         let _ = fs::remove_file(cipher.join(name));
     }
     let _ = fs::remove_dir(cipher);
+}
+
+fn keeps_given_key(program: &Path) -> Result<(), VaultError> {
+    let output = Command::new(program)
+        .arg(VERSION_FLAG)
+        .env(LOCALE.0, LOCALE.1)
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .map_err(failed)?;
+    match version(&String::from_utf8_lossy(&output.stdout)) {
+        Some((shown, number)) if number < KEPT_KEY_SINCE => Err(VaultError::TooOld(shown)),
+        _ => Ok(()),
+    }
+}
+
+pub(crate) fn version(output: &str) -> Option<(String, (u32, u32))> {
+    let shown = output.split_whitespace().nth(1)?.trim_end_matches(VERSION_END);
+    let mut parts = shown.trim_start_matches(VERSION_PREFIX).split(VERSION_SEPARATOR);
+    let major = parts.next()?.parse().ok()?;
+    let minor: String = parts.next()?.chars().take_while(char::is_ascii_digit).collect();
+    Some((shown.to_owned(), (major, minor.parse().ok()?)))
 }
 
 fn program() -> Result<PathBuf, VaultError> {

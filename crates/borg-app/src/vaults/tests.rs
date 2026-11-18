@@ -136,3 +136,135 @@ fn closing_a_vault_mounted_elsewhere_keeps_its_folder() {
     assert_eq!(vaults.close(&own), Ok(()));
     assert!(!own.exists(), "Borg's own empty mount folder goes");
 }
+
+const REAL_PASSWORD: &str = "rain cobalt";
+const SECRET_TEXT: &str = "secret figures";
+const PLAIN_NAME: &str = "tax.txt";
+const SHORT_IDLE: Duration = Duration::from_secs(2);
+const IDLE_WAIT: Duration = Duration::from_secs(30);
+
+fn encrypted_tree_mentions(dir: &Path, text: &str) -> bool {
+    fs::read_dir(dir).unwrap().flatten().any(|entry| {
+        let path = entry.path();
+        entry.file_name().to_string_lossy().contains(text)
+            || if path.is_dir() {
+                encrypted_tree_mentions(&path, text)
+            } else {
+                fs::read(&path).unwrap().windows(text.len()).any(|window| window == text.as_bytes())
+            }
+    })
+}
+
+#[test]
+#[ignore = "needs gocryptfs and FUSE; runs in a Linux container"]
+fn a_real_vault_keeps_its_files_encrypted_and_opens_only_with_its_password() {
+    let home = tempfile::tempdir().unwrap();
+    let runtime = tempfile::tempdir().unwrap();
+    let vaults = Vaults::new(runtime.path(), None);
+    let cipher = home.path().join("Papers");
+    let password = Password::new(REAL_PASSWORD);
+
+    let installed = installed_version();
+    if installed < KEPT_KEY_SINCE {
+        assert!(matches!(vaults.create(&cipher, &password), Err(VaultError::TooOld(_))));
+        assert!(!cipher.exists(), "an old gocryptfs leaves nothing behind");
+        return;
+    }
+    let (vault, key) = vaults.create(&cipher, &password).unwrap();
+    assert!(is_mount(&vault.root));
+    assert_eq!(vault.root.parent(), Some(vaults.folder.as_path()));
+    assert_eq!(key.as_str().split(VAULT_KEY_SEPARATOR).count(), KEY_BYTES / (KEY_GROUP / 2));
+    fs::write(vault.root.join(PLAIN_NAME), SECRET_TEXT).unwrap();
+    assert!(matches!(vaults.check(&cipher, None), Some(Found::Open(root)) if root == vault.root));
+    let Some(Found::Inside(inside)) = vaults.check(&vault.root, None) else { panic!("a listing inside the vault") };
+    assert_eq!(fs::canonicalize(&inside.cipher).unwrap(), fs::canonicalize(&cipher).unwrap());
+
+    let held = fs::File::open(vault.root.join(PLAIN_NAME)).unwrap();
+    assert_eq!(vaults.close(&vault.root), Err(VaultError::Busy));
+    drop(held);
+    assert_eq!(vaults.close(&vault.root), Ok(()));
+    assert!(!vault.root.exists());
+    assert!(!encrypted_tree_mentions(&cipher, SECRET_TEXT));
+    assert!(!encrypted_tree_mentions(&cipher, PLAIN_NAME));
+    assert!(matches!(vaults.check(&cipher, None), Some(Found::Locked)));
+
+    assert_eq!(vaults.open(&cipher, &Password::new("wrong")), Err(VaultError::WrongPassword));
+    assert!(fs::read_dir(&vaults.folder).unwrap().next().is_none(), "a failed open leaves no folder behind");
+    let vault = vaults.open(&cipher, &password).unwrap();
+    assert_eq!(fs::read_to_string(vault.root.join(PLAIN_NAME)).unwrap(), SECRET_TEXT);
+    assert_eq!(vaults.close(&vault.root), Ok(()));
+
+    let root = vaults.mount_point(&cipher).unwrap();
+    let args: Vec<OsString> = [QUIET, KEY_FROM_INPUT, END_OF_FLAGS]
+        .into_iter()
+        .map(OsString::from)
+        .chain([cipher.clone().into_os_string(), root.clone().into_os_string()])
+        .collect();
+    run(&program().unwrap(), &args, &[key.as_str()]).unwrap();
+    assert_eq!(fs::read_to_string(root.join(PLAIN_NAME)).unwrap(), SECRET_TEXT, "the recovery key opens it");
+    assert_eq!(vaults.close(&root), Ok(()));
+}
+
+fn installed_output() -> String {
+    let output = Command::new(PROGRAM).arg(VERSION_FLAG).output().unwrap();
+    String::from_utf8_lossy(&output.stdout).into_owned()
+}
+
+fn installed_version() -> (u32, u32) {
+    version(&installed_output()).unwrap().1
+}
+
+fn made_by_gocryptfs(cipher: &Path) {
+    fs::create_dir(cipher).unwrap();
+    let args: Vec<OsString> =
+        [INIT, QUIET, END_OF_FLAGS].into_iter().map(OsString::from).chain([cipher.as_os_str().to_owned()]).collect();
+    run(&program().unwrap(), &args, &[REAL_PASSWORD]).unwrap();
+}
+
+#[test]
+fn the_gocryptfs_version_reads_from_both_ways_it_is_printed() {
+    let debian = "gocryptfs 2.3; go-fuse 2.1.0+git20220822.58a7e14; 2023-04-09 go1.19.8 linux/arm64";
+    assert_eq!(version(debian), Some(("2.3".to_owned(), (2, 3))));
+    let upstream = "gocryptfs v2.5.4-1-g0a1b2c3 without_openssl; go-fuse v2.7.2; 2025-05-01 go1.24.2 linux/amd64";
+    assert_eq!(version(upstream), Some(("v2.5.4-1-g0a1b2c3".to_owned(), (2, 5))));
+    assert!(version("gocryptfs v2.10.0;").is_some_and(|(_, number)| number >= KEPT_KEY_SINCE));
+    assert_eq!(version("something else"), None);
+}
+
+#[test]
+#[ignore = "needs gocryptfs and FUSE; runs in a Linux container"]
+fn a_real_vault_closes_itself_when_unused_and_borg_notices() {
+    let home = tempfile::tempdir().unwrap();
+    let runtime = tempfile::tempdir().unwrap();
+    let vaults = Vaults::new(runtime.path(), Some(SHORT_IDLE));
+    let cipher = home.path().join("Papers");
+    made_by_gocryptfs(&cipher);
+    let vault = vaults.open(&cipher, &Password::new(REAL_PASSWORD)).unwrap();
+    let started = Instant::now();
+    while is_mount(&vault.root) && started.elapsed() < IDLE_WAIT {
+        std::thread::sleep(POLL);
+    }
+    assert!(!is_mount(&vault.root), "gocryptfs unmounts an unused vault");
+    let found = vaults.check(&vault.root, Some(&vault));
+    assert!(matches!(found, Some(Found::Gone(root)) if root == vault.root));
+    assert!(!vault.root.exists(), "Borg removes the empty mount folder");
+}
+
+#[test]
+#[ignore = "needs gocryptfs and FUSE; runs in a Linux container"]
+fn a_real_vault_name_that_is_taken_is_refused_and_nothing_is_touched() {
+    let home = tempfile::tempdir().unwrap();
+    let runtime = tempfile::tempdir().unwrap();
+    let vaults = Vaults::new(runtime.path(), None);
+    let taken = home.path().join("Papers");
+    fs::create_dir(&taken).unwrap();
+    fs::write(taken.join("kept.txt"), SECRET_TEXT).unwrap();
+    let refused = if installed_version() < KEPT_KEY_SINCE {
+        VaultError::TooOld(version(&installed_output()).unwrap().0)
+    } else {
+        VaultError::Exists
+    };
+    assert_eq!(vaults.create(&taken, &Password::new(REAL_PASSWORD)).map(|_| ()), Err(refused));
+    assert_eq!(fs::read_to_string(taken.join("kept.txt")).unwrap(), SECRET_TEXT);
+    assert_eq!(fs::read_dir(&taken).unwrap().count(), 1, "nothing is added to the folder");
+}

@@ -43,6 +43,7 @@ pub enum VaultError {
     NoFuse(Platform),
     Exists,
     Busy,
+    TooOld(String),
     Failed(String),
 }
 
@@ -131,6 +132,7 @@ fn describe(error: VaultError, name: &str) -> String {
         VaultError::NoFuse(Platform::Linux) => tr!(vault_no_fuse_linux).to_owned(),
         VaultError::Exists => tr!(vault_exists, name = name),
         VaultError::Busy => tr!(vault_busy, name = name),
+        VaultError::TooOld(version) => tr!(vault_gocryptfs_too_old, version = version),
         VaultError::Failed(error) => tr!(vault_failed, name = name, error = error),
     }
 }

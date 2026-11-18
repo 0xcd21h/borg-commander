@@ -1882,7 +1882,9 @@ consegue lê-los. Para abrir um cofre com a chave de recuperação em vez da pal
 `gocryptfs -masterkey=stdin` com a pasta do cofre e uma pasta vazia onde o mostrar, e escreva a
 chave.
 
-Os cofres precisam do gocryptfs e do FUSE. Quando o gocryptfs falta no Linux, Enter num cofre propõe
+Os cofres precisam do gocryptfs e do FUSE. Criar um cofre requer o gocryptfs 2.5 ou mais recente, a
+primeira versão que mantém a chave de recuperação que o Borg lhe dá; as versões anteriores, como a do
+Debian 12, continuam a abrir cofres. Quando o gocryptfs falta no Linux, Enter num cofre propõe
 instalá-lo, e a caixa de diálogo **Instalar gocryptfs** funciona como a do tcpdump em
 [Capturar tráfego](#capturing-traffic). Dentro de um contentor, um cofre precisa também de
 `/dev/fuse` do host. Num Mac, os cofres precisam do [macFUSE](https://github.com/macfuse/macfuse) e

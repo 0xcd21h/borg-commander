@@ -2157,6 +2157,7 @@ catalog! {
     vault_closed => "The vault {name} is closed.",
     vault_busy => "A program still has files open in the vault {name}. Close them and try again.",
     vault_failed => "Vault {name}: {error}",
+    vault_gocryptfs_too_old => "Creating a vault needs gocryptfs 2.5 or newer to set its recovery key, and this one is {version}. Vaults made elsewhere still open.",
     vault_no_gocryptfs => "Vaults need gocryptfs, which is not installed: https://github.com/rfjakob/gocryptfs. On a Mac they also need macFUSE: https://github.com/macfuse/macfuse",
     vault_no_fuse_mac => "Vaults need macFUSE, which is not installed: https://github.com/macfuse/macfuse",
     vault_no_fuse_linux => "Vaults need FUSE, and /dev/fuse is missing. Load it with modprobe fuse, or pass /dev/fuse into the container.",

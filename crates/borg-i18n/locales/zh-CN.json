@@ -2073,6 +2073,7 @@
   "vault_closed": "保险库 {name} 已关闭。",
   "vault_busy": "仍有程序打开着保险库 {name} 中的文件。请关闭这些文件后重试。",
   "vault_failed": "保险库 {name}：{error}",
+  "vault_gocryptfs_too_old": "创建保险库需要 gocryptfs 2.5 或更高版本才能设置恢复密钥，而当前版本是 {version}。在别处创建的保险库仍可打开。",
   "vault_no_gocryptfs": "保险库需要 gocryptfs，但它未安装：https://github.com/rfjakob/gocryptfs。在 Mac 上还需要 macFUSE：https://github.com/macfuse/macfuse",
   "vault_no_fuse_mac": "保险库需要 macFUSE，但它未安装：https://github.com/macfuse/macfuse",
   "vault_no_fuse_linux": "保险库需要 FUSE，但缺少 /dev/fuse。请用 modprobe fuse 加载它，或将 /dev/fuse 传入容器。",

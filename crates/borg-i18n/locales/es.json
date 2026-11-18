@@ -2073,6 +2073,7 @@
   "vault_closed": "La bóveda {name} está cerrada.",
   "vault_busy": "Un programa todavía tiene archivos abiertos en la bóveda {name}. Ciérralos e inténtalo de nuevo.",
   "vault_failed": "Bóveda {name}: {error}",
+  "vault_gocryptfs_too_old": "Crear una bóveda necesita gocryptfs 2.5 o posterior para fijar su clave de recuperación, y este es {version}. Las bóvedas creadas en otro lugar se siguen abriendo.",
   "vault_no_gocryptfs": "Las bóvedas necesitan gocryptfs, que no está instalado: https://github.com/rfjakob/gocryptfs. En un Mac también necesitan macFUSE: https://github.com/macfuse/macfuse",
   "vault_no_fuse_mac": "Las bóvedas necesitan macFUSE, que no está instalado: https://github.com/macfuse/macfuse",
   "vault_no_fuse_linux": "Las bóvedas necesitan FUSE y falta /dev/fuse. Cárgalo con modprobe fuse o pasa /dev/fuse al contenedor.",

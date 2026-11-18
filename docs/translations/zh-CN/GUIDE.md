@@ -676,7 +676,7 @@ Borg 最多解密 256 KiB 的文本，编辑器保存的文本也不超过这个
 
 Borg 从其运行时文件夹（见 [Borg 的文件](#borgs-files)）中的一个文件夹显示每个打开的保险库，只有你能进入那里。保险库关闭时会保护其中的文件。保险库打开时，以你的身份运行的任何程序都能读取这些文件。如需用恢复密钥代替密码打开保险库，请运行 `gocryptfs -masterkey=stdin`，指定保险库文件夹和一个用于显示它的空文件夹，然后输入密钥。
 
-保险库需要 gocryptfs 和 FUSE。在 Linux 上缺少 gocryptfs 时，在保险库上按 Enter 会提议安装它，**安装 gocryptfs** 对话框的用法与[抓取流量](#capturing-traffic)中 tcpdump 的对话框相同。在容器内，保险库还需要主机提供的 `/dev/fuse`。在 Mac 上，保险库需要 [macFUSE](https://github.com/macfuse/macfuse) 和 gocryptfs，请按照它们页面上的说明安装。
+保险库需要 gocryptfs 和 FUSE。创建保险库需要 gocryptfs 2.5 或更高版本，这是第一个会保留 Borg 提供的恢复密钥的版本；更早的版本（例如 Debian 12 中的版本）仍可打开保险库。在 Linux 上缺少 gocryptfs 时，在保险库上按 Enter 会提议安装它，**安装 gocryptfs** 对话框的用法与[抓取流量](#capturing-traffic)中 tcpdump 的对话框相同。在容器内，保险库还需要主机提供的 `/dev/fuse`。在 Mac 上，保险库需要 [macFUSE](https://github.com/macfuse/macfuse) 和 gocryptfs，请按照它们页面上的说明安装。
 
 ## 配置
 
