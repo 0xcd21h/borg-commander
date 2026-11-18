@@ -1190,8 +1190,9 @@ emparelhe de novo e verifique esses servidores.
 Com espaços de trabalho com nome, `borg sessions list` mostra os respetivos IDs e nomes,
 `borg sessions create NAME` acrescenta um e `borg --session NAME` abre-o. Através de MCP, o agente
 pode chamar `list_sessions`, `list_remote_sessions` e `use_session` para escolher a sessão com que
-essa ligação trabalha. Uma única chamada de ferramenta pode também passar um ID em `session` para
-visar outra sessão apenas dessa vez. A sessão escolhida aplica-se apenas a essa ligação MCP.
+essa ligação trabalha, e `hosts` para ver como está cada host emparelhado. Uma única chamada de
+ferramenta pode também passar um ID em `session` para visar outra sessão apenas dessa vez. A sessão
+escolhida aplica-se apenas a essa ligação MCP.
 
 Com mais de uma sessão, ou quando a única que existe está aberta noutro terminal, o `borg` começa
 pela janela **Sessões do Borg**. As primeiras linhas explicam o que é uma sessão, e a lista mostra
@@ -1385,11 +1386,24 @@ selecionado ao lado dos cartões: o sistema, o relay, o tempo de ida e volta, as
 respondeu pela última vez e cada número por extenso.
 
 Os números viajam pelo borg cloud como qualquer outra chamada, cifrados de ponta a ponta. São
-números e contagens: os totais da máquina para CPU, carga, memória e swap, o tamanho e o espaço livre
-de um sistema de ficheiros com o seu ponto de montagem, as contagens por ler do observador e o número
-de contentores. Nenhum processo, nome de ficheiro ou texto de alerta sai do host desta forma, por
-isso o host responde sem perguntar, mesmo com "perguntar antes de outro computador ler" ativado.
-Enquanto a página está aberta, cada host mostra este computador como ligado.
+números e contagens: os totais da máquina para CPU, carga, memória e swap, o tamanho e o espaço
+livre de um sistema de ficheiros com o seu ponto de montagem, as contagens por ler do observador e o
+número de contentores. Nenhum processo, nome de ficheiro ou texto de alerta sai do host desta forma,
+por isso o host responde sem perguntar, mesmo com "perguntar antes de outro computador ler" ativado.
+A página, a lista de hosts remotos em **Alt-H** e a ferramenta `hosts` para agentes leem cada host
+por uma ligação que só pode perguntar como o host está. O host não a conta entre os clientes ligados
+e anota no registo remoto qual computador lê, no máximo uma vez por hora para cada computador. Um
+host com um Borg anterior a estas ligações recusa-as, por isso o Borg lê-o por uma sessão normal, e
+esse host mostra o leitor entre os clientes ligados.
+
+Um agente ligado através de `borg mcp` lê a mesma página com a ferramenta `hosts`. Ela lista todos
+os hosts emparelhados pela ordem da página: se responde, a versão do Borg e o sistema, os números, o
+que põe o cartão na cor de aviso ou de alerta, e o ID de destino. `use_session` e o argumento
+`session` de todas as outras ferramentas aceitam esse ID, por isso o agente pode passar de `hosts`
+diretamente ao trabalho num host. `filter` restringe os hosts com as mesmas palavras que **/** na
+página. A resposta vem como texto, com os mesmos números como dados para agentes que leem conteúdo
+estruturado. A ferramenta chega a todos os hosts através do borg no seu computador, por isso
+`borg mcp remote NAME`, que chega a um só host, não a inclui.
 
 ### Espelhar uma sessão
 

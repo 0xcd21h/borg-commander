@@ -42,6 +42,17 @@ const NOT_DISKS: [&str; 16] = [
     "fuse.lxcfs",
 ];
 
+/// What a concern on a host's card is about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Figure {
+    Load,
+    Memory,
+    Disk,
+    Watcher,
+    Containers,
+}
+
 /// What a host sends about itself, every figure left out when it cannot say.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -234,17 +245,23 @@ impl HostFigures {
         (self.containers?.troubled > 0).then_some(Severity::Warning)
     }
 
-    /// The worst concern among the figures.
-    pub fn worst(&self) -> Option<Severity> {
+    /// Each figure that should worry the user, and how much, in the order a card shows them.
+    pub fn concerns(&self) -> Vec<(Figure, Severity)> {
         [
-            self.load_concern(),
-            self.memory_concern(),
-            self.disk_concern(),
-            self.watch_concern(),
-            self.containers_concern(),
+            (Figure::Load, self.load_concern()),
+            (Figure::Memory, self.memory_concern()),
+            (Figure::Disk, self.disk_concern()),
+            (Figure::Watcher, self.watch_concern()),
+            (Figure::Containers, self.containers_concern()),
         ]
         .into_iter()
-        .fold(None, worse)
+        .filter_map(|(figure, severity)| Some((figure, severity?)))
+        .collect()
+    }
+
+    /// The worst concern among the figures.
+    pub fn worst(&self) -> Option<Severity> {
+        self.concerns().into_iter().map(|(_, severity)| Some(severity)).fold(None, worse)
     }
 }
 

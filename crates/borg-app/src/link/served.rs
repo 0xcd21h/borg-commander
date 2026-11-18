@@ -4,7 +4,7 @@ use super::caller::{Caller, Role};
 use super::{
     APPROVAL_WAIT, Answer, CLIENTS_SOCKET, CLIENTS_TIMEOUT, COMPUTERS_FILE, ClientConnection, Computer, Hello,
     KeyChanged, LINK_DIR, NOT_PAIRED, PAIR_CALL, PAIRING_TRIES, PRIVATE_FILE, RETRY_FIRST, RETRY_LAST, Shared,
-    clean_name, client_status, same, save, this_computer,
+    UNREADABLE_HELLO, clean_name, client_status, same, save, this_computer,
 };
 use crate::{
     agent::{Call, Reply, note},
@@ -16,9 +16,10 @@ use borg_core::{AgentEvent, Msg};
 use borg_link::{Channel, Identity, KEY_LEN, PublicKey, Relay, SECRET_LEN, fingerprint, hex, relay, respond, unhex};
 use serde_json::json;
 use std::{
+    collections::HashMap,
     path::PathBuf,
     sync::{Arc, Mutex, atomic::AtomicUsize},
-    time::Instant,
+    time::{Duration, Instant},
 };
 use tokio::{
     io::AsyncWriteExt,
@@ -30,6 +31,8 @@ use tokio::{
 /// Sessions this borg opens at once before their clients have said who they are. Anyone who
 /// knows its key can make the relay announce one.
 pub(super) const OPENING_LIMIT: usize = 16;
+/// How often the log says again that a computer reads how this host is doing.
+const READS_NOTED_EVERY: Duration = Duration::from_secs(60 * 60);
 
 /// What the relay connection and its sessions need.
 #[derive(Clone)]
@@ -47,6 +50,8 @@ pub(super) struct Served {
     pub(super) clients: Arc<AtomicUsize>,
     /// What this Borg last read of the machine for a computer's hosts screen.
     pub(super) overview: crate::host_overview::Overview,
+    /// When the log last said each computer reads how this host is doing, by its key.
+    pub(super) reads_noted: Arc<Mutex<HashMap<String, Instant>>>,
 }
 
 impl Served {
@@ -144,7 +149,8 @@ impl Served {
             Ok(Hello::Pair { secret, name }) => self.pair(channel, &secret, &name).await,
             Ok(Hello::Session) => self.serve(channel, Role::Session).await,
             Ok(Hello::Viewer) => self.serve(channel, Role::Viewer).await,
-            Err(_) => refuse(&mut channel, "unreadable hello").await,
+            Ok(Hello::Monitor) => self.serve(channel, Role::Monitor).await,
+            Err(_) => refuse(&mut channel, UNREADABLE_HELLO).await,
         };
     }
 
@@ -208,8 +214,9 @@ impl Served {
     }
 
     /// A paired computer's session: its calls go to the session as the local socket's do,
-    /// marked with the computer's name. A viewer connection is no agent, so it is not counted
-    /// as one.
+    /// marked with the computer's name. A viewer or monitor connection is no agent, so it is not
+    /// counted as one; a monitor leaves a line in the log, at most once an hour for each
+    /// computer, so the reads stay visible here.
     pub(super) async fn serve(&self, mut channel: Channel, role: Role) -> Result<()> {
         let key = hex(channel.peer());
         let computer = self.shared.lock().expect("link lock").computers.iter().find(|c| c.key == key).cloned();
@@ -222,7 +229,23 @@ impl Served {
         let _connection = (role == Role::Session).then(|| {
             ClientConnection::new(self.shared.clone(), self.clients.clone(), self.messages.clone(), computer.clone())
         });
+        if role == Role::Monitor && self.note_reads(&computer.key) {
+            note(&self.messages, &format!("{} reads how this host is doing", computer.name));
+        }
         self.calls_of(&mut channel, &computer, role).await
+    }
+
+    /// Whether the log should say again that the computer with `key` reads how this host is
+    /// doing: the first time, and once an hour after.
+    fn note_reads(&self, key: &str) -> bool {
+        let mut noted = self.reads_noted.lock().expect("reads lock");
+        let now = Instant::now();
+        noted.retain(|_, at| now.saturating_duration_since(*at) < READS_NOTED_EVERY);
+        if noted.contains_key(key) {
+            return false;
+        }
+        noted.insert(key.to_owned(), now);
+        true
     }
 
     /// Answers a paired computer's calls until it goes, then gives back what it held.

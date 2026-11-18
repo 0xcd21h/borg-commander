@@ -767,10 +767,24 @@ totals, the fullest local filesystem that holds files, the watcher's unread coun
 log, and container counts from `docker ps`, kept for 30 seconds. It skips network filesystems and
 gives up on the filesystems after 2 seconds. `Served` answers `host_info` itself, so the overview
 never starts a session or waits for approval, and an older host ignores the argument. On the client,
-`host_watch` keeps one session channel per host between rounds, asks 8 hosts at a time, and tells a
-timeout from the relay's offline close code, which `relay::dial` returns as `relay::Offline`.
+`host_watch` keeps one monitor channel per host between rounds, asks 8 hosts at a time, and tells a
+timeout from the relay's offline close code, which `relay::dial` returns as `relay::Offline`. Each
+round first calls `link::unlock_keys`, so a Touch ID prompt for the computer keys does not count
+against a host's 5 seconds. The `hosts` tool in `borg mcp` (the routing backend only) asks once the
+same way with `ask_once`, feeds the answers to a `borg_core::Hosts` exactly as the page does, all
+stamped with the moment the last one came, and turns its rows into `host_reports`: the text answer
+and the same reports as `structuredContent`, which `Reply` carries in `structured`. `structured` is
+never serialized, so a host's reply cannot fill it. `host_reports` puts a host's own text (version,
+system, mount, session names, errors) on one line of at most 200 characters, leaves out session IDs
+that are not one visible word, and keeps 50 sessions per host. Concerns come from
+`HostFigures::concerns`, which the cards' colors use too.
 
-Every channel opens with a hello: `pair`, `session` (an agent, a mirror or a panel) or `viewer`.
+Every channel opens with a hello: `pair`, `session` (an agent, a mirror or a panel), `viewer`, or
+`monitor`. A monitor channel may only call `host_info` and `list_sessions`, and `rotate` like a
+session, so the page moves hosts to a new computer key; the host counts no client for it and notes
+in its log that the computer reads, once an hour per computer key (`Served::reads_noted`). A Borg
+from before monitors answers the hello with `unreadable hello`, which `connect` turns into
+`HelloUnknown`, and `Remote::open_monitor` then opens a session channel instead. The Alt-H picker reads hosts over monitor channels too.
 A borg opens a viewer channel for each host session one of its panels mounts (`host_asks`) and
 long-polls `asks_wait` with the version it has. The host answers with an `AskFeed` as soon as its
 `AskBoard` changes, or after 15 seconds: the asks that wait, the last 32 that ended and how, the
