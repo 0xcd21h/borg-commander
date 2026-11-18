@@ -263,3 +263,73 @@ fn a_container_shows_its_compose_file_or_else_its_project_folder() {
     assert_eq!(place_of(container(Some(shop), &[])), Ok(Place::Folder(shop.into())));
     assert_eq!(place_of(container(None, &[])), Err(tr!(lent_no_compose_folder).to_owned()));
 }
+
+/// The open screen's filter as typed so far, and whether it still takes typing.
+fn typed_filter(state: &AppState) -> (String, bool) {
+    match open_screen(state).map(|(screen, _)| screen) {
+        Some(Screen::Activity) => (state.activity.filter.clone(), state.activity.filtering),
+        Some(Screen::Docker) => (state.docker.filter.clone(), state.docker.filtering),
+        Some(Screen::Network) => (state.network.filter.clone(), state.network.filtering),
+        Some(Screen::Startup) => (state.startup_items.filter.clone(), state.startup_items.filtering),
+        Some(Screen::Alerts) => (state.alerts.filter.clone(), state.alerts.filtering),
+        None => (String::new(), false),
+    }
+}
+
+fn click(state: &mut AppState, pointer: crate::Pointer) -> Vec<Effect> {
+    let now = state.epoch;
+    update(state, Msg::Pointer(pointer), now)
+}
+
+fn type_filter(state: &mut AppState, text: &str) {
+    for c in std::iter::once('/').chain(text.chars()) {
+        press(state, KeyCode::Char(c), KeyModifiers::NONE);
+    }
+}
+
+#[test]
+fn a_click_on_a_screen_s_filter_while_it_is_typed_types_nothing_into_it() {
+    use crate::Pointer;
+    let on_filter = KeyCode::Char('/');
+    let screens = [
+        ('m', Pointer::ActivityControl { preview: false, code: on_filter }),
+        ('c', Pointer::DockerControl { details: false, code: on_filter }),
+        ('n', Pointer::NetworkControl { details: false, code: on_filter }),
+        ('u', Pointer::StartupControl(on_filter)),
+        ('l', Pointer::AlertsControl(on_filter)),
+    ];
+    for (key, pointer) in screens {
+        let mut state = state();
+        alt(&mut state, key);
+        type_filter(&mut state, "wo");
+        assert_eq!(typed_filter(&state), ("wo".into(), true), "Alt-{key} opens a screen with a filter");
+        click(&mut state, pointer);
+        assert_eq!(typed_filter(&state), ("wo".into(), true), "a click on the filter of Alt-{key} types nothing");
+    }
+}
+
+#[test]
+fn a_click_on_a_tab_or_a_column_title_while_a_filter_is_typed_acts_and_keeps_the_filter() {
+    use crate::{ActivitySort, Pointer};
+    let mut activity = monitor(vec![process(7, Some(WORKER)), process(8, Some(WORKER))]);
+    type_filter(&mut activity, "wo");
+    click(&mut activity, Pointer::ActivitySort(ActivitySort::Pid));
+    assert_eq!(typed_filter(&activity), ("wo".into(), false), "the click keeps the filter as Enter does");
+    assert_eq!(activity.activity.sort, ActivitySort::Pid);
+
+    let mut docker = state();
+    alt(&mut docker, 'c');
+    type_filter(&mut docker, "wo");
+    click(&mut docker, Pointer::DockerControl { details: false, code: KeyCode::Char('2') });
+    assert_eq!(typed_filter(&docker), ("wo".into(), false), "a tab's click types nothing");
+}
+
+#[test]
+fn a_double_click_on_a_process_while_its_filter_is_typed_opens_it() {
+    use crate::Pointer;
+    let mut state = monitor(vec![process(7, Some(WORKER)), process(8, Some(WORKER))]);
+    type_filter(&mut state, "worker-8");
+    click(&mut state, Pointer::ActivityRow { index: 0, open: true, preview: false });
+    assert_eq!(typed_filter(&state), ("worker-8".into(), false));
+    assert_eq!(state.activity.list, ActivityPage::Regions, "the process window opens");
+}

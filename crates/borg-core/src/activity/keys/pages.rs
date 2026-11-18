@@ -75,21 +75,27 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
     Vec::new()
 }
 
-/// Typing into the processes' filter: Enter keeps it and Esc clears it.
+/// Typing into the processes' filter: Enter keeps it and Esc clears it. A PID typed in full
+/// takes the cursor to its process.
 fn filter_key(activity: &mut Activity, code: KeyCode) {
-    match code {
-        KeyCode::Enter => activity.filtering = false,
+    let typed = match code {
+        KeyCode::Enter => {
+            activity.filtering = false;
+            false
+        }
         KeyCode::Esc => {
             activity.filtering = false;
             activity.filter.clear();
+            false
         }
-        KeyCode::Backspace => {
-            activity.filter.pop();
+        KeyCode::Backspace => activity.filter.pop().is_some(),
+        KeyCode::Char(c) => {
+            activity.filter.push(c);
+            true
         }
-        KeyCode::Char(c) => activity.filter.push(c),
-        _ => {}
-    }
-    activity.rebuild();
+        _ => false,
+    };
+    if typed { activity.refilter() } else { activity.rebuild() }
 }
 
 /// Whether a memory search, an integrity check or a rules scan is under way, which Ctrl-C stops.

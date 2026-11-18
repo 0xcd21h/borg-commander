@@ -2026,6 +2026,12 @@ outra vez para voltar a mostrar todos.
 | R | Atualizar a vista atual |
 | Esc | Voltar; na lista de processos, fechar o monitor ou regressar ao ecrã de rede |
 
+O filtro mantém os processos que correspondem a todas as palavras que escreve. Uma palavra
+corresponde a um processo cujo nome a contém, sem distinguir maiúsculas de minúsculas. Um número
+corresponde também ao processo com exatamente esse PID, por isso `41` mantém o PID 41 e um programa
+chamado `x41`, enquanto o PID 410 e o PID 3415 saem da lista. Quando o número é o PID de um processo
+da lista, o cursor passa para esse processo à medida que escreve.
+
 **Alt-O** abre a pasta do programa do processo selecionado no outro painel, com o cursor no
 programa, e os ficheiros passam a receber as teclas. A lista mantém o filtro, a ordem e o processo
 que selecionou. **Tab** passa as teclas entre a lista e os ficheiros, e Alt-O noutra linha leva os
@@ -2039,7 +2045,9 @@ corre dentro de um contentor. Os alertas, os itens de arranque e a vista Docker 
 forma.
 
 Cada ecrã guarda o filtro quando o fecha e volta a mostrá-lo quando o abre. Para limpar um filtro,
-prima **/** e depois **Esc**.
+prima **/** e depois **Esc**. Um clique na linha do filtro começa a escrita nele. Enquanto escreve,
+um clique no cabeçalho de uma coluna ou num separador, ou um duplo clique numa linha, faz o mesmo
+que noutras alturas e mantém o filtro.
 
 Clique no cabeçalho de uma coluna para ordenar, e faça duplo clique num processo para abrir o seu
 mapa de memória. O resumo mostra a memória residente atual, o valor mais alto observado, a

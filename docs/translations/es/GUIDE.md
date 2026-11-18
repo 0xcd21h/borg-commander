@@ -2034,6 +2034,12 @@ media baja a 0.0. En el árbol, los procesos de los que desciende uno ocupado si
 | R | Actualizar la vista actual |
 | Esc | Volver; en la lista de procesos, cerrar el monitor o regresar a la pantalla de red |
 
+El filtro conserva los procesos que coinciden con todas las palabras que escribes. Una palabra
+coincide con un proceso cuyo nombre la contiene, sin distinguir mayúsculas de minúsculas. Un número
+también coincide con el proceso que tiene exactamente ese PID, así que `41` conserva el PID 41 y un
+programa llamado `x41`, mientras que el PID 410 y el PID 3415 salen de la lista. Cuando el número es
+el PID de un proceso de la lista, el cursor pasa a ese proceso mientras escribes.
+
 **Alt-O** abre la carpeta del programa del proceso seleccionado en el otro panel, con el cursor en
 el programa, y los archivos reciben las teclas. La lista conserva su filtro, su orden y el proceso
 que seleccionaste. **Tab** pasa las teclas entre la lista y los archivos, y Alt-O en otra fila lleva
@@ -2047,7 +2053,9 @@ pasa con un programa que se ejecuta dentro de un contenedor. Las alertas, los el
 la vista de Docker funcionan igual.
 
 Cada pantalla guarda su filtro al cerrarla y lo vuelve a mostrar al abrirla. Para borrar un filtro,
-pulsa **/** y después **Esc**.
+pulsa **/** y después **Esc**. Un clic en la fila del filtro empieza a escribir en él. Mientras
+escribes, un clic en el encabezado de una columna o en una pestaña, o un doble clic en una fila, hace
+lo mismo que en otros momentos y conserva el filtro.
 
 Haz clic en el encabezado de una columna para ordenar, y doble clic en un proceso para abrir su
 mapa de memoria. El resumen muestra la memoria residente actual, el valor más alto observado, el

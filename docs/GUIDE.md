@@ -1872,6 +1872,11 @@ descends from stay listed with it. Press H again to show them all.
 | R | Refresh the current view |
 | Esc | Go back; in the process list, close the monitor or return to the network screen |
 
+The filter keeps the processes that match every word you type. A word matches a process whose name
+contains it, ignoring case. A number also matches the process with exactly that PID, so `41` keeps
+PID 41 and a program named `x41`, while PID 410 and PID 3415 drop out. When the number is the PID of
+a listed process, the cursor moves to it as you type.
+
 **Alt-O** opens the folder of the selected process's program in the other pane, with the cursor on
 the program, and the files take the keys. The list keeps its filter, its order and the process you
 selected. **Tab** moves the keys between the list and the files, and Alt-O on another row moves the
@@ -1884,7 +1889,9 @@ in its folder on this computer, as happens for a program that runs inside a cont
 startup items and the Docker view work the same way.
 
 Every screen keeps its filter when you close it and shows it again when it opens. To clear a
-filter, press **/** and then **Esc**.
+filter, press **/** and then **Esc**. A click on the filter row starts typing in it. While you type,
+a click on a column heading or a tab, or a double-click on a row, does what it does at other times
+and keeps the filter.
 
 Click a column heading to sort, and double-click a process to open its memory map. The overview
 shows current resident memory, the highest value seen, the change since monitoring started, CPU,

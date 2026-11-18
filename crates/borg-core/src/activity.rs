@@ -50,6 +50,8 @@ pub use cpu::CpuAverage;
 mod entropy;
 mod family;
 pub use family::{Branch, Kin, ListedProcess, Relative};
+mod filter;
+use filter::ProcessFilter;
 mod tree;
 pub use entropy::{
     EntropyChoice, EntropyDialog, EntropyHit, EntropyReport, EntropyScan, EntropyScope, HIT_LIMIT, HitKind,
@@ -442,16 +444,10 @@ impl Activity {
         matched.into_iter().filter(|index| kept.contains(index)).collect()
     }
     pub fn rebuild(&mut self) {
-        let filter = self.filter.to_lowercase();
+        let filter = ProcessFilter::parse(&self.filter);
         let tree = self.tree && filter.is_empty();
-        let matched: Vec<_> = self
-            .sample
-            .processes
-            .iter()
-            .enumerate()
-            .filter(|(_, p)| filter.is_empty() || format!("{} {}", p.name, p.key.pid).to_lowercase().contains(&filter))
-            .map(|(i, _)| i)
-            .collect();
+        let matched: Vec<_> =
+            self.sample.processes.iter().enumerate().filter(|(_, p)| filter.keeps(p)).map(|(i, _)| i).collect();
         let matches = matched.len();
         let mut rows = self.without_idle(matched, tree);
         self.idle_hidden = matches - rows.len();
@@ -496,6 +492,15 @@ impl Activity {
         self.filtering = false;
         self.hide_idle = false;
         self.revealing = Some((pid, control));
+    }
+    /// Lists the processes the filter now keeps, with the cursor on the process whose PID it names.
+    pub(crate) fn refilter(&mut self) {
+        self.rebuild();
+        for pid in ProcessFilter::parse(&self.filter).pids().collect::<Vec<_>>() {
+            if self.select_pid(pid) {
+                break;
+            }
+        }
     }
     fn select_pid(&mut self, pid: u32) -> bool {
         let Some(cursor) = self.rows.iter().position(|row| self.sample.processes[row.index].key.pid == pid) else {
