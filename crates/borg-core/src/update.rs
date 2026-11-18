@@ -147,6 +147,19 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
             Vec::new()
         }
         Msg::ArchiveEditorOpened { slot, packed, result } => crate::archive::editor_opened(state, slot, packed, result),
+        Msg::Sealed(file) => {
+            crate::sealed::locked(state, file, false);
+            Vec::new()
+        }
+        Msg::UnsealFailed { file, error } => {
+            crate::sealed::failed(state, file, error);
+            Vec::new()
+        }
+        Msg::SealedEditorOpened { slot, file, seal } => {
+            let effects = crate::editor::opened(state, slot, Ok(file));
+            crate::editor::seal(state, slot, seal);
+            effects
+        }
         Msg::EditorSaved(slot, result) => crate::editor::saved(state, slot, result, now),
         Msg::Opened(viewer) => crate::viewer::opened(state, viewer),
         Msg::OpenFailed { path, notice } => {

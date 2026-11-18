@@ -644,6 +644,7 @@ dependencies = [
  "base64 0.22.1",
  "borg-archive",
  "borg-core",
+ "borg-crypt",
  "borg-docker",
  "borg-drives",
  "borg-gfx",
@@ -729,6 +730,7 @@ version = "0.12.0"
 dependencies = [
  "aes-gcm",
  "borg-archive",
+ "borg-crypt",
  "borg-docker",
  "borg-drives",
  "borg-edit",
@@ -754,6 +756,7 @@ dependencies = [
  "thiserror 2.0.21",
  "unicode-normalization",
  "unicode-width",
+ "zeroize",
 ]
 
 [[package]]
@@ -924,6 +927,7 @@ dependencies = [
  "anyhow",
  "borg-archive",
  "borg-core",
+ "borg-crypt",
  "borg-docker",
  "borg-drives",
  "borg-gfx",

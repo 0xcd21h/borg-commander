@@ -51,6 +51,7 @@ mod replace;
 mod report;
 mod results;
 mod screens;
+mod sealed;
 mod service;
 mod session_picker;
 mod settings;
@@ -127,6 +128,7 @@ pub use pattern::{Pattern, PatternError, composed};
 pub use plugins::{GitPanel, Plugins};
 pub use pointer::Pointer;
 pub use query::{Candidate, Problem as QueryProblem, QueryError, SearchQuery};
+pub use sealed::{SealedFile, Then, UnsealError, describe as describe_unseal_error, format_name};
 pub use service::{ServiceCheck, ServiceOffer, ServiceStatus, ServiceStep};
 pub use session_picker::{
     DEFAULT_SESSION, PickerInput, PickerStep, SESSION_NAME_LIMIT, SessionChoice, SessionEntry, SessionPicker,
