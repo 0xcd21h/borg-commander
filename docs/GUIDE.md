@@ -388,9 +388,18 @@ To measure sizes while keeping ordinary file panels open, press **Alt-I** or cho
 hidden files, and fills in each folder's total as it finishes. You can keep browsing or use the
 console while it runs. Folders still being measured show a growing total marked `≥`, and totals
 stay when you leave a folder and come back. The panel footer shows progress, and the count runs as
-a job in Alt-J. Press **Alt-I** again, or click the footer, to stop the scan and keep the totals
-measured so far. Starting a copy, move, or delete job stops a size scan in progress. Finished scans
-share their cache with the size tree and Folder totals.
+a job in Alt-J. Press **Alt-I** again, or click the footer, to stop every count under way and keep
+the totals measured so far. Starting a copy, move, or delete job stops the size counts in progress.
+Finished scans share their cache with the size tree and Folder totals.
+
+Press **F3** on a folder to count that folder alone, as in other two-panel commanders. Its row
+shows the growing total and then the final one, and the File menu names the action **Count size**
+while the shortcut bar reads **Count**. With folders marked, F3 on any folder counts the marked ones one
+after another in a single job and leaves marked files out. F3 on `..` counts the folder the panel
+shows, as Alt-I does. Each press starts a job in Alt-J, and a count you start while another runs
+waits for it. F3 on a folder that a count already measures, such as one inside the folder being
+counted, starts nothing and says which count covers it. Cancel a count in Alt-J and the next one
+waiting starts. F3 on a file still opens the viewer, and links to folders are not counted.
 
 ### Saved size scans
 
@@ -460,7 +469,7 @@ click both rows. Notices replace the second row for a moment.
 | Alt-E | Edit the selected file in this panel, in place of its files, or in the other panel beside results |
 | F1 | About |
 | F2 | File menu |
-| F3 | View (text or picture) |
+| F3 | View (text or picture); on a folder or `..`, count its size in the background |
 | F4 / Shift-F4 | Edit in Borg's editor / in `$VISUAL` or `$EDITOR` |
 | F5 / F6 | Copy / move to the other panel |
 | F7 | Create a folder |
@@ -1349,7 +1358,7 @@ complete.
 
 Work that takes a while runs as a job: copies, moves and deletes, unpacking and packing archives,
 **Replace in files…**, every search that fills a results panel (Ctrl-F, Alt-D, Alt-Shift-D and
-Alt-S), folder sizes counted with Alt-I, the entropy scan in Alt-M, the first build of a folder's
+Alt-S), folder sizes counted with Alt-I or F3, the entropy scan in Alt-M, the first build of a folder's
 search index, and port scans. Alt-J opens the jobs panel over the right panel. It lists the running
 jobs first, oldest at the top, then the finished ones, newest first. On a terminal narrower than 100
 columns it spans both panels.

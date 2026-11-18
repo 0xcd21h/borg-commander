@@ -248,4 +248,4 @@ pub use capture::{
 };
 
 pub use delete_check::{DeleteCheck, DeleteFound, DeleteSize, FileHolder};
-pub use measure::SizeScan;
+pub use measure::{SizeScan, folders_to_count};

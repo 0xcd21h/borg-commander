@@ -172,7 +172,8 @@ Ctrl-O switches between the panels and the console.
 </p>
 
 - **Sizes while you browse.** Alt-I measures every folder below the current one in the
-  background. Totals fill in as they finish, and you can keep navigating or typing commands.
+  background, and F3 on a folder measures that folder alone. Totals fill in as they finish, and
+  you can keep navigating or typing commands.
 - **A size tree.** Alt-Shift-D opens the folder as a tree, largest branches first, with a
   row for the bytes stored directly in each folder.
 - **Find the heavy folders.** Alt-D searches for folders over a size or file count, such as
