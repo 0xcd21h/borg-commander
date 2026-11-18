@@ -301,6 +301,7 @@ mod tests {
             deleting: None,
             forgetting: None,
             updating: None,
+            from_overview: false,
         };
         draw(&browser, themes.find(None), screen, &mut buf, 0.0);
         let rendered: String = (0..screen.height)

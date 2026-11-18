@@ -198,6 +198,14 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
             crate::watch::changed(state, *log);
             Vec::new()
         }
+        Msg::HostsListed(result) => {
+            crate::hosts::listed(state, result);
+            Vec::new()
+        }
+        Msg::HostAnswered { identity, answer } => {
+            crate::hosts::answered(state, &identity, answer, now);
+            Vec::new()
+        }
         Msg::StartupItems { id, result } => {
             crate::startup_items::receive(state, id, result);
             Vec::new()
@@ -281,6 +289,7 @@ fn follow(state: &mut AppState, now: Instant) -> Vec<Effect> {
     effects.extend(crate::network::sync_shell_variables(state));
     crate::startup_items::sync(state, now);
     crate::watch::sync(state, now);
+    effects.extend(crate::hosts::sync(state, now));
     effects.extend(crate::activity::sync_file_preview(state));
     effects.extend(crate::docker::sync(state, now));
     effects.extend(crate::docker::release_helpers(state));

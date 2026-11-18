@@ -161,7 +161,7 @@ fn on_menu(state: &mut AppState, cursor: MenuCursor, key: &KeyEvent, now: Instan
 fn on_prompt(state: &mut AppState, mut prompt: Prompt, key: &KeyEvent, now: Instant) -> Vec<Effect> {
     if let PromptPurpose::RemoteName { browser, identity, session, original } = &prompt.purpose {
         if key.code == KeyCode::Esc {
-            state.overlay = Some(Overlay::Remotes(*browser.clone()));
+            state.overlay = crate::remote::back_to(*browser.clone());
             return Vec::new();
         }
         if key.code == KeyCode::Enter {
@@ -176,7 +176,7 @@ fn on_prompt(state: &mut AppState, mut prompt: Prompt, key: &KeyEvent, now: Inst
                 session: session.clone(),
                 name: if name == original { String::new() } else { name.into() },
             };
-            state.overlay = Some(Overlay::Remotes(*browser.clone()));
+            state.overlay = crate::remote::back_to(*browser.clone());
             return vec![effect];
         }
     }
@@ -375,7 +375,7 @@ fn on_confirm(state: &mut AppState, confirm: Confirm, key: &KeyEvent, now: Insta
                 state.overlay = Some(Overlay::Remotes(*browser));
                 vec![Effect::UpdateRemoteHost { machine }]
             } else {
-                state.overlay = Some(Overlay::Remotes(*browser));
+                state.overlay = crate::remote::back_to(*browser);
                 Vec::new()
             }
         }
