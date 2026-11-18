@@ -56,7 +56,7 @@ impl Preferences {
     pub const DEFAULT: Self = Self {
         language: borg_i18n::Locale::English,
         after_command: AfterCommand::ReturnToPanels,
-        show_hidden: false,
+        show_hidden: true,
         status_line: true,
         menu_bar: false,
         restore_terminal: false,
