@@ -63,6 +63,7 @@ toml_edit = { workspace = true }
 uzers     = { workspace = true }
 unicode-width = { workspace = true }
 zeroize   = { workspace = true }
+zeroizing-alloc = { workspace = true }
 borg-watch-ebpf = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]

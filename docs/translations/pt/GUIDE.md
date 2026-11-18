@@ -1798,7 +1798,9 @@ O visualizador mostra o texto como o mostraria o nome do ficheiro sem `.age`, po
 o ficheiro, com a mesma palavra-passe e o mesmo formato, e a linha de estado diz **Guardado, cifrado
 com age**. Um ficheiro age escrito como linhas de texto, a que o age chama armored, mantém-se assim.
 O Borg esquece a palavra-passe assim que desencripta o ficheiro, e mantém a chave necessária para
-guardar apenas enquanto o editor tem o ficheiro aberto.
+guardar apenas enquanto o editor tem o ficheiro aberto. O Borg preenche com zeros cada bloco de
+memória que liberta, por isso a palavra-passe e o texto não ficam na memória depois de o Borg
+terminar de os usar.
 
 O Borg desencripta até 256 KiB de texto, e o editor não guarda mais do que isso. Um ficheiro que
 contém mais indica-o, e um muito grande abre tal como está, com os bytes cifrados. Um ficheiro age

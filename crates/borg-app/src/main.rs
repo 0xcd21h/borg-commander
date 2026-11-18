@@ -5,6 +5,7 @@
 mod activity;
 mod admin;
 mod agent;
+mod allocator;
 mod app;
 mod archive;
 mod backup;

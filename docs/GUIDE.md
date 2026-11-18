@@ -1652,7 +1652,9 @@ The viewer shows the text as the file's name without `.age` would show, so `note
 Markdown. In the editor, F2 or Ctrl-S encrypts the text again before writing the file, with the same
 password and format, and the status line says **Saved, encrypted with age**. An age file written as
 text lines, which age calls armored, stays that way. Borg forgets the password once the file is
-decrypted, and keeps the key it needs for saving only while the editor has the file open.
+decrypted, and keeps the key it needs for saving only while the editor has the file open. Borg fills
+every block of memory it frees with zeros, so the password and the text do not stay behind in memory
+once Borg is done with them.
 
 Borg decrypts up to 256 KiB of text, and the editor saves no more than that. A file that holds more
 says so, and a very large one opens as it is, showing its encrypted bytes. An age file whose work

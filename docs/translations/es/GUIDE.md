@@ -1803,7 +1803,8 @@ se lee como Markdown. En el editor, F2 o Ctrl-S vuelve a cifrar el texto antes d
 archivo, con la misma contraseña y el mismo formato, y la línea de estado dice **Guardado, cifrado
 con age**. Un archivo age escrito como líneas de texto, lo que age llama armored, se mantiene así.
 Borg olvida la contraseña en cuanto descifra el archivo, y conserva la clave necesaria para guardar
-solo mientras el editor tiene el archivo abierto.
+solo mientras el editor tiene el archivo abierto. Borg llena de ceros cada bloque de memoria que
+libera, así que la contraseña y el texto no quedan en memoria cuando Borg termina con ellos.
 
 Borg descifra hasta 256 KiB de texto, y el editor no guarda más que eso. Un archivo que contiene más
 lo indica, y uno muy grande se abre tal cual, con sus bytes cifrados. Un archivo age cuyo factor de
