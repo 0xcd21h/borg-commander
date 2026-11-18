@@ -24,6 +24,10 @@ const QUIET: &str = "-q";
 const IDLE: &str = "-idle";
 const INIT: &str = "-init";
 const KEY_FROM_INPUT: &str = "-masterkey=stdin";
+const READ_ONLY: &str = "-ro";
+const KEY_PROBE: &str = ".borg-key-check";
+const PROBE_BYTES: usize = 16;
+const MOUNT_WAIT: Duration = Duration::from_secs(2);
 const END_OF_FLAGS: &str = "--";
 const DIRIV: &str = "gocryptfs.diriv";
 const WRONG_PASSWORD: i32 = 12;
@@ -67,6 +71,8 @@ pub(crate) struct Vaults {
     folder: PathBuf,
     idle: Option<Duration>,
 }
+
+pub(crate) type Created = (Password, Result<VaultMount, VaultError>);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Found {
@@ -114,13 +120,19 @@ impl Vaults {
     pub(crate) fn open(&self, cipher: &Path, password: &Password) -> Result<VaultMount, VaultError> {
         let program = program()?;
         fuse_ready()?;
+        self.mount(&program, cipher, password)
+    }
+
+    pub(crate) fn mount(&self, program: &Path, cipher: &Path, password: &Password) -> Result<VaultMount, VaultError> {
         let source = fs::canonicalize(cipher).map_err(failed)?;
         let root = self.mount_point(cipher)?;
         let idle = self.idle.map(|idle| format!("{}{SECONDS}", idle.as_secs()));
         let flags = [QUIET].into_iter().chain(idle.iter().flat_map(|idle| [IDLE, idle.as_str()]));
         let mut args: Vec<OsString> = flags.map(OsString::from).collect();
         args.extend([END_OF_FLAGS.into(), source.into_os_string(), root.clone().into_os_string()]);
-        match run(&program, &args, &[password.as_str()]) {
+        let opened = run(program, &args, &[password.as_str()])
+            .and_then(|()| if mounted(&root) { Ok(()) } else { Err(VaultError::NotMounted) });
+        match opened {
             Ok(()) => Ok(VaultMount { cipher: cipher.to_path_buf(), root }),
             Err(error) => {
                 self.release(&root);
@@ -129,10 +141,19 @@ impl Vaults {
         }
     }
 
-    pub(crate) fn create(&self, cipher: &Path, password: &Password) -> Result<(VaultMount, Password), VaultError> {
+    pub(crate) fn create(&self, cipher: &Path, password: &Password) -> Result<Created, VaultError> {
         let program = program()?;
         fuse_ready()?;
-        keeps_given_key(&program)?;
+        self.create_with(&program, cipher, password)
+    }
+
+    pub(crate) fn create_with(
+        &self,
+        program: &Path,
+        cipher: &Path,
+        password: &Password,
+    ) -> Result<Created, VaultError> {
+        keeps_given_key(program)?;
         match fs::create_dir(cipher) {
             Ok(()) => fs::set_permissions(cipher, fs::Permissions::from_mode(PRIVATE_DIR)).map_err(failed)?,
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => return Err(VaultError::Exists),
@@ -147,12 +168,47 @@ impl Vaults {
             .map(OsString::from)
             .chain([cipher.as_os_str().to_owned()])
             .collect();
-        if let Err(error) = run(&program, &args, &[password.as_str(), key.as_str()]) {
+        if let Err(error) = run(program, &args, &[password.as_str(), key.as_str()]) {
             remove_new(cipher);
             return Err(error);
         }
-        let vault = self.open(cipher, password)?;
-        Ok((vault, Password::new(&key)))
+        let vault = match self.mount(program, cipher, password) {
+            Ok(vault) => vault,
+            Err(error) => return Ok((Password::new(&key), Err(error))),
+        };
+        if let Err(error) = self.key_opens(program, &vault, &key) {
+            let _ = self.close(&vault.root);
+            return Err(error);
+        }
+        Ok((Password::new(&key), Ok(vault)))
+    }
+
+    pub(crate) fn key_opens(&self, program: &Path, vault: &VaultMount, key: &str) -> Result<(), VaultError> {
+        let token = probe_token().map_err(failed)?;
+        let probe = vault.root.join(KEY_PROBE);
+        write_new(&probe, token.as_bytes()).map_err(failed)?;
+        let read = self.read_with_key(program, &vault.cipher, key);
+        let _ = fs::remove_file(&probe);
+        match read {
+            Some(read) if read == token => Ok(()),
+            _ => Err(VaultError::KeyNotKept),
+        }
+    }
+
+    fn read_with_key(&self, program: &Path, cipher: &Path, key: &str) -> Option<String> {
+        let source = fs::canonicalize(cipher).ok()?;
+        let root = self.mount_point(cipher).ok()?;
+        let args: Vec<OsString> = [QUIET, READ_ONLY, KEY_FROM_INPUT, END_OF_FLAGS]
+            .into_iter()
+            .map(OsString::from)
+            .chain([source.into_os_string(), root.clone().into_os_string()])
+            .collect();
+        let read = run(program, &args, &[key])
+            .ok()
+            .filter(|()| mounted(&root))
+            .and_then(|()| fs::read_to_string(root.join(KEY_PROBE)).ok());
+        let _ = self.close(&root);
+        read
     }
 
     pub(crate) fn close(&self, root: &Path) -> Result<(), VaultError> {
@@ -315,6 +371,31 @@ fn new_key() -> io::Result<Zeroizing<String>> {
     let mut bytes = Zeroizing::new([0; KEY_BYTES]);
     getrandom::fill(bytes.as_mut()).map_err(io::Error::other)?;
     Ok(recovery_key(bytes.as_ref()))
+}
+
+fn probe_token() -> io::Result<String> {
+    let mut bytes = [0; PROBE_BYTES];
+    getrandom::fill(&mut bytes).map_err(io::Error::other)?;
+    Ok(borg_link::hex(&bytes))
+}
+
+fn write_new(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let mut file = fs::OpenOptions::new().write(true).create_new(true).open(path)?;
+    file.write_all(bytes)?;
+    file.sync_all()
+}
+
+fn mounted(root: &Path) -> bool {
+    let started = Instant::now();
+    loop {
+        if is_mount(root) {
+            return true;
+        }
+        if started.elapsed() > MOUNT_WAIT {
+            return false;
+        }
+        std::thread::sleep(POLL);
+    }
 }
 
 fn remove_new(cipher: &Path) {

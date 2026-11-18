@@ -1851,7 +1851,8 @@ Borg abre archivos de texto cifrados con contraseña en dos formatos:
 Encryption, un formato para notas cifradas. F3, F4 o Alt-E sobre uno de estos archivos abre el
 diálogo **Archivo cifrado**, que pide la contraseña y oculta lo que escribes. Borg descifra el
 archivo en memoria y nunca escribe el texto en el disco. Una contraseña incorrecta vuelve a
-preguntar, y Esc deja el archivo cerrado. La vista rápida indica el formato y no pregunta.
+preguntar, y Esc deja el archivo cerrado. La vista rápida indica el formato y no pregunta. Mientras
+el texto está en pantalla, los agentes que miran la pantalla de Borg reciben un aviso en su lugar.
 
 El visor muestra el texto como lo mostraría el nombre del archivo sin `.age`, así que `notes.md.age`
 se lee como Markdown. En el editor, F2 o Ctrl-S vuelve a cifrar el texto antes de escribir el
@@ -1876,10 +1877,13 @@ sincroniza y se respalda como cualquier otra carpeta, y gocryptfs la abre igual 
 macOS.
 
 **Crear bóveda…** en el menú Archivo (F2) pide el nombre de la nueva bóveda y después su contraseña
-dos veces, en campos que ocultan lo que escribes. Borg crea la bóveda en la carpeta del panel activo,
-la abre y muestra su **Clave de recuperación**: ocho grupos de dígitos hexadecimales que abren la
-bóveda si olvidas la contraseña. Borg muestra la clave solo esta vez, así que anótala antes de pulsar
-Enter. Borg crea bóvedas solo en las carpetas de esta computadora.
+dos veces, en campos que ocultan lo que escribes. Borg crea la bóveda en la carpeta del panel
+activo, la abre y muestra su **Clave de recuperación**: ocho grupos de dígitos hexadecimales que
+abren la bóveda si olvidas la contraseña. Antes de mostrar la clave, Borg abre la nueva bóveda con
+ella una vez para comprobar que funciona. Borg muestra la clave solo esta vez: anótala, luego
+escribe su último grupo y pulsa Enter para cerrarla. Mientras se muestra la clave, los agentes que
+miran la pantalla de Borg reciben un aviso en su lugar. Borg crea bóvedas solo en las carpetas de
+esta computadora.
 
 Enter sobre una bóveda, una carpeta que contiene `gocryptfs.conf`, abre el diálogo **Bóveda**, que
 pide la contraseña y oculta lo que escribes. Una contraseña incorrecta vuelve a preguntar, y Esc deja

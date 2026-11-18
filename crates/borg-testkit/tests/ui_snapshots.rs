@@ -5638,22 +5638,65 @@ fn a_locked_vault_asks_for_its_password_without_showing_it() -> Result<()> {
     check("vault_password", &stage, buffer)
 }
 
+const RECOVERY_KEY: &str = "0a1b2c3d-4e5f6a7b-8c9d0e1f-2a3b4c5d-6e7f8a9b-0c1d2e3f-4a5b6c7d-8e9f0a1b";
+const RECOVERY_KEY_LAST: &str = "8e9f0a1b";
+
+fn recovery_key_shown(size: GridSize) -> Result<Stage> {
+    let mut stage = stage(size, Motion::STILL)?;
+    let vault = borg_core::VaultMount { cipher: VAULT.into(), root: VAULT_ROOT.into() };
+    let key = borg_core::Password::new(RECOVERY_KEY);
+    let tax = vec![entry("2024", EntryKind::Dir, 4096, RECENT, false)];
+    let created = Msg::VaultCreated { side: borg_core::Side::Left, cipher: VAULT.into(), key, opened: Ok(vault) };
+    list_after(&mut stage, created, tax)?;
+    Ok(stage)
+}
+
+fn ensure_whole_key(buffer: &Buffer) -> Result<()> {
+    let shown: String = describe(buffer).split_whitespace().filter(|word| word.contains('-')).collect::<String>();
+    let groups = RECOVERY_KEY.split('-').filter(|group| shown.contains(group)).count();
+    anyhow::ensure!(groups == RECOVERY_KEY.split('-').count(), "the whole key shows\n{}", describe(buffer));
+    Ok(())
+}
+
 #[test]
 fn a_new_vault_shows_its_recovery_key_over_its_files() -> Result<()> {
-    let mut stage = stage(SIZE, Motion::STILL)?;
-    let vault = borg_core::VaultMount { cipher: VAULT.into(), root: VAULT_ROOT.into() };
-    let recovery = borg_core::Password::new("0a1b2c3d-4e5f6a7b-8c9d0e1f-2a3b4c5d-6e7f8a9b-0c1d2e3f-4a5b6c7d-8e9f0a1b");
-    let tax = vec![entry("2024", EntryKind::Dir, 4096, RECENT, false)];
-    list_after(&mut stage, Msg::VaultCreated { side: borg_core::Side::Left, vault, key: recovery }, tax)?;
+    let mut stage = recovery_key_shown(SIZE)?;
+    for msg in chars("8e9f") {
+        stage.send(msg);
+    }
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "Recovery key")?;
-    ensure_text(&buffer, "0a1b2c3d-4e5f6a7b")?;
+    ensure_text(&buffer, "type the key's last group below")?;
+    ensure_whole_key(&buffer)?;
     ensure_text(&buffer, "Papers · vault")?;
     check("vault_recovery_key", &stage, buffer)?;
+    stage.send(key(KeyCode::Enter));
+    ensure_text(&stage.render(stage.started)?, "Recovery key")?;
+    for msg in chars("0a1b") {
+        stage.send(msg);
+    }
     stage.send(key(KeyCode::Enter));
     let buffer = stage.render(stage.started)?;
     ensure_no_text(&buffer, "Recovery key")?;
     Ok(())
+}
+
+#[test]
+fn a_recovery_key_fits_a_narrow_screen() -> Result<()> {
+    let mut stage = recovery_key_shown(GridSize { cols: 40, rows: 24 })?;
+    let buffer = stage.render(stage.started)?;
+    ensure_whole_key(&buffer)?;
+    anyhow::ensure!(!describe(&buffer).contains("-…"), "no group is cut");
+    check("vault_recovery_key_narrow", &stage, buffer)
+}
+
+#[test]
+fn a_recovery_key_keeps_its_rows_on_a_short_screen() -> Result<()> {
+    let mut stage = recovery_key_shown(GridSize { cols: 90, rows: 10 })?;
+    let buffer = stage.render(stage.started)?;
+    ensure_whole_key(&buffer)?;
+    ensure_text(&buffer, RECOVERY_KEY_LAST)?;
+    check("vault_recovery_key_short", &stage, buffer)
 }
 
 #[test]

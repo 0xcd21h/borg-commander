@@ -170,9 +170,12 @@ fn a_real_vault_keeps_its_files_encrypted_and_opens_only_with_its_password() {
         assert!(!cipher.exists(), "an old gocryptfs leaves nothing behind");
         return;
     }
-    let (vault, key) = vaults.create(&cipher, &password).unwrap();
+    let (key, opened) = vaults.create(&cipher, &password).unwrap();
+    let vault = opened.unwrap();
     assert!(is_mount(&vault.root));
     assert_eq!(vault.root.parent(), Some(vaults.folder.as_path()));
+    assert!(fs::read_dir(&vault.root).unwrap().next().is_none(), "checking the key leaves the new vault empty");
+    assert_eq!(fs::read_dir(&vaults.folder).unwrap().count(), 1, "and no other mount folder");
     assert_eq!(key.as_str().split(VAULT_KEY_SEPARATOR).count(), KEY_BYTES / (KEY_GROUP / 2));
     fs::write(vault.root.join(PLAIN_NAME), SECRET_TEXT).unwrap();
     assert!(matches!(vaults.check(&cipher, None), Some(Found::Open(root)) if root == vault.root));
@@ -267,4 +270,79 @@ fn a_real_vault_name_that_is_taken_is_refused_and_nothing_is_touched() {
     assert_eq!(vaults.create(&taken, &Password::new(REAL_PASSWORD)).map(|_| ()), Err(refused));
     assert_eq!(fs::read_to_string(taken.join("kept.txt")).unwrap(), SECRET_TEXT);
     assert_eq!(fs::read_dir(&taken).unwrap().count(), 1, "nothing is added to the folder");
+}
+
+const DONE_WITHOUT_MOUNT: &str = "#!/bin/sh\ncat > /dev/null\nexit 0\n";
+const WRONG_PASSWORD_EXIT: &str = "#!/bin/sh\ncat > /dev/null\nexit 12\n";
+const OLD_VERSION: &str =
+    "#!/bin/sh\n[ \"$1\" = -version ] && echo 'gocryptfs 2.3; go-fuse 2.1.0'\ncat > /dev/null\nexit 0\n";
+const RUNNABLE: u32 = 0o755;
+
+fn fake_gocryptfs(dir: &Path, script: &str) -> PathBuf {
+    let program = dir.join(PROGRAM);
+    fs::write(&program, script).unwrap();
+    fs::set_permissions(&program, fs::Permissions::from_mode(RUNNABLE)).unwrap();
+    while let Err(error) = Command::new(&program).arg(VERSION_FLAG).stdin(Stdio::null()).stdout(Stdio::null()).status()
+    {
+        assert_eq!(error.kind(), io::ErrorKind::ExecutableFileBusy, "{error}");
+        std::thread::sleep(POLL);
+    }
+    program
+}
+
+#[test]
+fn an_open_that_gocryptfs_calls_done_without_a_mount_is_refused_and_leaves_no_folder() {
+    let (runtime, home, bin) =
+        (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let vaults = Vaults::new(runtime.path(), None);
+    let cipher = home.path().join("Papers");
+    fs::create_dir(&cipher).unwrap();
+    for (script, refused) in
+        [(DONE_WITHOUT_MOUNT, VaultError::NotMounted), (WRONG_PASSWORD_EXIT, VaultError::WrongPassword)]
+    {
+        let program = fake_gocryptfs(bin.path(), script);
+        assert_eq!(vaults.mount(&program, &cipher, &Password::new(REAL_PASSWORD)), Err(refused));
+        assert!(fs::read_dir(&vaults.folder).unwrap().next().is_none(), "no mount folder is left behind");
+    }
+}
+
+#[test]
+fn a_new_vault_keeps_its_recovery_key_when_opening_it_fails() {
+    let (runtime, home, bin) =
+        (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let vaults = Vaults::new(runtime.path(), None);
+    let cipher = home.path().join("Papers");
+    let program = fake_gocryptfs(bin.path(), DONE_WITHOUT_MOUNT);
+    let (key, opened) = vaults.create_with(&program, &cipher, &Password::new(REAL_PASSWORD)).unwrap();
+    assert_eq!(opened, Err(VaultError::NotMounted));
+    assert_eq!(key.as_str().split(VAULT_KEY_SEPARATOR).count(), KEY_BYTES / (KEY_GROUP / 2));
+    assert!(cipher.is_dir(), "the new vault stays for its password and its key");
+}
+
+#[test]
+fn an_old_gocryptfs_creates_nothing() {
+    let (runtime, home, bin) =
+        (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let vaults = Vaults::new(runtime.path(), None);
+    let cipher = home.path().join("Papers");
+    let program = fake_gocryptfs(bin.path(), OLD_VERSION);
+    let created = vaults.create_with(&program, &cipher, &Password::new(REAL_PASSWORD));
+    assert_eq!(created.map(|_| ()), Err(VaultError::TooOld("2.3".into())));
+    assert!(!cipher.exists());
+}
+
+#[test]
+#[ignore = "needs gocryptfs and FUSE; runs in a Linux container"]
+fn a_real_recovery_key_that_does_not_open_the_vault_is_caught() {
+    let home = tempfile::tempdir().unwrap();
+    let runtime = tempfile::tempdir().unwrap();
+    let vaults = Vaults::new(runtime.path(), None);
+    let cipher = home.path().join("Papers");
+    made_by_gocryptfs(&cipher);
+    let vault = vaults.open(&cipher, &Password::new(REAL_PASSWORD)).unwrap();
+    let made_up = recovery_key(&[7; KEY_BYTES]);
+    assert_eq!(vaults.key_opens(&program().unwrap(), &vault, &made_up), Err(VaultError::KeyNotKept));
+    assert!(fs::read_dir(&vault.root).unwrap().next().is_none(), "the check leaves nothing in the vault");
+    assert_eq!(fs::read_dir(&vaults.folder).unwrap().count(), 1, "only the vault's own mount folder stays");
+    assert_eq!(vaults.close(&vault.root), Ok(()));
 }

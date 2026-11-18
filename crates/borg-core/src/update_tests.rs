@@ -1425,6 +1425,29 @@ fn h_shows_the_viewers_file_as_hex_rows_that_scroll_and_find_and_the_preview_kee
 }
 
 #[test]
+fn a_decrypted_file_closing_leaves_the_quick_view_as_it_was() {
+    use std::sync::Arc;
+
+    let (mut state, now) = setup_with(vec![file("log")]);
+    press(&mut state, now, key(KeyCode::Down));
+    let effects = press(&mut state, now, ctrl('q'));
+    let Some((path, at)) = peeked_at(&effects) else { panic!("{effects:?}") };
+    let (width, height) = crate::viewer_size(state.cols, state.rows);
+    let preview = borg_view::Pager::new(Arc::new(b"sealed bytes\n".to_vec()), width, height).unwrap();
+    let peeked =
+        crate::Peeked { aside: crate::Aside::QuickView, path: path.clone(), at, peek: crate::Peek::Text(preview) };
+    update(&mut state, Msg::Peeked(peeked), now);
+    let plain = borg_view::Pager::new(Arc::new(b"meet at noon\n".to_vec()), width, height).unwrap();
+    state.opening = Some(path.clone());
+    update(&mut state, Msg::Opened(crate::Viewer::sealed(path, crate::Content::Text(plain))), now);
+    assert!(state.secret_on_screen());
+    press(&mut state, now, key(KeyCode::Esc));
+    assert!(state.viewer.is_none() && !state.secret_on_screen());
+    let Some(crate::Peeked { peek: crate::Peek::Text(shown), .. }) = &state.peeked else { panic!("preview") };
+    assert_eq!(shown.rows()[0], "sealed bytes", "the quick view never keeps the decrypted text");
+}
+
+#[test]
 fn a_binary_file_opens_as_hex_rows_and_h_shows_its_text() {
     use std::sync::Arc;
 

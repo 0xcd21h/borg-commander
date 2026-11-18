@@ -211,6 +211,7 @@ pub struct AppState {
     pub(crate) update_offer: Option<crate::UpdateOffer>,
     /// The shell runs the command that updates Borg, whose end gives a notice.
     pub(crate) updating: bool,
+    pub(crate) creating_vaults: Vec<PathBuf>,
     generation: u64,
 }
 
@@ -315,6 +316,7 @@ impl AppState {
             update_offer: None,
             port_scans: crate::PortScans::new(),
             updating: false,
+            creating_vaults: Vec::new(),
             generation: 0,
         };
         state.refit();
@@ -353,6 +355,13 @@ impl AppState {
 
     pub fn question_shows(&self) -> bool {
         matches!(self.overlay, Some(Overlay::Question(_)))
+    }
+
+    pub fn secret_on_screen(&self) -> bool {
+        let sealed_editor = self.editor.iter().chain(self.docked.iter().flatten()).any(|editor| editor.seal.is_some());
+        matches!(self.overlay, Some(Overlay::VaultKey(_)))
+            || self.viewer.as_ref().is_some_and(|viewer| viewer.sealed)
+            || sealed_editor
     }
 
     pub fn effective_view(&self) -> View {

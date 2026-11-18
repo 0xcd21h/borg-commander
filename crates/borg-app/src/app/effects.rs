@@ -371,7 +371,7 @@ impl App {
         let (vaults, messages) = (self.vaults.clone(), self.messages.clone());
         tokio::task::spawn_blocking(move || {
             let message = match vaults.create(&cipher, &password) {
-                Ok((vault, key)) => Msg::VaultCreated { side, vault, key },
+                Ok((key, opened)) => Msg::VaultCreated { side, cipher, key, opened },
                 Err(error) => Msg::VaultFailed { side, cipher, error },
             };
             let _ = messages.send(message);

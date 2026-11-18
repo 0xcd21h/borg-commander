@@ -76,7 +76,7 @@ fn work_factor_limit() -> Option<age::WorkFactor> {
 
 fn viewer(path: &Path, text: Zeroizing<Vec<u8>>, size: (usize, usize)) -> io::Result<Viewer> {
     let pager = Pager::for_path(Arc::new(Plaintext(text)), &shown_path(path), size.0, size.1)?;
-    Ok(Viewer::new(path.to_path_buf(), Content::Text(pager)))
+    Ok(Viewer::sealed(path.to_path_buf(), Content::Text(pager)))
 }
 
 fn editable(text: Zeroizing<Vec<u8>>) -> Option<String> {

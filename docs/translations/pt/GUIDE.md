@@ -1844,7 +1844,8 @@ O Borg abre ficheiros de texto cifrados com palavra-passe em dois formatos:
 Encryption, um formato para notas cifradas. F3, F4 ou Alt-E num destes ficheiros abre a caixa de
 diálogo **Ficheiro cifrado**, que pede a palavra-passe e esconde o que escreve. O Borg desencripta o
 ficheiro em memória e nunca escreve o texto no disco. Uma palavra-passe errada volta a perguntar, e
-Esc deixa o ficheiro fechado. A pré-visualização indica o formato e não pergunta.
+Esc deixa o ficheiro fechado. A pré-visualização indica o formato e não pergunta. Enquanto o texto
+está no ecrã, os agentes que olham para o ecrã do Borg recebem um aviso em vez dele.
 
 O visualizador mostra o texto como o mostraria o nome do ficheiro sem `.age`, por isso
 `notes.md.age` lê-se como Markdown. No editor, F2 ou Ctrl-S volta a cifrar o texto antes de escrever
@@ -1872,8 +1873,10 @@ no Linux como no macOS.
 **Criar cofre…** no menu Ficheiro (F2) pede o nome do novo cofre e depois a palavra-passe duas
 vezes, em campos que escondem o que escreve. O Borg cria o cofre na pasta do painel ativo, abre-o e
 mostra a **Chave de recuperação**: oito grupos de dígitos hexadecimais que abrem o cofre se se
-esquecer da palavra-passe. O Borg mostra a chave só esta vez, por isso aponte-a antes de premir
-Enter. O Borg cria cofres apenas nas pastas deste computador.
+esquecer da palavra-passe. Antes de mostrar a chave, o Borg abre o novo cofre com ela uma vez para
+confirmar que funciona. O Borg mostra a chave só esta vez: aponte-a, depois escreva o último grupo e
+prima Enter para a fechar. Enquanto a chave está no ecrã, os agentes que olham para o ecrã do Borg
+recebem um aviso em vez dela. O Borg cria cofres apenas nas pastas deste computador.
 
 Enter num cofre, uma pasta com `gocryptfs.conf` lá dentro, abre a caixa de diálogo **Cofre**, que
 pede a palavra-passe e esconde o que escreve. Uma palavra-passe errada volta a perguntar, e Esc deixa

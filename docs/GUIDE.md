@@ -1696,7 +1696,7 @@ whose files usually end in `.age`, and Paranoia Text Encryption, a format for en
 F4 or Alt-E on such a file opens the **Encrypted file** dialog, which asks for the password and
 hides what you type. Borg decrypts the file in memory and never writes the text to disk. A wrong
 password asks again, and Esc leaves the file closed. The quick view names the format and does not
-ask.
+ask. While the text is on the screen, agents that look at Borg's screen get a note instead.
 
 The viewer shows the text as the file's name without `.age` would show, so `notes.md.age` reads as
 Markdown. In the editor, F2 or Ctrl-S encrypts the text again before writing the file, with the same
@@ -1721,8 +1721,10 @@ like any other folder, and gocryptfs opens it on Linux and macOS alike.
 **Create vault…** in the File menu (F2) asks for the new vault's name and then for its password
 twice, in fields that hide what you type. Borg makes the vault in the active panel's folder, opens
 it, and shows its **Recovery key**: eight groups of hex digits that open the vault if you forget the
-password. Borg shows the key only this once, so write it down before you press Enter. Borg creates
-vaults only in this computer's folders.
+password. Before it shows the key, Borg opens the new vault with it once to make sure the key works.
+Borg shows the key only this once: write it down, then type its last group and press Enter to close
+it. While the key shows, agents that look at Borg's screen get a note instead. Borg creates vaults
+only in this computer's folders.
 
 Enter on a vault, a folder with `gocryptfs.conf` in it, opens the **Vault** dialog, which asks for
 the password and hides what you type. A wrong password asks again, and Esc leaves the vault closed.

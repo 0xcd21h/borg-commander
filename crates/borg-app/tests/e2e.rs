@@ -5695,6 +5695,9 @@ fn a_vault_created_in_borg_opens_with_the_recovery_key_it_showed() -> Result<()>
     let shown = app.wait_text("Recovery key")?;
     let key = recovery_key(&shown).with_context(|| format!("no recovery key on screen\n{}", shown.text()))?;
     app.send(keys::enter())?;
+    app.wait_text("type its last group")?;
+    let last = key.rsplit('-').next().unwrap_or_default().to_owned();
+    app.send(&last)?.send(keys::enter())?;
     let inside = app.wait_gone("Recovery key")?;
     ensure!(inside.contains(VAULT_BADGE), "the new vault is open\n{}", inside.text());
 

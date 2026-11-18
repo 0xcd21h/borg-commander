@@ -8,6 +8,7 @@ use crate::{AppState, Effect};
 /// What keeps the session from moving now.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Hold {
+    VaultKey,
     Jobs,
     Unsaved,
     Agent,
@@ -15,7 +16,9 @@ pub(crate) enum Hold {
 
 pub(crate) fn hold(state: &AppState) -> Option<Hold> {
     let unsaved = state.editor.iter().chain(state.docked.iter().flatten()).any(|editor| editor.buffer.modified());
-    if state.jobs.iter().any(crate::Job::running) {
+    if crate::vault::key_shown_or_coming(state) {
+        Some(Hold::VaultKey)
+    } else if state.jobs.iter().any(crate::Job::running) {
         Some(Hold::Jobs)
     } else if unsaved {
         Some(Hold::Unsaved)
@@ -30,6 +33,7 @@ pub(crate) fn hold(state: &AppState) -> Option<Hold> {
 /// what it waits for.
 pub(crate) fn requested(state: &mut AppState, version: String) -> Vec<Effect> {
     state.notice = hold(state).map(|hold| match hold {
+        Hold::VaultKey => tr!(relaunch_waits_vault_key, version = version),
         Hold::Jobs => tr!(relaunch_waits_jobs, version = version),
         Hold::Unsaved => tr!(relaunch_waits_unsaved, version = version),
         Hold::Agent => tr!(relaunch_waits_agent, version = version),

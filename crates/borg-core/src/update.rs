@@ -155,7 +155,7 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
             Vec::new()
         }
         Msg::VaultOpened { side, vault } => crate::vault::opened(state, side, vault),
-        Msg::VaultCreated { side, vault, key } => crate::vault::created(state, side, vault, key),
+        Msg::VaultCreated { side, cipher, key, opened } => crate::vault::created(state, side, &cipher, key, opened),
         Msg::VaultFailed { side, cipher, error } => {
             crate::vault::failed(state, side, cipher, error);
             Vec::new()

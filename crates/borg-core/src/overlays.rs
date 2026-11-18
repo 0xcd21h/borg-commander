@@ -48,7 +48,7 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<
         Some(Overlay::Capture(dialog)) => crate::network::on_capture_key(state, dialog, key, now),
         Some(Overlay::Listen(form)) => crate::network::on_listen_key(state, form, key, now),
         Some(Overlay::Install(offer)) => crate::install::on_key(state, offer, key),
-        Some(Overlay::VaultKey(_)) => crate::vault::on_key(state, key),
+        Some(Overlay::VaultKey(shown)) => crate::vault::on_key(state, *shown, key),
         Some(Overlay::Service(offer)) => crate::service::on_key(state, offer, key),
         Some(Overlay::Update(offer)) => crate::update_offer::on_key(state, offer, key),
         Some(Overlay::Storage(window)) => crate::storage::on_key(state, window, key),
@@ -91,6 +91,7 @@ pub(crate) fn on_paste(state: &mut AppState, text: &str) -> Vec<Effect> {
             return Vec::new();
         }
         Some(Overlay::Find(find)) => &mut find.input,
+        Some(Overlay::VaultKey(shown)) => &mut shown.typed,
         Some(Overlay::Connect(connect)) => {
             match crate::agent::connect_field(connect, state.agent.connect.ssh.is_some()) {
                 Some(input) => input,

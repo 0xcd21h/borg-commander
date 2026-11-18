@@ -2,6 +2,7 @@ use std::path::{Component, Path, PathBuf};
 
 use borg_i18n::tr;
 use crossterm::event::{KeyCode, KeyEvent};
+use zeroize::Zeroizing;
 
 use crate::{AppState, Effect, LineInput, Overlay, Password, Platform, Prompt, PromptPurpose, Side, Tool};
 
@@ -44,6 +45,8 @@ pub enum VaultError {
     Exists,
     Busy,
     TooOld(String),
+    NotMounted,
+    KeyNotKept,
     Failed(String),
 }
 
@@ -51,17 +54,31 @@ pub enum VaultError {
 pub struct VaultKey {
     pub name: String,
     pub key: Password,
+    pub typed: LineInput,
 }
 
 impl VaultKey {
-    pub fn lines(&self) -> Vec<String> {
+    pub fn new(name: String, key: Password) -> Self {
+        Self { name, key, typed: LineInput::default() }
+    }
+
+    pub fn lines(&self, width: usize) -> Vec<String> {
         let groups: Vec<&str> = self.key.as_str().split(VAULT_KEY_SEPARATOR).collect();
-        let rows: Vec<String> = groups.chunks(KEY_GROUPS_PER_LINE).map(|row| row.join(VAULT_KEY_SEPARATOR)).collect();
+        let group = groups.first().map_or(0, |group| group.chars().count()) + VAULT_KEY_SEPARATOR.len();
+        let per_line = (width / group.max(1)).clamp(1, KEY_GROUPS_PER_LINE);
+        let rows: Vec<String> = groups.chunks(per_line).map(|row| row.join(VAULT_KEY_SEPARATOR)).collect();
         let last = rows.len().saturating_sub(1);
         rows.into_iter()
             .enumerate()
             .map(|(index, row)| if index < last { row + VAULT_KEY_SEPARATOR } else { row })
             .collect()
+    }
+
+    pub fn confirmed(&self) -> bool {
+        let typed: Zeroizing<String> =
+            Zeroizing::new(self.typed.text().chars().filter(|typed| !typed.is_whitespace()).collect());
+        let last = self.key.as_str().rsplit(VAULT_KEY_SEPARATOR).next().unwrap_or_default();
+        !typed.is_empty() && (typed.eq_ignore_ascii_case(last) || typed.eq_ignore_ascii_case(self.key.as_str()))
     }
 }
 
@@ -99,14 +116,31 @@ pub(crate) fn opened(state: &mut AppState, side: Side, vault: VaultMount) -> Vec
     vec![state.navigate(side, root, None)]
 }
 
-pub(crate) fn created(state: &mut AppState, side: Side, vault: VaultMount, key: Password) -> Vec<Effect> {
-    let name = vault.name();
-    let effects = opened(state, side, vault);
-    state.overlay = Some(Overlay::VaultKey(Box::new(VaultKey { name, key })));
+pub(crate) fn created(
+    state: &mut AppState,
+    side: Side,
+    cipher: &Path,
+    key: Password,
+    opened: Result<VaultMount, VaultError>,
+) -> Vec<Effect> {
+    state.creating_vaults.retain(|creating| creating != cipher);
+    let name = display_name(cipher);
+    let effects = match opened {
+        Ok(vault) => self::opened(state, side, vault),
+        Err(error) => {
+            let host = cipher.parent().map(Path::to_path_buf);
+            let shown = host.filter(|host| state.panel(side).dir() == host.as_path());
+            let effects = shown.map(|host| state.navigate(side, host, Some(name.clone()))).into_iter().collect();
+            state.notice = Some(describe(error, &name));
+            effects
+        }
+    };
+    state.overlay = Some(Overlay::VaultKey(Box::new(VaultKey::new(name, key))));
     effects
 }
 
 pub(crate) fn failed(state: &mut AppState, side: Side, cipher: PathBuf, error: VaultError) {
+    state.creating_vaults.retain(|creating| *creating != cipher);
     match error {
         VaultError::WrongPassword => ask(state, side, cipher, true),
         VaultError::NoTool(installer) => crate::install::offer(state, Tool::Gocryptfs, installer),
@@ -133,6 +167,8 @@ fn describe(error: VaultError, name: &str) -> String {
         VaultError::Exists => tr!(vault_exists, name = name),
         VaultError::Busy => tr!(vault_busy, name = name),
         VaultError::TooOld(version) => tr!(vault_gocryptfs_too_old, version = version),
+        VaultError::NotMounted => tr!(vault_not_mounted, name = name),
+        VaultError::KeyNotKept => tr!(vault_key_not_kept, name = name),
         VaultError::Failed(error) => tr!(vault_failed, name = name, error = error),
     }
 }
@@ -211,6 +247,7 @@ pub(crate) fn on_prompt(state: &mut AppState, prompt: &mut Prompt, key: &KeyEven
         }
         PromptPurpose::VaultRepeat { side, cipher, first } if first.as_str() == text => {
             state.notice = Some(tr!(vault_creating, name = display_name(&cipher)));
+            state.creating_vaults.push(cipher.clone());
             vec![Effect::CreateVault { side, cipher, password: first }]
         }
         PromptPurpose::VaultRepeat { side, cipher, .. } => {
@@ -222,11 +259,24 @@ pub(crate) fn on_prompt(state: &mut AppState, prompt: &mut Prompt, key: &KeyEven
     })
 }
 
-pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
-    if matches!(key.code, KeyCode::Enter | KeyCode::Esc) {
-        state.overlay = None;
+pub(crate) fn on_key(state: &mut AppState, mut shown: VaultKey, key: &KeyEvent) -> Vec<Effect> {
+    match key.code {
+        KeyCode::Enter if shown.confirmed() => {
+            shown.typed.wipe();
+            state.overlay = None;
+            state.notice = None;
+        }
+        KeyCode::Enter | KeyCode::Esc => state.notice = Some(tr!(vault_key_type_last).to_owned()),
+        _ => {
+            shown.typed.apply(key);
+            state.overlay = Some(Overlay::VaultKey(Box::new(shown)));
+        }
     }
     Vec::new()
+}
+
+pub(crate) fn key_shown_or_coming(state: &AppState) -> bool {
+    matches!(state.overlay, Some(Overlay::VaultKey(_))) || !state.creating_vaults.is_empty()
 }
 
 fn named(state: &mut AppState, side: Side, name: &str) -> Vec<Effect> {

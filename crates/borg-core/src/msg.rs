@@ -313,8 +313,9 @@ pub enum Msg {
     },
     VaultCreated {
         side: crate::Side,
-        vault: crate::VaultMount,
+        cipher: PathBuf,
         key: crate::Password,
+        opened: Result<crate::VaultMount, crate::VaultError>,
     },
     VaultFailed {
         side: crate::Side,

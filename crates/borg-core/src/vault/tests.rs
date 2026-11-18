@@ -12,6 +12,8 @@ const CIPHER: &str = "/work/Papers";
 const ROOT: &str = "/run/user/1000/borg-commander/vaults/Papers";
 const NAME: &str = "Papers";
 const SECRET: &str = "hunter two";
+const KEY: &str = "0a1b2c3d-4e5f6a7b-8c9d0e1f-2a3b4c5d-6e7f8a9b-0c1d2e3f-4a5b6c7d-8e9f0a1b";
+const LAST_GROUP: &str = "8e9f0a1b";
 
 fn state() -> (AppState, Instant) {
     let now = Instant::now();
@@ -199,16 +201,85 @@ fn a_vault_name_is_one_folder_name() {
     }
 }
 
+fn created(state: &mut AppState, now: Instant, opened: Result<VaultMount, VaultError>) -> Vec<Effect> {
+    let key = Password::new(KEY);
+    update(state, Msg::VaultCreated { side: Side::Left, cipher: CIPHER.into(), key, opened }, now)
+}
+
+fn shown_key(state: &AppState) -> &VaultKey {
+    let Some(Overlay::VaultKey(shown)) = &state.overlay else { panic!("the recovery key") };
+    shown
+}
+
 #[test]
 fn the_recovery_key_shows_once_beside_the_new_vault() {
     let (mut state, now) = state();
-    let key = Password::new("00010203-04050607");
-    let effects = update(&mut state, Msg::VaultCreated { side: Side::Left, vault: vault(), key: key.clone() }, now);
+    let effects = created(&mut state, now, Ok(vault()));
     assert_eq!(listed(&mut state, now, &effects), Path::new(ROOT));
-    let Some(Overlay::VaultKey(shown)) = &state.overlay else { panic!("the recovery key") };
-    assert_eq!((shown.name.as_str(), &shown.key), (NAME, &key));
+    assert_eq!((shown_key(&state).name.as_str(), shown_key(&state).key.as_str()), (NAME, KEY));
+    type_text(&mut state, now, LAST_GROUP);
+    assert!(state.overlay.is_none());
+}
+
+#[test]
+fn the_recovery_key_closes_only_once_its_last_group_is_typed() {
+    let (mut state, now) = state();
+    created(&mut state, now, Ok(vault()));
+    for code in [KeyCode::Enter, KeyCode::Esc] {
+        press(&mut state, now, code);
+        assert_eq!(shown_key(&state).key.as_str(), KEY, "{code:?} keeps the key");
+        assert_eq!(state.notice.as_deref(), Some(tr!(vault_key_type_last)));
+    }
+    type_text(&mut state, now, "8e9f0a1c");
+    assert!(matches!(state.overlay, Some(Overlay::VaultKey(_))), "another group keeps the key");
+    for _ in 0..LAST_GROUP.len() {
+        press(&mut state, now, KeyCode::Backspace);
+    }
+    type_text(&mut state, now, &LAST_GROUP.to_uppercase());
+    assert!(state.overlay.is_none(), "the last group closes it in either case");
+    assert_eq!(state.notice, None);
+}
+
+#[test]
+fn pasting_the_whole_recovery_key_closes_it_too() {
+    let (mut state, now) = state();
+    created(&mut state, now, Ok(vault()));
+    update(&mut state, Msg::Paste(KEY.into()), now);
     press(&mut state, now, KeyCode::Enter);
     assert!(state.overlay.is_none());
+}
+
+#[test]
+fn a_new_vault_that_did_not_open_still_shows_its_recovery_key_and_its_folder() {
+    let (mut state, now) = state();
+    let effects = created(&mut state, now, Err(VaultError::NotMounted));
+    assert_eq!(listed(&mut state, now, &effects), Path::new(HOME), "the folder lists again with the new vault");
+    assert_eq!(shown_key(&state).key.as_str(), KEY);
+    assert_eq!(state.notice.as_deref(), Some(tr!(vault_not_mounted, name = NAME).as_str()));
+    assert_eq!(state.panel(Side::Left).vault, None);
+}
+
+#[test]
+fn a_recovery_key_that_does_not_open_its_vault_is_never_shown() {
+    let (mut state, now) = state();
+    crate::actions::perform(&mut state, Action::CreateVault, now);
+    type_text(&mut state, now, NAME);
+    type_text(&mut state, now, SECRET);
+    type_text(&mut state, now, SECRET);
+    assert!(crate::vault::key_shown_or_coming(&state), "a vault being made holds its key back from a restart");
+    let error = VaultError::KeyNotKept;
+    update(&mut state, Msg::VaultFailed { side: Side::Left, cipher: CIPHER.into(), error }, now);
+    assert!(state.overlay.is_none());
+    assert!(!crate::vault::key_shown_or_coming(&state));
+    assert_eq!(state.notice.as_deref(), Some(tr!(vault_key_not_kept, name = NAME).as_str()));
+}
+
+#[test]
+fn a_recovery_key_on_screen_is_a_secret() {
+    let (mut state, now) = state();
+    assert!(!state.secret_on_screen());
+    created(&mut state, now, Ok(vault()));
+    assert!(state.secret_on_screen());
 }
 
 #[test]
@@ -246,11 +317,16 @@ fn every_vault_password_field_hides_what_is_typed() {
 }
 
 #[test]
-fn the_recovery_key_reads_in_two_lines_of_four_groups() {
-    let key = "0a1b2c3d-4e5f6a7b-8c9d0e1f-2a3b4c5d-6e7f8a9b-0c1d2e3f-4a5b6c7d-8e9f0a1b";
-    let shown = VaultKey { name: NAME.into(), key: Password::new(key) };
-    assert_eq!(shown.lines(), ["0a1b2c3d-4e5f6a7b-8c9d0e1f-2a3b4c5d-", "6e7f8a9b-0c1d2e3f-4a5b6c7d-8e9f0a1b"]);
-    assert_eq!(shown.lines().concat(), key);
+fn the_recovery_key_reads_in_lines_of_four_groups_or_fewer_when_narrow() {
+    let shown = VaultKey::new(NAME.into(), Password::new(KEY));
+    assert_eq!(shown.lines(60), ["0a1b2c3d-4e5f6a7b-8c9d0e1f-2a3b4c5d-", "6e7f8a9b-0c1d2e3f-4a5b6c7d-8e9f0a1b"]);
+    assert_eq!(shown.lines(26)[0], "0a1b2c3d-4e5f6a7b-");
+    assert_eq!(shown.lines(26).len(), 4);
+    assert_eq!(shown.lines(4).len(), 8, "one group a line at the narrowest");
+    for width in [4, 18, 26, 36, 60] {
+        assert_eq!(shown.lines(width).concat(), KEY, "{width}");
+        assert!(shown.lines(width).iter().all(|line| line.len() <= width.max(9)), "{width}");
+    }
 }
 
 #[test]
