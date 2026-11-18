@@ -98,6 +98,7 @@ pub struct AppState {
     /// Port scans that run, ended or are remembered.
     pub port_scans: crate::PortScans,
     pub startup_items: crate::StartupItems,
+    pub hosts: crate::Hosts,
     pub alerts: crate::Alerts,
     pub agent: crate::Agent,
     pub backup: crate::Backup,
@@ -233,6 +234,7 @@ impl AppState {
             docker: crate::Docker::default(),
             network: crate::Network::default(),
             startup_items: crate::StartupItems::default(),
+            hosts: crate::Hosts::default(),
             alerts: crate::Alerts::default(),
             agent: crate::Agent::default(),
             backup: crate::Backup::default(),
@@ -349,6 +351,7 @@ impl AppState {
             || self.network.is_open()
             || self.startup_items.is_open()
             || self.alerts.is_open()
+            || self.hosts.is_open()
     }
 
     pub fn question_shows(&self) -> bool {

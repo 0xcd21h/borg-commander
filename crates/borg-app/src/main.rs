@@ -16,6 +16,8 @@ mod document;
 mod edit_file;
 mod entropy_scan;
 mod host_asks;
+mod host_overview;
+mod host_watch;
 mod index;
 mod integrity;
 mod launch;

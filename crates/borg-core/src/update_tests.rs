@@ -226,7 +226,8 @@ fn remote_browser_opens_switches_and_mirrors_named_sessions() {
     let menu = &menus(&state)[3];
     assert_eq!(menu.title, "Remote");
     assert_eq!(menu.item(0).map(|item| item.action), Some(Action::BrowseRemotes));
-    assert_eq!(menu.item(1).map(|item| item.enabled), Some(false));
+    assert_eq!(menu.item(1).map(|item| item.action), Some(Action::HostsOverview));
+    assert_eq!(menu.item(2).map(|item| item.enabled), Some(false));
     let host = state.panel(Side::Left).dir().to_path_buf();
     state.settings.preferences.docker_console = false;
     assert_eq!(
@@ -276,6 +277,7 @@ fn remote_browser_opens_switches_and_mirrors_named_sessions() {
         deleting: None,
         forgetting: None,
         updating: None,
+        from_overview: false,
     }));
     assert_eq!(
         update(&mut state, Msg::Key(key(KeyCode::Enter)), now),
@@ -301,6 +303,7 @@ fn remote_browser_opens_switches_and_mirrors_named_sessions() {
         deleting: None,
         forgetting: None,
         updating: None,
+        from_overview: false,
     }));
     assert_eq!(
         update(&mut state, Msg::Key(key(KeyCode::Char('m'))), now),

@@ -3695,6 +3695,39 @@ fn remote_host_reports_its_version_and_streams_large_folders_without_duplicate_p
     Ok(())
 }
 
+/// The hosts overview asks a paired host for its figures over borg cloud, shows its card, and
+/// remembers when the host last answered once the page closes.
+#[test]
+fn the_hosts_overview_shows_a_card_with_the_hosts_figures() -> Result<()> {
+    let relay = relay()?;
+    let host = fixture()?;
+    host.configure(&format!("return-to-panels = false\nrelay = \"{relay}\"\n"))?;
+    let mut remote = Session::builder(BORG, &host).size(130, 34).label("overview-host").spawn()?;
+    remote.wait_text(READY)?;
+    let (computer, name) = pair_computer(&mut remote, &host)?;
+    let client = fixture()?;
+    client.configure(&format!("return-to-panels = false\nrelay = \"{relay}\"\n"))?;
+    fs::create_dir_all(client.state().join("link"))?;
+    for file in COMPUTER_FILES {
+        fs::copy(computer.join("link").join(file), client.state().join("link").join(file))?;
+    }
+    let mut local = Session::builder(BORG, &client).size(120, 32).label("overview-client").spawn()?;
+    local.wait_text(READY)?;
+    local.send(keys::alt(KeyCode::Char('h')))?;
+    local.wait_text(&format!("Host {name} · Default"))?;
+    local.send("o")?;
+    local.wait_text("1 of 1 answering")?;
+    local.wait_until("the host's figures on its card", |screen| {
+        screen.contains(&name) && screen.contains("CPU") && screen.contains("RAM") && screen.contains("Up ")
+    })?;
+    local.send(keys::esc())?;
+    local.wait_gone("1 of 1 answering")?;
+    local.wait_until("the time the host last answered saved", |_| {
+        fs::read_to_string(client.state().join("hosts-seen.json")).is_ok_and(|seen| seen.contains("\": "))
+    })?;
+    Ok(())
+}
+
 #[test]
 fn remote_panel_console_preserves_its_shell_while_idle_and_parked() -> Result<()> {
     let relay = relay_with_idle_proxy(std::time::Duration::from_secs(25))?;

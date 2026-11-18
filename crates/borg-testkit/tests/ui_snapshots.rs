@@ -6998,3 +6998,186 @@ fn searches_list_close_names_after_exact_ones_and_mark_what_matched() -> Result<
     ensure_text(&buffer, "close matches: 4")?;
     check("search_close_matches", &stage, buffer)
 }
+
+/// A version far enough ahead that these hosts never run an older Borg than the one tested.
+const CURRENT: &str = "1.4.2";
+
+fn paired(name: &str, last_seen: Option<SystemTime>) -> borg_core::PairedHost {
+    borg_core::PairedHost {
+        identity: format!("key-{name}"),
+        machine: name.into(),
+        relay: "wss://relay.example".into(),
+        last_seen,
+    }
+}
+
+fn host_reply(
+    name: &str,
+    version: &str,
+    sessions: usize,
+    figures: Option<borg_core::HostFigures>,
+) -> borg_core::HostHeard {
+    let info = borg_core::RemoteHostInfo {
+        version: Some(version.into()),
+        platform: Some("linux / x86_64".into()),
+        service: Some(true),
+        latency_ms: Some(38),
+        relay: String::new(),
+    };
+    let sessions = (0..sessions)
+        .map(|index| borg_core::RemoteChoice {
+            identity: format!("key-{name}"),
+            machine: name.into(),
+            session: Some(format!("s{index}")),
+            name: if index == 0 { "main".into() } else { format!("work-{index}") },
+            info: info.clone(),
+            ..Default::default()
+        })
+        .collect();
+    borg_core::HostHeard::Answered(Box::new(borg_core::HostReply {
+        info,
+        sessions,
+        figures,
+        seen: UNIX_EPOCH + Duration::from_secs(1_768_478_000),
+    }))
+}
+
+struct HostLoad {
+    cores: usize,
+    cpu: u32,
+    load: u32,
+    used: u64,
+    total: u64,
+    disk: (u64, u64),
+}
+
+fn host_figures(load: HostLoad) -> borg_core::HostFigures {
+    borg_core::HostFigures {
+        cores: load.cores,
+        cpu: Some(load.cpu),
+        load: Some(borg_core::LoadAverage { one: load.load, five: load.load, fifteen: load.load }),
+        uptime: Some(16 * 86_400 + 3_600),
+        memory: Some(borg_core::MemoryFigures {
+            used: load.used,
+            total: load.total,
+            swap_used: GIB / 2,
+            swap_total: 2 * GIB,
+        }),
+        disk: Some(borg_core::DiskFigures { mount: "/".into(), total: load.disk.0, available: load.disk.1 }),
+        watch: Some(borg_core::WatchFigures { on: true, ..Default::default() }),
+        containers: None,
+    }
+}
+
+/// Seven paired hosts: four answering with figures, one quiet for a while, one on a Borg too old to
+/// send figures, and two offline.
+fn send_hosts(stage: &mut Stage) -> Result<()> {
+    let clock: jiff::Zoned = CLOCK.parse()?;
+    let now = SystemTime::from(clock.timestamp());
+    let hosts = vec![
+        paired("web-01", None),
+        paired("db-01", None),
+        paired("ci-runner", None),
+        paired("mac-mini", None),
+        paired("ubuntu-hel1", None),
+        paired("test-trash", Some(now - Duration::from_secs(3 * 86_400))),
+        paired("old-nas", None),
+    ];
+    let answered = stage.started;
+    let later = stage.started + Duration::from_secs(40);
+    borg_core::update(&mut stage.state, Msg::HostsListed(Ok(hosts)), answered);
+    let mut send = |name: &str, heard: borg_core::HostHeard, at: Instant| {
+        borg_core::update(&mut stage.state, Msg::HostAnswered { identity: format!("key-{name}"), answer: heard }, at);
+    };
+    let mut web = host_figures(HostLoad {
+        cores: 8,
+        cpu: 3_100,
+        load: 80,
+        used: 10 * GIB,
+        total: 16 * GIB,
+        disk: (50 * GIB, 4 * GIB),
+    });
+    web.watch = Some(borg_core::WatchFigures { on: true, unread_alerts: 1, ..Default::default() });
+    web.containers = Some(borg_core::ContainerFigures { running: 7, total: 8, troubled: 0 });
+    send("web-01", host_reply("web-01", CURRENT, 3, Some(web)), later);
+    let mut db = host_figures(HostLoad {
+        cores: 16,
+        cpu: 8_800,
+        load: 930,
+        used: 23 * GIB,
+        total: 32 * GIB,
+        disk: (480 * GIB, 290 * GIB),
+    });
+    db.watch = Some(borg_core::WatchFigures {
+        on: true,
+        learning_until: Some(SystemTime::now() + Duration::from_secs(3 * 86_400 - 60)),
+        ..Default::default()
+    });
+    send("db-01", host_reply("db-01", CURRENT, 1, Some(db)), later);
+    let mut ci = host_figures(HostLoad {
+        cores: 4,
+        cpu: 10_000,
+        load: 1_000,
+        used: 31 * GIB,
+        total: 32 * GIB,
+        disk: (240 * GIB, 80 * GIB),
+    });
+    ci.containers = Some(borg_core::ContainerFigures { running: 12, total: 14, troubled: 1 });
+    send("ci-runner", host_reply("ci-runner", "0.11.4", 1, Some(ci)), later);
+    let mini = host_figures(HostLoad {
+        cores: 8,
+        cpu: 1_200,
+        load: 180,
+        used: 7 * GIB,
+        total: 16 * GIB,
+        disk: (460 * GIB, 210 * GIB),
+    });
+    send("mac-mini", host_reply("mac-mini", CURRENT, 2, Some(mini)), answered);
+    send("mac-mini", borg_core::HostHeard::Silent, answered + Duration::from_secs(10));
+    send("ubuntu-hel1", host_reply("ubuntu-hel1", "0.10.2", 1, None), later);
+    send("test-trash", borg_core::HostHeard::Offline, later);
+    send("old-nas", borg_core::HostHeard::Offline, later);
+    Ok(())
+}
+
+/// The Hosts page from the Remote menu: a card for each paired host with its load, memory, fullest
+/// disk, watcher and containers, offline hosts on one line, the selected host's facts beside the
+/// cards once Alt-W gives them half the width, and a table when V asks for one.
+#[test]
+fn hosts_show_a_card_for_each_paired_host() -> Result<()> {
+    let mut stage = stage(GridSize { cols: 120, rows: 32 }, Motion::STILL)?;
+    stage.send(Msg::Pointer(borg_core::Pointer::Action(borg_core::Action::HostsOverview)));
+    let buffer = stage.render(stage.started + Duration::from_secs(2))?;
+    ensure_text(&buffer, "Reading the paired hosts")?;
+    check("hosts_loading", &stage, buffer)?;
+
+    send_hosts(&mut stage)?;
+    let at = stage.started + Duration::from_secs(40);
+    let buffer = stage.render(at)?;
+    ensure_text(&buffer, "Offline: old-nas · test-trash, seen")?;
+    ensure_text(&buffer, "Not answering for 30 seconds")?;
+    ensure_text(&buffer, "40 seconds old")?;
+    check("hosts_cards", &stage, buffer)?;
+
+    stage.send(Msg::Resize { cols: 80, rows: 24 });
+    let buffer = stage.render(at)?;
+    anyhow::ensure!(stage.state.hosts.columns() == Some(2), "80 cells fit two cards");
+    check("hosts_cards_80", &stage, buffer)?;
+
+    stage.send(Msg::Resize { cols: 120, rows: 32 });
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT)));
+    let buffer = stage.render(at)?;
+    anyhow::ensure!(!stage.state.hosts.expanded, "Alt-W shows the facts beside the cards");
+    ensure_text(&buffer, "older than this Borg")?;
+    check("hosts_details", &stage, buffer)?;
+
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT))).send(key(KeyCode::Char('v')));
+    let buffer = stage.render(at)?;
+    anyhow::ensure!(stage.state.hosts.columns().is_none(), "V shows the hosts as rows");
+    ensure_text(&buffer, "old-nas")?;
+    check("hosts_rows", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Esc));
+    anyhow::ensure!(!stage.state.hosts.is_open(), "Esc closes the page");
+    Ok(())
+}

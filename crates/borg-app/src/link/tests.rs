@@ -161,6 +161,7 @@ mod rotation {
             calls,
             messages,
             clients: Arc::new(AtomicUsize::new(0)),
+            overview: Default::default(),
         };
         let served = tokio::spawn(async move { served.listen().await });
         let stage = Stage { relay, server, server_state, shared, notices, _served: served };
@@ -758,6 +759,7 @@ async fn the_server_holds_only_so_many_sessions_whose_clients_have_not_said_hell
         calls,
         messages,
         clients: Arc::new(AtomicUsize::new(0)),
+        overview: Default::default(),
     };
     let server = tokio::spawn(async move { served.listen().await });
 

@@ -285,6 +285,7 @@ fn remote_menu(state: &AppState) -> Menu {
         title: tr!(remote_menu_title).into(),
         entries: vec![
             item(tr!(remote_borgs), Action::BrowseRemotes),
+            item(tr!(hosts_menu), Action::HostsOverview),
             when(
                 item(tr!(remote_mirror_mounted), Action::MirrorRemote),
                 state.panels.iter().any(|panel| panel.remote_mount.is_some()),

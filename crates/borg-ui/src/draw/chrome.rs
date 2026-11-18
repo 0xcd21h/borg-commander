@@ -111,6 +111,9 @@ impl<'a> Drawing<'_, 'a> {
         if state.startup_items.is_open() {
             crate::startup_view::draw(state, &self.look, screen, self.scene.clock, now, &mut self.buf);
         }
+        if state.hosts.is_open() {
+            crate::hosts_view::draw(state, &self.look, screen, self.scene.clock, now, &mut self.buf);
+        }
         if let Some(side) = lent {
             self.lent(side);
             return;
@@ -257,6 +260,8 @@ impl<'a> Drawing<'_, 'a> {
         } else if state.startup_items.is_open() {
             Line::styled(crate::startup_view::status(&state.startup_items), styles.status)
                 .render(status, &mut self.buf);
+        } else if state.hosts.is_open() {
+            Line::styled(crate::hosts_view::status(&state.hosts), styles.status).render(status, &mut self.buf);
         } else if let Some(editor) = state.docked[state.active.index()].as_ref().filter(|_| self.focused.is_some()) {
             Line::styled(format!(" {}", editor.shown_path().display()), styles.status).render(status, &mut self.buf);
         } else {
@@ -320,6 +325,8 @@ impl<'a> Drawing<'_, 'a> {
             crate::alerts_view::keybar(state, area, self.theme, &mut self.buf);
         } else if state.startup_items.is_open() {
             crate::startup_view::keybar(state, area, self.theme, &mut self.buf);
+        } else if state.hosts.is_open() {
+            crate::hosts_view::keybar(state, area, self.theme, &mut self.buf);
         } else if self.focused.is_some() {
             crate::editor_view::keybar(state, area, self.theme, &mut self.buf);
         } else {

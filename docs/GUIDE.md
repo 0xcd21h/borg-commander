@@ -1199,7 +1199,8 @@ In local Borg, press **Alt-H**, click **Remote hosts** in the shortcut bar, or c
 **F9 → Remote → Browse hosts and sessions…** to see paired machines and their named sessions.
 Enter opens the selected session's files in the panel you opened the picker from, replacing what
 that panel showed. Press **M** to mirror the session's screen, **U** to update the host (see
-[Updating with sessions open](#updating-with-sessions-open)), and **R** to refresh the list.
+[Updating with sessions open](#updating-with-sessions-open)), **R** to refresh the list, and **O**
+to open the [hosts overview](#hosts-overview).
 
 **Tab** switches between **Hosts** (computers this Borg can reach) and **Clients** (computers
 that can reach this Borg). Clients lists the computers paired with this Borg, their public-key
@@ -1210,8 +1211,8 @@ including in a session whose connections are held by the background service. Pai
 one direction only: an allowed client does not automatically become a host whose files this Borg
 can browse. When the connection owner cannot report connection status, paired clients are still
 listed, with **Connection status unavailable**. The same Borg can be a host and a client at once.
-The Remote menu also offers **Mirror mounted host**, **Share this Borg as host…**,
-**Remote log…**, and **Background service…**.
+The Remote menu also offers **Hosts overview**, **Mirror mounted host**, **Share this Borg as
+host…**, **Remote log…**, and **Background service…**.
 
 The picker shows each host's Borg version. Selecting a session shows its OS and architecture,
 whether it runs as a background service or in a terminal, request latency, and relay address.
@@ -1241,6 +1242,43 @@ history; files and folders on the host are kept. The Default session cannot be r
 standalone session that is currently hosting the connection cannot remove itself; first close it
 on the host and run Borg in another session. If removal fails, the session stays listed so you
 can try again. A running session is stopped first, and the service does not start it again.
+
+### Hosts overview
+
+Choose **F9 → Remote → Hosts overview**, or press **O** in the remote hosts picker, to see every
+paired host at once. Each host gets a card with bars for its CPU, its RAM and its fullest
+filesystem, the load beside the CPU, then the process watcher and how long the host has been up,
+with how many of its containers run. The page asks every host again every 5 seconds while it is
+open, and stops when you close it.
+
+A card turns to the warning color when the load passes the number of cores, when the RAM or the
+fullest filesystem is 90% full, when a container keeps restarting or fails its health check, or
+when the watcher has warnings nobody read. It turns to the alert color at twice the cores' load, at
+95% RAM or disk, with less than 1 GiB left on the disk, with unread alerts, or once the watcher
+froze a process. ● marks a host that answers and ◌ one Borg still waits for. ◐ marks a host that
+stopped answering: its card keeps the last figures, says how long the host has been quiet, and
+shows their age on its bottom border once they are 15 seconds old. A host running an older Borg
+shows ↑ after its version. A Borg too old to send figures says so on its card; press **U** to update
+it.
+
+Hosts the relay reports as offline leave the cards and line up at the bottom, each with the time
+it last answered. Borg keeps those times in `hosts-seen.json` in the state folder, readable only by
+you.
+
+The arrows move between cards. **Enter** opens the selected host's files in a panel, **M** mirrors
+its session, **U** updates it, and **F2** renames it. For a host with several sessions, Enter and M
+first show the picker with only that host's sessions. **R** asks every host again now, **/**
+filters by name, Borg version or system, and **V** switches to a table with a row for each host,
+offline ones included. A pane too narrow or too short for a card shows the table as well.
+**Alt-W** gives the page half the width and shows the selected host's details beside the cards:
+its system, relay, round trip, sessions, when it last answered, and each figure in words.
+
+The figures travel through borg cloud like any other call, encrypted end to end. They are numbers
+and counts: the machine's totals for CPU, load, memory and swap, the size and free space of one
+filesystem with its mount point, the watcher's unread counts, and the number of containers. No
+process, file name or alert text leaves the host this way, so the host answers without asking,
+even with "ask before another computer reads" turned on. While the page is open, each host lists
+this computer as connected.
 
 ### Mirroring a session
 

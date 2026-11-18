@@ -1301,8 +1301,8 @@ En el Borg local, pulsa **Alt-H**, haz clic en **Hosts remotos** en la barra de 
 **F9 → Remoto → Explorar hosts y sesiones…** para ver las máquinas emparejadas y sus sesiones con
 nombre. Enter abre los archivos de la sesión seleccionada en el panel desde el que abriste el
 selector, y sustituye lo que mostraba ese panel. Pulsa **M** para reflejar la pantalla de la sesión,
-**U** para actualizar el host (consulta [Actualizar con sesiones abiertas](#updating-with-sessions-open))
-y **R** para actualizar la lista.
+**U** para actualizar el host (consulta [Actualizar con sesiones abiertas](#updating-with-sessions-open)),
+**R** para actualizar la lista y **O** para abrir la [vista general de hosts](#hosts-overview).
 
 **Tab** alterna entre **Hosts** (computadoras a las que este Borg puede llegar) y **Clientes**
 (computadoras que pueden llegar a este Borg). Clientes enumera las computadoras emparejadas con este
@@ -1314,7 +1314,7 @@ mantiene el servicio en segundo plano. El emparejamiento funciona en un solo sen
 autorizado no se convierte automáticamente en un host cuyos archivos pueda explorar este Borg.
 Cuando el propietario de la conexión no puede informar del estado de la conexión, los clientes
 emparejados siguen apareciendo, con **Estado de conexión no disponible**. Un mismo Borg puede ser
-host y cliente a la vez. El menú Remoto también ofrece **Reflejar host montado**, **Compartir este
+host y cliente a la vez. El menú Remoto también ofrece **Vista general de hosts**, **Reflejar host montado**, **Compartir este
 Borg como host…**, **Registro remoto…** y **Servicio en segundo plano…**.
 
 El selector muestra la versión de Borg de cada host. Al seleccionar una sesión se muestran su
@@ -1350,6 +1350,46 @@ sesión predeterminada (Default) no se puede eliminar. Una sesión independiente
 aloja la conexión no puede eliminarse a sí misma; ciérrala primero en el host y ejecuta Borg en otra
 sesión. Si la eliminación falla, la sesión sigue en la lista para que puedas intentarlo de nuevo.
 Una sesión en marcha se detiene primero, y el servicio no la vuelve a iniciar.
+
+### Vista general de hosts
+
+Elige **F9 → Remoto → Vista general de hosts**, o pulsa **O** en el selector de hosts remotos, para
+ver todos los hosts emparejados a la vez. Cada host tiene una tarjeta con barras para la CPU, la RAM
+y el sistema de archivos más lleno, la carga junto a la CPU y, debajo, el vigilante de procesos y
+cuánto tiempo lleva encendido el host, con cuántos de sus contenedores están en marcha. Mientras
+está abierta, la página vuelve a consultar todos los hosts cada 5 segundos, y deja de hacerlo cuando
+la cierras.
+
+Una tarjeta pasa al color de aviso cuando la carga supera el número de núcleos, cuando la RAM o el
+sistema de archivos más lleno llega al 90%, cuando un contenedor se reinicia una y otra vez o falla
+su comprobación de salud, o cuando el vigilante tiene avisos sin leer. Pasa al color de alerta con
+el doble de esa carga, con un 95% de RAM o de disco, con menos de 1 GiB libre en el disco, con
+alertas sin leer, o cuando el vigilante ha congelado un proceso. ● marca un host que responde y ◌ uno
+cuya respuesta Borg aún espera. ◐ marca un host que ha dejado de responder: su tarjeta conserva las
+últimas cifras, indica cuánto tiempo lleva callado el host y muestra la antigüedad de las cifras en
+su borde inferior a partir de los 15 segundos. Un host con un Borg más antiguo muestra ↑ después de
+su versión. Un Borg demasiado antiguo para enviar cifras lo indica en su tarjeta; pulsa **U** para
+actualizarlo.
+
+Los hosts que el relay da por desconectados salen de las tarjetas y se agrupan en una línea abajo,
+cada uno con la hora a la que respondió por última vez. Borg guarda esas horas en `hosts-seen.json`
+en la carpeta de estado, que solo tú puedes leer.
+
+Las flechas mueven entre tarjetas. **Enter** abre los archivos del host seleccionado en un panel,
+**M** refleja su sesión, **U** lo actualiza y **F2** lo renombra. En un host con varias sesiones,
+Enter y M muestran primero el selector solo con las sesiones de ese host. **R** vuelve a consultar
+todos los hosts al momento, **/** filtra por nombre, versión de Borg o sistema, y **V** cambia a una
+tabla con una fila por host, incluidos los desconectados. Un panel demasiado estrecho o bajo para una
+tarjeta también muestra la tabla. **Alt-W** da a la página la mitad del ancho y muestra los detalles
+del host seleccionado junto a las tarjetas: su sistema, el relay, el tiempo de ida y vuelta, las
+sesiones, cuándo respondió por última vez y cada cifra en palabras.
+
+Las cifras viajan por borg cloud como cualquier otra llamada, cifradas de extremo a extremo. Son
+números y recuentos: los totales de la máquina para CPU, carga, memoria y swap, el tamaño y el espacio
+libre de un sistema de archivos con su punto de montaje, los recuentos sin leer del vigilante y el
+número de contenedores. Ningún proceso, nombre de archivo ni texto de alerta sale del host por esta
+vía, así que el host responde sin preguntar, incluso con "preguntar antes de que otra computadora
+lea" activado. Mientras la página está abierta, cada host muestra esta computadora como conectada.
 
 ### Reflejar una sesión
 

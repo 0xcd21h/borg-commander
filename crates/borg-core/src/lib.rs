@@ -25,6 +25,7 @@ mod find_bar;
 mod folders;
 mod game2048;
 mod history;
+mod hosts;
 mod input;
 mod install;
 mod jobs;
@@ -110,6 +111,12 @@ pub use folders::{
 };
 pub use game2048::{Game2048, GameDirection, GameStatus, SavedGame2048};
 pub use history::{HISTORY_LIMIT, PastSearch, SearchHistory};
+pub use hosts::{
+    CARD_GAP, CARD_HEIGHT, CARD_WIDTH, CARDS_CHROME, ContainerFigures, DiskFigures, HOSTS_EVERY, HostCard, HostFigures,
+    HostHeard, HostReply, Hosts, HostsLayout, MemoryFigures, PairedHost, ROWS_CHROME, Reach, STALE_AFTER, WHOLE,
+    WatchFigures, card_columns, fits_card_rows, fits_cards, fullest, holds_files, hosts_filtered, older_than, share,
+    worse,
+};
 pub use input::LineInput;
 pub use install::{Elevation, InstallOffer, Installer, PackageManager, Platform, Tool};
 pub use jobs::{

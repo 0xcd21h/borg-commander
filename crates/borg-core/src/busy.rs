@@ -23,6 +23,8 @@ pub enum Task {
     StartupItems,
     /// The Alerts page reading its log.
     Alerts,
+    /// The hosts screen waiting for the list of paired hosts.
+    Hosts,
     /// The quick view or Info pane preparing its contents.
     Preview,
     RemoteCatalog,
@@ -89,6 +91,9 @@ pub(crate) fn sync(state: &mut AppState, now: Instant) {
     }
     if state.alerts.is_open() && state.alerts.pending.is_some() {
         active.push(Task::Alerts);
+    }
+    if state.hosts.is_open() && !state.hosts.listed && state.hosts.error.is_none() {
+        active.push(Task::Hosts);
     }
     let docker = &state.docker;
     let disk = &docker.disk;
