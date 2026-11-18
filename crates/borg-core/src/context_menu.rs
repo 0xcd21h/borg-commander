@@ -146,6 +146,9 @@ fn for_screen(state: &AppState) -> Option<Menu<ContextCommand>> {
     if state.alerts.is_open() {
         return screens::alert(&state.alerts);
     }
+    if state.hosts.is_open() {
+        return None;
+    }
     screens::startup_item(&state.startup_items)
 }
 

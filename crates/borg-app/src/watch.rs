@@ -146,6 +146,12 @@ impl Drop for Alerts {
     }
 }
 
+/// The alert log in the state folder and when it last changed, read only when that is not the
+/// moment already `seen`, for what this machine tells a paired computer's hosts screen.
+pub fn alert_log_since(seen: Option<SystemTime>) -> Option<(SystemTime, AlertLog)> {
+    changed_log(&log::folder().ok()?, seen)
+}
+
 /// The log and when it last changed, read only when that is not the moment already `seen`.
 fn changed_log(state: &Path, seen: Option<SystemTime>) -> Option<(SystemTime, AlertLog)> {
     let at = log::log_changed(state).filter(|at| seen != Some(*at))?;

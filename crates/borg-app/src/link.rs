@@ -120,6 +120,9 @@ pub const DEFAULT_RELAY: Option<&str> = None;
 pub const PAIR_CALL: &str = "_pair";
 /// The call that updates a paired host to the latest Borg.
 pub const HOST_UPDATE_CALL: &str = "host_update";
+/// With this set in its arguments, `host_info` adds the machine's figures under the same name,
+/// for the hosts screen. A Borg from before the screen leaves them out.
+pub const OVERVIEW_ARG: &str = "overview";
 
 /// A host's answer to [`HOST_UPDATE_CALL`]: the version its service runs next, and whether it
 /// moves to it.
@@ -356,6 +359,7 @@ impl LinkServer {
                 calls: self.calls.clone(),
                 messages: self.messages.clone(),
                 clients: self.clients.clone(),
+                overview: Default::default(),
             };
             self.task = Some(tokio::spawn(server.run()));
         } else if !wanted {

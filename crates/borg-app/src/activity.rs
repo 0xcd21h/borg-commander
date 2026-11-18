@@ -25,7 +25,7 @@ mod helper;
 mod maps;
 mod process_files;
 mod reading;
-mod system;
+pub(crate) mod system;
 
 #[cfg(target_os = "macos")]
 pub(crate) use helper::bounded_output;
