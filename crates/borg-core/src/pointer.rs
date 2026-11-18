@@ -64,6 +64,13 @@ pub enum Pointer {
         open: bool,
     },
     StartupControl(crossterm::event::KeyCode),
+    HostsExpand(bool),
+    HostsHide,
+    HostsRow {
+        index: usize,
+        open: bool,
+    },
+    HostsControl(crossterm::event::KeyCode),
     AlertsExpand(bool),
     AlertsHide,
     AlertsRow {
@@ -289,6 +296,11 @@ fn on_panels(state: &mut AppState, pointer: Pointer, now: Instant) -> Vec<Effect
         {
             crate::screens::focus_list(state);
             monitors::alerts(state, pointer, now)
+        }
+        Pointer::HostsExpand(_) | Pointer::HostsHide | Pointer::HostsRow { .. } | Pointer::HostsControl(_)
+            if state.hosts.is_open() =>
+        {
+            monitors::hosts(state, pointer, now)
         }
         Pointer::TreeNode { side, index } if state.panel(side).is_tree() => toggle_tree_node(state, side, index),
         Pointer::ResultControl { side, action }

@@ -47,6 +47,8 @@ impl App {
             Effect::StopUpdateChecks => self.stop_update_checks(),
             Effect::Docker { id, request } => self.docker.request(id, request),
             Effect::DockerWatch(on) => self.docker.watch(on),
+            Effect::WatchHosts(on) => self.hosts.watch(on),
+            Effect::RefreshHosts => self.hosts.refresh(),
             Effect::Network { id, neighbors } => self.network.request(id, neighbors),
             Effect::StartupItems { id } => self.startup_items.request(id),
             Effect::Alerts { id, request } => self.alerts.request(id, request),

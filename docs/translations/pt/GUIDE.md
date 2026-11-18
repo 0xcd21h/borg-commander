@@ -1291,8 +1291,8 @@ No Borg local, prima **Alt-H**, clique em **Hosts remotos** na barra de atalhos 
 **F9 → Remoto → Explorar hosts e sessões…** para ver as máquinas emparelhadas e as respetivas
 sessões com nome. Enter abre os ficheiros da sessão selecionada no painel a partir do qual abriu o
 seletor, substituindo o que esse painel mostrava. Prima **M** para espelhar o ecrã da sessão,
-**U** para atualizar o host (consulte [Atualizar com sessões abertas](#updating-with-sessions-open))
-e **R** para atualizar a lista.
+**U** para atualizar o host (consulte [Atualizar com sessões abertas](#updating-with-sessions-open)),
+**R** para atualizar a lista e **O** para abrir a [visão geral dos hosts](#hosts-overview).
 
 **Tab** alterna entre **Hosts** (computadores a que este Borg chega) e **Clientes** (computadores
 que chegam a este Borg). Clientes lista os computadores emparelhados com este Borg, as impressões
@@ -1304,7 +1304,7 @@ mantidas pelo serviço em segundo plano. O emparelhamento funciona num único se
 autorizado não passa automaticamente a ser um host cujos ficheiros este Borg possa explorar. Quando
 quem detém a ligação não consegue indicar o estado da ligação, os clientes emparelhados continuam a
 ser listados, com **Estado da ligação indisponível**. O mesmo Borg pode ser host e cliente ao mesmo
-tempo. O menu Remoto oferece também **Espelhar host montado**, **Partilhar este Borg como host…**,
+tempo. O menu Remoto oferece também **Visão geral dos hosts**, **Espelhar host montado**, **Partilhar este Borg como host…**,
 **Registo remoto…** e **Serviço em segundo plano…**.
 
 O seletor mostra a versão do Borg de cada host. Selecionar uma sessão mostra o sistema
@@ -1339,6 +1339,45 @@ pode ser removida. Uma sessão autónoma que esteja a alojar a ligação não se
 própria; feche-a primeiro no host e execute o Borg noutra sessão. Se a remoção falhar, a sessão
 continua na lista para poder tentar de novo. Uma sessão em execução é parada primeiro, e o serviço
 não a volta a iniciar.
+
+### Visão geral dos hosts
+
+Escolha **F9 → Remoto → Visão geral dos hosts**, ou prima **O** no seletor de hosts remotos, para
+ver todos os hosts emparelhados de uma vez. Cada host tem um cartão com barras para a CPU, a RAM e o
+sistema de ficheiros mais cheio, a carga ao lado da CPU e, por baixo, o observador de processos e há
+quanto tempo o host está ativo, com quantos dos seus contentores estão a correr. Enquanto está
+aberta, a página volta a consultar todos os hosts a cada 5 segundos, e deixa de o fazer quando a
+fecha.
+
+Um cartão passa à cor de aviso quando a carga ultrapassa o número de núcleos, quando a RAM ou o
+sistema de ficheiros mais cheio chega aos 90%, quando um contentor reinicia sem parar ou falha a
+verificação de saúde, ou quando o observador tem avisos por ler. Passa à cor de alerta com o dobro
+dessa carga, com 95% de RAM ou de disco, com menos de 1 GiB livre no disco, com alertas por ler, ou
+quando o observador congelou um processo. ● marca um host que responde e ◌ um host cuja resposta o
+Borg ainda espera. ◐ marca um host que deixou de responder: o cartão mantém os últimos números,
+indica há quanto tempo o host está calado e mostra a idade desses números no rebordo inferior a
+partir dos 15 segundos. Um host com um Borg mais antigo mostra ↑ depois da versão. Um Borg demasiado
+antigo para enviar números indica-o no cartão; prima **U** para o atualizar.
+
+Os hosts que o relay indica como desligados saem dos cartões e ficam numa linha em baixo, cada um
+com a hora a que respondeu pela última vez. O Borg guarda essas horas em `hosts-seen.json` na pasta
+de estado, legível apenas por si.
+
+As setas movem entre cartões. **Enter** abre os ficheiros do host selecionado num painel, **M**
+espelha a sua sessão, **U** atualiza-o e **F2** muda o seu rótulo. Num host com várias sessões,
+Enter e M mostram primeiro o seletor apenas com as sessões desse host. **R** volta a consultar todos
+os hosts de imediato, **/** filtra por nome, versão do Borg ou sistema, e **V** muda para uma tabela
+com uma linha por host, incluindo os desligados. Um painel demasiado estreito ou baixo para um
+cartão também mostra a tabela. **Alt-W** dá à página metade da largura e mostra os detalhes do host
+selecionado ao lado dos cartões: o sistema, o relay, o tempo de ida e volta, as sessões, quando
+respondeu pela última vez e cada número por extenso.
+
+Os números viajam pelo borg cloud como qualquer outra chamada, cifrados de ponta a ponta. São
+números e contagens: os totais da máquina para CPU, carga, memória e swap, o tamanho e o espaço livre
+de um sistema de ficheiros com o seu ponto de montagem, as contagens por ler do observador e o número
+de contentores. Nenhum processo, nome de ficheiro ou texto de alerta sai do host desta forma, por
+isso o host responde sem perguntar, mesmo com "perguntar antes de outro computador ler" ativado.
+Enquanto a página está aberta, cada host mostra este computador como ligado.
 
 ### Espelhar uma sessão
 

@@ -758,6 +758,16 @@ queries, along with titles, links, images read from a file, plain modes such as 
 and any sequence cut short.
 Copies also stay in `borg-core::clipboard`, so Ctrl-V works in Borg's own fields anywhere.
 
+The hosts overview asks each paired host `host_info` with `{"overview": true}`. A host that knows
+the argument adds an `overview` field holding `HostFigures`: CPU use since its last answer (it keeps
+one `sysinfo::System` while a computer asks again within 30 seconds), the load, memory and swap
+totals, the fullest local filesystem that holds files, the watcher's unread counts from its alert
+log, and container counts from `docker ps`, kept for 30 seconds. It skips network filesystems and
+gives up on the filesystems after 2 seconds. `Served` answers `host_info` itself, so the overview
+never starts a session or waits for approval, and an older host ignores the argument. On the client,
+`host_watch` keeps one session channel per host between rounds, asks 8 hosts at a time, and tells a
+timeout from the relay's offline close code, which `relay::dial` returns as `relay::Offline`.
+
 Every channel opens with a hello: `pair`, `session` (an agent, a mirror or a panel) or `viewer`.
 A borg opens a viewer channel for each host session one of its panels mounts (`host_asks`) and
 long-polls `asks_wait` with the version it has. The host answers with an `AskFeed` as soon as its

@@ -165,7 +165,7 @@ impl<'a> Caller<'a> {
         match tool.as_str() {
             "session_delete" | super::HOST_UPDATE_CALL => self.served.ask(call).await,
             "file_transfer" => Ok(self.file_transfer(call).await),
-            "host_info" => Ok(self.served.host_info()),
+            "host_info" => Ok(self.served.host_info(&call.args).await),
             "list_sessions" => Ok(self.served.list_sessions()),
             tool if tool.starts_with("mirror_") => self.mirror(call).await,
             tool if tool.starts_with("console_") => self.console(call).await,

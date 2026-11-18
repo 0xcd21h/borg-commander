@@ -31,9 +31,11 @@ pub(crate) enum Screen {
     Network,
     Startup,
     Alerts,
+    Hosts,
 }
 
-const SCREENS: [Screen; 5] = [Screen::Activity, Screen::Docker, Screen::Network, Screen::Startup, Screen::Alerts];
+const SCREENS: [Screen; 6] =
+    [Screen::Activity, Screen::Docker, Screen::Network, Screen::Startup, Screen::Alerts, Screen::Hosts];
 
 impl Screen {
     /// The panels' action that opens the screen, whose key closes it again.
@@ -44,6 +46,7 @@ impl Screen {
             Self::Network => Action::Network,
             Self::Startup => Action::StartupItems,
             Self::Alerts => Action::Alerts,
+            Self::Hosts => Action::HostsOverview,
         }
     }
 }
@@ -66,6 +69,7 @@ fn close(state: &mut AppState, screen: Screen) {
         Screen::Network => crate::network::close(state),
         Screen::Startup => crate::startup_items::close(state),
         Screen::Alerts => crate::watch::close(state),
+        Screen::Hosts => crate::hosts::close(state),
     }
 }
 
@@ -87,6 +91,7 @@ pub(crate) fn open_screen(state: &AppState) -> Option<(Screen, Side)> {
         (Screen::Network, state.network.side),
         (Screen::Alerts, state.alerts.side),
         (Screen::Startup, state.startup_items.side),
+        (Screen::Hosts, state.hosts.side),
     ]
     .into_iter()
     .find_map(|(screen, side)| side.map(|side| (screen, side)))
@@ -113,6 +118,7 @@ fn expanded(state: &AppState, screen: Screen) -> bool {
         Screen::Network => state.network.expanded,
         Screen::Startup => state.startup_items.expanded,
         Screen::Alerts => state.alerts.expanded,
+        Screen::Hosts => state.hosts.expanded,
     }
 }
 
@@ -124,6 +130,7 @@ fn typing(state: &AppState, screen: Screen) -> bool {
         Screen::Network => state.network.typing(),
         Screen::Startup => state.startup_items.typing(),
         Screen::Alerts => state.alerts.typing(),
+        Screen::Hosts => state.hosts.typing(),
     }
 }
 
@@ -135,6 +142,7 @@ fn stop_filtering(state: &mut AppState) {
     state.network.filtering = false;
     state.startup_items.filtering = false;
     state.alerts.filtering = false;
+    state.hosts.filtering = false;
 }
 
 /// The keys for the panel a screen lends beside its list. Alt-O shows the row's file there,
@@ -206,6 +214,7 @@ fn place(state: &AppState, screen: Screen) -> Result<Place, String> {
         }
         Screen::Docker => compose_place(state).ok_or_else(|| tr!(lent_no_compose_folder).to_owned()),
         Screen::Network => Err(tr!(lent_network_hint).to_owned()),
+        Screen::Hosts => Err(missing()),
     }
 }
 
@@ -285,6 +294,7 @@ fn narrow(state: &mut AppState, screen: Screen) {
         Screen::Network => state.network.expanded = false,
         Screen::Startup => state.startup_items.expanded = false,
         Screen::Alerts => state.alerts.expanded = false,
+        Screen::Hosts => state.hosts.expanded = false,
     }
 }
 
