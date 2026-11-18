@@ -162,6 +162,7 @@ mod rotation {
             messages,
             clients: Arc::new(AtomicUsize::new(0)),
             overview: Default::default(),
+            reads_noted: Default::default(),
         };
         let served = tokio::spawn(async move { served.listen().await });
         let stage = Stage { relay, server, server_state, shared, notices, _served: served };
@@ -359,6 +360,120 @@ mod rotation {
         assert_eq!(stage.accepted(), vec![hex(old.public())]);
         assert!(super::super::remote::rotate(&mut other, &new).await.unwrap(), "the real proof works");
         assert_eq!(stage.accepted(), vec![hex(new.public())]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_monitor_reads_how_the_host_is_doing_and_nothing_else_and_is_no_agent() {
+        let old = Identity::generate();
+        let mut stage = serve(relay().await, Identity::generate(), vec![laptop(old.public())]).await;
+        let computer = computer_state(Some(&old));
+        let server = pair_with(computer.path(), &stage);
+
+        let mut monitor = Remote::open_monitor(computer.path(), &server).await.unwrap();
+        for tool in MONITOR_CALLS {
+            let reply = monitor.call(&crate::agent::Call::new(tool, json!({}))).await.unwrap();
+            assert!(reply.ok, "{tool}: {}", reply.text);
+        }
+        let others = [
+            "read",
+            "run",
+            "write",
+            "host_update",
+            "session_delete",
+            "file_transfer",
+            "approval_mode",
+            "mirror_open",
+            "mirror_take",
+            "console_open",
+            ASKS_WAIT,
+        ];
+        for tool in others {
+            let reply = monitor.call(&crate::agent::Call::new(tool, json!({}))).await.unwrap();
+            assert!(!reply.ok, "a monitor cannot call {tool}");
+            assert_eq!(reply.text, format!("unknown tool {tool}"));
+        }
+        assert!(stage.shared.lock().unwrap().connections.is_empty(), "the host counts no client for it");
+        let new = hex(load_computer_keys(computer.path()).unwrap().current.public());
+        assert_eq!(stage.accepted(), vec![new.clone()], "a monitor moves the computer to its own key");
+        assert_eq!(saved(computer.path()).computer, Some(new));
+
+        let notes = |stage: &mut Stage| {
+            let mut notes = Vec::new();
+            while let Ok(message) = stage.notices.try_recv() {
+                match message {
+                    borg_core::Msg::Agent(borg_core::AgentEvent::Note(note)) => notes.push(note),
+                    borg_core::Msg::Agent(borg_core::AgentEvent::Connected { .. }) => panic!("a monitor is no agent"),
+                    _ => {}
+                }
+            }
+            notes
+        };
+        let read = "laptop reads how this host is doing";
+        assert!(notes(&mut stage).iter().any(|note| note.ends_with(read)), "the log says who reads");
+        let mut again = Remote::open_monitor(computer.path(), &server).await.unwrap();
+        assert!(again.call(&crate::agent::Call::new("host_info", json!({}))).await.unwrap().ok);
+        let later = notes(&mut stage);
+        assert!(!later.iter().any(|note| note.ends_with(read)), "once an hour is enough: {later:?}");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_host_from_before_monitors_is_read_over_a_session() {
+        let relay = relay().await;
+        let server = Identity::generate();
+        let hellos = Arc::new(Mutex::new(Vec::<String>::new()));
+        let older = {
+            let (relay, server, hellos) = (relay.clone(), server.clone(), hellos.clone());
+            tokio::spawn(async move {
+                let mut listener = borg_link::relay::Listener::register(&relay, &server).await.unwrap();
+                while let Ok(Some(id)) = listener.next().await {
+                    let (relay, server, hellos) = (relay.clone(), server.clone(), hellos.clone());
+                    tokio::spawn(async move {
+                        let socket = borg_link::relay::take(&relay, &id).await.unwrap();
+                        let (mut channel, hello) = borg_link::respond(socket, &server).await.unwrap();
+                        let kind = serde_json::from_slice::<serde_json::Value>(&hello).unwrap()["kind"]
+                            .as_str()
+                            .unwrap_or_default()
+                            .to_owned();
+                        hellos.lock().unwrap().push(kind.clone());
+                        if kind == "monitor" {
+                            let refused = json!({ "ok": false, "error": "unreadable hello" });
+                            channel.send(&serde_json::to_vec(&refused).unwrap()).await.unwrap();
+                            return;
+                        }
+                        channel.send(br#"{"ok":true,"name":"older"}"#).await.unwrap();
+                        while let Ok(Some(message)) = channel.recv().await {
+                            let call: crate::agent::Call = serde_json::from_slice(&message).unwrap();
+                            let reply = crate::agent::Reply::ok(call.tool);
+                            channel.send(&serde_json::to_vec(&reply).unwrap()).await.unwrap();
+                        }
+                    });
+                }
+            })
+        };
+        let old = Identity::generate();
+        let computer = computer_state(Some(&old));
+        let entry = Server {
+            name: "box".into(),
+            relay: relay.to_string(),
+            key: hex(server.public()),
+            computer: None,
+            offered: None,
+        };
+        save(&computer.path().join(LINK_DIR).join(SERVERS_FILE), std::slice::from_ref(&entry)).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut remote = loop {
+            match Remote::open_monitor(computer.path(), &entry).await {
+                Ok(remote) => break remote,
+                Err(error) => assert!(Instant::now() < deadline, "{error:#}"),
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        };
+        let reply = remote.call(&crate::agent::Call::new("host_info", json!({}))).await.unwrap();
+        assert!(reply.ok && reply.text == "host_info");
+        let hellos = hellos.lock().unwrap().clone();
+        assert_eq!(hellos.last().map(String::as_str), Some("session"), "{hellos:?}");
+        assert!(hellos.iter().any(|kind| kind == "monitor"), "a monitor was asked for first: {hellos:?}");
+        older.abort();
     }
 
     #[test]
@@ -760,6 +875,7 @@ async fn the_server_holds_only_so_many_sessions_whose_clients_have_not_said_hell
         messages,
         clients: Arc::new(AtomicUsize::new(0)),
         overview: Default::default(),
+        reads_noted: Default::default(),
     };
     let server = tokio::spawn(async move { served.listen().await });
 
