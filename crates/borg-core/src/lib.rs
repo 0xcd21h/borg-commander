@@ -61,6 +61,7 @@ mod state;
 mod storage;
 mod update;
 mod update_offer;
+mod vault;
 mod viewer;
 mod watch;
 
@@ -163,6 +164,7 @@ pub use storage::{
 };
 pub use update::update;
 pub use update_offer::UpdateOffer;
+pub use vault::{VAULT_CONFIG, VAULT_KEY_SEPARATOR, VaultError, VaultKey, VaultMount};
 pub use viewer::{Content, ENTROPY_STRIP, Image, Profiling, Shown, Viewer, viewer_size};
 pub use watch::{
     ALERTS_KEPT, ALERTS_PER_MINUTE, Alert, AlertDelivery, AlertLog, AlertState, Alerts, AlertsReply, AlertsRequest,

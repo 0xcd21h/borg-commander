@@ -664,6 +664,20 @@ Borg 可以打开用密码加密的两种格式的文本文件：[age](https://a
 
 Borg 最多解密 256 KiB 的文本，编辑器保存的文本也不超过这个大小。内容更多的文件会提示这一点，非常大的文件则按原样打开，显示其加密字节。如果 age 文件的工作因子所需内存超过空闲内存的一半，就不会打开；Borg 最多读取工作因子为 22 的文件，这需要 4 GiB 内存。为 age 密钥加密的文件会提示无法用密码打开。
 
+### 保险库
+
+保险库会把存放敏感文件（例如医疗或财务文件）的文件夹加密保存在磁盘上，只在你需要时才打开。Borg 通过 [gocryptfs](https://github.com/rfjakob/gocryptfs) 实现这一点。保险库文件夹为其中的每个文件保存一个对应的加密文件，因此它可以像其他文件夹一样同步和备份，gocryptfs 在 Linux 和 macOS 上都能打开它。
+
+“文件”菜单（F2）中的 **新建保险库…** 会先询问新保险库的名称，再让你输入两次密码，输入框会隐藏输入的内容。Borg 在当前面板的文件夹中创建保险库并打开它，然后显示它的 **恢复密钥**：八组十六进制数字，忘记密码时可以用它打开保险库。Borg 只显示这一次，所以请在按 Enter 之前把它记下来。Borg 只在本机的文件夹中创建保险库。
+
+在保险库（即包含 `gocryptfs.conf` 的文件夹）上按 Enter 会打开 **保险库** 对话框，要求输入密码，并隐藏输入的内容。密码错误时会再次询问，按 Esc 则保持保险库关闭。打开的保险库从其顶层显示文件，面板标题会用 ▦ 标出保险库的名称。保险库打开期间，任何程序都可以使用这些文件：在相应的应用中打开电子表格、把图片复制出来，或在 Shell 中对它们运行命令。在保险库顶层选择 `..` 会回到包含它的文件夹，保险库仍保持打开，因此在它上面按 Enter 会直接回到里面。
+
+“文件”菜单中的 **关闭保险库** 会关闭当前面板显示的保险库，位于其中的每个面板都会回到包含它的文件夹。只要还有程序打开着保险库中的文件，保险库就会保持打开，Borg 会提示这一点。打开的保险库闲置 15 分钟后会自行关闭，即使 Borg 已经退出也是如此。在配置中设置 `vault-idle-minutes` 可以修改这个时间，设为 `0` 则保险库会一直保持打开，直到你关闭它。
+
+Borg 从其运行时文件夹（见 [Borg 的文件](#borgs-files)）中的一个文件夹显示每个打开的保险库，只有你能进入那里。保险库关闭时会保护其中的文件。保险库打开时，以你的身份运行的任何程序都能读取这些文件。如需用恢复密钥代替密码打开保险库，请运行 `gocryptfs -masterkey=stdin`，指定保险库文件夹和一个用于显示它的空文件夹，然后输入密钥。
+
+保险库需要 gocryptfs 和 FUSE。在 Linux 上缺少 gocryptfs 时，在保险库上按 Enter 会提议安装它，**安装 gocryptfs** 对话框的用法与[抓取流量](#capturing-traffic)中 tcpdump 的对话框相同。在容器内，保险库还需要主机提供的 `/dev/fuse`。在 Mac 上，保险库需要 [macFUSE](https://github.com/macfuse/macfuse) 和 gocryptfs，请按照它们页面上的说明安装。
+
 ## 配置
 
 在 **F9 → 选项 → 语言** 中更改界面语言。选择英语、简体中文、葡萄牙语（葡萄牙）、西班牙语或俄语，然后按 Enter；按 Esc 取消。所选语言会保存在 `config.toml` 中，即 `language = "en"`、`"zh-CN"`、`"pt"`、`"es"` 或 `"ru"`。`BORG_LANGUAGE` 会覆盖已保存的设置。如果两者都未设置，Borg 会遵循 `LC_ALL`、`LC_MESSAGES` 或 `LANG`，遇到不支持的语言则使用英语。命令、路径、文件名和键盘快捷键永远不会被翻译。本网站上的语言菜单只切换本指南的语言，与应用界面语言相互独立。
@@ -681,6 +695,7 @@ return-to-panels = true    # return after commands launched from the panels
 restore-terminal = false    # bring back the shell scrollback on the next start
 screensaver = true          # one of five animations, picked at random
 screensaver-after = 300     # seconds of idle time
+vault-idle-minutes = 15     # close an unused vault after this long; 0 keeps it open
 job-notifications = true    # notes in the corner when a job starts, ends or asks
 update-check = true         # offer a new release once a day
 start-service = true        # start the background service when Borg opens
@@ -751,7 +766,7 @@ dir = { fg = "#b388ff", bold = true }
 
 面板所在的文件夹、光标位置、分栏比例、列表模式和排序方式保存在状态文件夹 `~/.local/state/borg-commander` 中，或保存在由 `$XDG_STATE_HOME` 或 `$BORG_STATE_DIR` 指定的文件夹中。
 
-运行期间，Borg 会把 Shell 集成脚本以及从容器中复制出来的文件存放在它的运行时文件夹中，即 `$XDG_RUNTIME_DIR/borg-commander`，或临时文件夹下的 `borg-commander-<uid>`。只有你能打开这个文件夹；如果已存在一个由他人创建、或其他用户可以进入的同名文件夹，Borg 会跳过它并改用新名称。其中 `TTL` 文件的开头记录了该文件夹的使用截止时间：每个运行中的 borg 每小时都会把这个时间往后推到一天之后，因此一旦过了这个时间，就可以删除该文件夹。
+运行期间，Borg 会把 Shell 集成脚本、从容器中复制出来的文件以及显示已打开保险库的文件夹存放在它的运行时文件夹中，即 `$XDG_RUNTIME_DIR/borg-commander`，或临时文件夹下的 `borg-commander-<uid>`。只有你能打开这个文件夹；如果已存在一个由他人创建、或其他用户可以进入的同名文件夹，Borg 会跳过它并改用新名称。其中 `TTL` 文件的开头记录了该文件夹的使用截止时间：每个运行中的 borg 每小时都会把这个时间往后推到一天之后，因此一旦过了这个时间，就可以删除该文件夹。
 
 **F9 → 选项 → Borg 的文件…** 会列出 Borg 存放文件的每个位置、各处占用的空间以及具体所在：
 
@@ -764,7 +779,7 @@ dir = { fg = "#b388ff", bold = true }
 
 按 Up 和 Down 选择一行，列表下方的简短说明会介绍所选位置存放什么、保留多久。按 Enter 会在当前面板中打开该位置的文件夹。按 Esc 关闭窗口。
 
-Borg 会在启动 30 秒后自行清理一次，之后每小时清理一次。它只删除自己创建的名称，并且从不删除最近 10 分钟内有过改动的内容，因此正在启动的 Borg 能保住刚刚创建的文件。会被删除的内容如下：
+Borg 会在启动 30 秒后自行清理一次，之后每小时清理一次。它只删除自己创建的名称，并且从不删除最近 10 分钟内有过改动的内容，因此正在启动的 Borg 能保住刚刚创建的文件。统计大小和清理都不会进入挂载了其他文件系统的文件夹，例如打开的保险库。会被删除的内容如下：
 
 - 运行时文件夹中其他 Borg 版本的文件夹：前提是已没有 Borg 从中运行，并且满足以下任一条件：本次 Borg 启动时没有其他 Borg 在运行，或其中的内容已有 3 天没有变化。
 - 已结束的 Borg 进程留下的切换文件夹请求、未写完的文件、远程控制台文件夹和抓包代理的证书。

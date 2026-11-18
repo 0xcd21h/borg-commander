@@ -48,6 +48,7 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<
         Some(Overlay::Capture(dialog)) => crate::network::on_capture_key(state, dialog, key, now),
         Some(Overlay::Listen(form)) => crate::network::on_listen_key(state, form, key, now),
         Some(Overlay::Install(offer)) => crate::install::on_key(state, offer, key),
+        Some(Overlay::VaultKey(_)) => crate::vault::on_key(state, key),
         Some(Overlay::Service(offer)) => crate::service::on_key(state, offer, key),
         Some(Overlay::Update(offer)) => crate::update_offer::on_key(state, offer, key),
         Some(Overlay::Storage(window)) => crate::storage::on_key(state, window, key),
@@ -158,7 +159,7 @@ fn on_menu(state: &mut AppState, cursor: MenuCursor, key: &KeyEvent, now: Instan
     Vec::new()
 }
 
-fn close_secret(state: &mut AppState, prompt: &mut Prompt) {
+pub(crate) fn close_secret(state: &mut AppState, prompt: &mut Prompt) {
     if let Some(Overlay::Prompt(mut shown)) = state.overlay.take() {
         shown.input.wipe();
     }
@@ -201,6 +202,11 @@ fn on_prompt(state: &mut AppState, mut prompt: Prompt, key: &KeyEvent, now: Inst
             }
             _ => {}
         }
+    }
+    if is_vault(&prompt.purpose)
+        && let Some(effects) = crate::vault::on_prompt(state, &mut prompt, key)
+    {
+        return effects;
     }
     if let PromptPurpose::FilePassword(file) = &prompt.purpose {
         match key.code {
@@ -286,6 +292,16 @@ fn on_prompt(state: &mut AppState, mut prompt: Prompt, key: &KeyEvent, now: Inst
     }
 }
 
+fn is_vault(purpose: &PromptPurpose) -> bool {
+    matches!(
+        purpose,
+        PromptPurpose::VaultPassword { .. }
+            | PromptPurpose::VaultName { .. }
+            | PromptPurpose::VaultNewPassword { .. }
+            | PromptPurpose::VaultRepeat { .. }
+    )
+}
+
 fn submit(state: &mut AppState, purpose: PromptPurpose, text: &str, now: Instant) -> Vec<Effect> {
     if text.is_empty() && purpose != PromptPurpose::ResultsFilter {
         return Vec::new();
@@ -346,9 +362,13 @@ fn submit(state: &mut AppState, purpose: PromptPurpose, text: &str, now: Instant
             crate::archive::unpack(state, &sources, target, now)
         }
         PromptPurpose::Pack { sources, moving } => crate::archive::pack(state, sources, text, moving, now),
-        PromptPurpose::ArchivePassword { .. } | PromptPurpose::ComputerKeyPassword | PromptPurpose::FilePassword(_) => {
-            Vec::new()
-        }
+        PromptPurpose::ArchivePassword { .. }
+        | PromptPurpose::ComputerKeyPassword
+        | PromptPurpose::FilePassword(_)
+        | PromptPurpose::VaultPassword { .. }
+        | PromptPurpose::VaultName { .. }
+        | PromptPurpose::VaultNewPassword { .. }
+        | PromptPurpose::VaultRepeat { .. } => Vec::new(),
         PromptPurpose::Compress { sources } => match ArchiveFormat::detect(text) {
             Some(format) => {
                 let command = ops::compress(text, format, sources.iter().map(String::as_str));

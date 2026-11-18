@@ -15,7 +15,7 @@ const HOMEBREW_KEGS: [&str; 3] = [
     "/usr/local/opt/libarchive/bin",
     "/home/linuxbrew/.linuxbrew/opt/libarchive/bin",
 ];
-const PLATFORM: Platform = if cfg!(target_os = "macos") { Platform::MacOs } else { Platform::Linux };
+pub(crate) const PLATFORM: Platform = if cfg!(target_os = "macos") { Platform::MacOs } else { Platform::Linux };
 
 /// The installed program: the one on `PATH`, or else in a system or Homebrew folder. Each call
 /// looks again, so a program installed while Borg runs is found.

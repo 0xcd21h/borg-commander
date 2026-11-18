@@ -1852,6 +1852,47 @@ trabajo necesita más de la mitad de la memoria libre no se abre; Borg lee facto
 hasta 22, que necesitan 4 GiB. Un archivo cifrado para una clave age indica que una contraseña no
 puede abrirlo.
 
+### Bóvedas
+
+Una bóveda guarda una carpeta de archivos sensibles, como papeles médicos o financieros, cifrada en
+el disco y la abre solo mientras la necesitas. Borg usa [gocryptfs](https://github.com/rfjakob/gocryptfs)
+para ello. La carpeta de la bóveda contiene un archivo cifrado por cada archivo de dentro, así que se
+sincroniza y se respalda como cualquier otra carpeta, y gocryptfs la abre igual en Linux que en
+macOS.
+
+**Crear bóveda…** en el menú Archivo (F2) pide el nombre de la nueva bóveda y después su contraseña
+dos veces, en campos que ocultan lo que escribes. Borg crea la bóveda en la carpeta del panel activo,
+la abre y muestra su **Clave de recuperación**: ocho grupos de dígitos hexadecimales que abren la
+bóveda si olvidas la contraseña. Borg muestra la clave solo esta vez, así que anótala antes de pulsar
+Enter. Borg crea bóvedas solo en las carpetas de esta computadora.
+
+Enter sobre una bóveda, una carpeta que contiene `gocryptfs.conf`, abre el diálogo **Bóveda**, que
+pide la contraseña y oculta lo que escribes. Una contraseña incorrecta vuelve a preguntar, y Esc deja
+la bóveda cerrada. Una bóveda abierta muestra sus archivos desde su raíz, y el título del panel nombra
+la bóveda con ▦. Cualquier programa puede usar esos archivos mientras la bóveda está abierta: abrir
+una hoja de cálculo en su aplicación, copiar una imagen fuera o ejecutar comandos sobre ellos en el
+shell. `..` en la raíz de la bóveda vuelve a la carpeta que la contiene y deja la bóveda abierta, así
+que Enter sobre ella vuelve a entrar directamente.
+
+**Cerrar bóveda** en el menú Archivo cierra la bóveda que muestra el panel activo, y cada panel que
+está dentro vuelve a la carpeta que la contiene. Mientras un programa tenga un archivo abierto en la
+bóveda, esta sigue abierta y Borg lo indica. Una bóveda abierta se cierra sola tras 15 minutos sin
+uso, incluso después de cerrar Borg. Pon `vault-idle-minutes` en la configuración para cambiar ese
+tiempo, o `0` para mantener las bóvedas abiertas hasta que las cierres.
+
+Borg muestra cada bóveda abierta desde una carpeta dentro de su carpeta de ejecución (consulta
+[Archivos de Borg](#borgs-files)), en la que solo tú puedes entrar. Una bóveda protege sus archivos
+mientras está cerrada. Mientras está abierta, cualquier programa que se ejecute con tu usuario puede
+leerlos. Para abrir una bóveda con su clave de recuperación en lugar de la contraseña, ejecuta
+`gocryptfs -masterkey=stdin` con la carpeta de la bóveda y una carpeta vacía donde mostrarla, y
+escribe la clave.
+
+Las bóvedas necesitan gocryptfs y FUSE. Si falta gocryptfs en Linux, Enter sobre una bóveda ofrece
+instalarlo, y el diálogo **Instalar gocryptfs** funciona como el de tcpdump en
+[Capturar tráfico](#capturing-traffic). Dentro de un contenedor, una bóveda también necesita
+`/dev/fuse` del host. En un Mac, las bóvedas necesitan [macFUSE](https://github.com/macfuse/macfuse)
+y gocryptfs, que se instalan como explican sus páginas.
+
 ## Configuración
 
 Cambia el idioma de la interfaz en **F9 → Opciones → Idioma**. Elige inglés, chino simplificado,
@@ -1884,6 +1925,7 @@ return-to-panels = true    # return after commands launched from the panels
 restore-terminal = false    # bring back the shell scrollback on the next start
 screensaver = true          # one of five animations, picked at random
 screensaver-after = 300     # seconds of idle time
+vault-idle-minutes = 15     # close an unused vault after this long; 0 keeps it open
 job-notifications = true    # notes in the corner when a job starts, ends or asks
 update-check = true         # offer a new release once a day
 start-service = true        # start the background service when Borg opens
@@ -1965,8 +2007,8 @@ Las carpetas de los paneles, las posiciones del cursor, la división, los modos 
 ordenación se guardan en la carpeta de estado, `~/.local/state/borg-commander`, o en la carpeta
 indicada por `$XDG_STATE_HOME` o `$BORG_STATE_DIR`.
 
-Mientras se ejecuta, Borg guarda sus scripts de integración con el shell y los archivos copiados
-desde contenedores en su carpeta de ejecución, `$XDG_RUNTIME_DIR/borg-commander`, o en
+Mientras se ejecuta, Borg guarda sus scripts de integración con el shell, los archivos copiados
+desde contenedores y las carpetas que muestran las bóvedas abiertas en su carpeta de ejecución, `$XDG_RUNTIME_DIR/borg-commander`, o en
 `borg-commander-<uid>` dentro de la carpeta temporal. Solo tú puedes abrir esta carpeta; si ya
 existe una creada por otra persona, o en la que pueden entrar otros usuarios, Borg la ignora y usa
 otro nombre. Su archivo `TTL` empieza con la hora hasta la que la carpeta está en uso: cada borg en
@@ -1996,7 +2038,9 @@ tiempo se conserva. Enter abre la carpeta de ese lugar en el panel activo. Esc c
 
 Borg limpia por su cuenta 30 segundos después de arrancar y luego cada hora. Solo elimina nombres
 que crea él mismo, y nunca nada que haya cambiado en los últimos 10 minutos, así que un Borg que
-está arrancando conserva lo que acaba de crear. Esto es lo que se elimina:
+está arrancando conserva lo que acaba de crear. Sus mediciones y limpiezas no entran en ninguna
+carpeta donde esté montado otro sistema de archivos, como una bóveda abierta. Esto es lo que se
+elimina:
 
 - Carpetas de otras versiones de Borg en la carpeta de ejecución, cuando ya ningún Borg se ejecuta
   desde ellas y, además, ningún Borg estaba en marcha cuando arrancó este o nada en ellas ha

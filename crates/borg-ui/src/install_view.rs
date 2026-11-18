@@ -32,6 +32,7 @@ fn question(offer: &InstallOffer) -> String {
     match offer.tool {
         Tool::Tcpdump => tr!(install_tcpdump_question, manager = manager),
         Tool::Bsdtar => tr!(install_bsdtar_question, manager = manager),
+        Tool::Gocryptfs => tr!(install_gocryptfs_question, manager = manager),
     }
 }
 
@@ -50,6 +51,7 @@ fn note(tool: Tool) -> &'static str {
     match tool {
         Tool::Tcpdump => tr!(install_tcpdump_note),
         Tool::Bsdtar => tr!(install_bsdtar_note),
+        Tool::Gocryptfs => tr!(install_gocryptfs_note),
     }
 }
 

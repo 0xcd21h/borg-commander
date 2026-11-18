@@ -427,6 +427,9 @@ impl AppState {
         if panel.volume.as_ref().is_some_and(|volume| !volume.holds(&dir) || !volume.shown_by(panel.mount.as_ref())) {
             panel.volume = None;
         }
+        if panel.vault.as_ref().is_some_and(|vault| !vault.holds(&dir)) {
+            panel.vault = None;
+        }
         panel.navigate(dir.clone(), generation, focus);
         Effect::List { side, generation, dir }
     }

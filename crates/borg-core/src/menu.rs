@@ -216,6 +216,9 @@ fn file_menu(state: &AppState) -> Menu {
             when(item(tr!(extract_here), Action::ExtractHere), archive && !panel.is_results()),
             when(item(tr!(extract_to_other_panel), Action::ExtractToOther), archive && !panel.is_results()),
             MenuEntry::Separator,
+            when(item(tr!(vault_create), Action::CreateVault), listed && !panel.is_results() && !panel.foreign()),
+            when(item(tr!(vault_close), Action::CloseVault), panel.vault.is_some()),
+            MenuEntry::Separator,
             item(tr!(quit), Action::Quit),
         ],
     }

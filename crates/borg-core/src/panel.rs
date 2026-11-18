@@ -131,6 +131,7 @@ pub struct Panel {
     pub archive: Option<crate::ArchiveMount>,
     /// The Docker volume whose files this panel shows, read only.
     pub volume: Option<crate::VolumeMount>,
+    pub vault: Option<crate::VaultMount>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -169,6 +170,7 @@ impl Panel {
             remote_mount: None,
             archive: None,
             volume: None,
+            vault: None,
         }
     }
 

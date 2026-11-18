@@ -5616,6 +5616,58 @@ fn an_encrypted_file_asks_for_its_password_without_showing_it() -> Result<()> {
     check("encrypted_file_password", &stage, buffer)
 }
 
+const VAULT: &str = "/home/me/projects/borg/Papers";
+const VAULT_ROOT: &str = "/run/user/1000/borg-commander/vaults/Papers";
+
+fn vault_found(stage: &mut Stage) {
+    let generation = stage.state.panel(borg_core::Side::Left).generation();
+    stage.send(Msg::VaultFound { side: borg_core::Side::Left, generation, cipher: VAULT.into(), open: None });
+}
+
+#[test]
+fn a_locked_vault_asks_for_its_password_without_showing_it() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    vault_found(&mut stage);
+    for msg in chars("rain cobalt") {
+        stage.send(msg);
+    }
+    let buffer = stage.render(stage.started + PASSWORD_SETTLED)?;
+    ensure_text(&buffer, "Vault")?;
+    ensure_text(&buffer, "Papers")?;
+    anyhow::ensure!(!describe(&buffer).contains("cobalt"), "the password must stay hidden");
+    check("vault_password", &stage, buffer)
+}
+
+#[test]
+fn a_new_vault_shows_its_recovery_key_over_its_files() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    let vault = borg_core::VaultMount { cipher: VAULT.into(), root: VAULT_ROOT.into() };
+    let recovery = borg_core::Password::new("0a1b2c3d-4e5f6a7b-8c9d0e1f-2a3b4c5d-6e7f8a9b-0c1d2e3f-4a5b6c7d-8e9f0a1b");
+    let tax = vec![entry("2024", EntryKind::Dir, 4096, RECENT, false)];
+    list_after(&mut stage, Msg::VaultCreated { side: borg_core::Side::Left, vault, key: recovery }, tax)?;
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Recovery key")?;
+    ensure_text(&buffer, "0a1b2c3d-4e5f6a7b")?;
+    ensure_text(&buffer, "Papers · vault")?;
+    check("vault_recovery_key", &stage, buffer)?;
+    stage.send(key(KeyCode::Enter));
+    let buffer = stage.render(stage.started)?;
+    ensure_no_text(&buffer, "Recovery key")?;
+    Ok(())
+}
+
+#[test]
+fn a_vault_without_gocryptfs_offers_to_install_it() -> Result<()> {
+    use borg_core::{Elevation, Installer, PackageManager, VaultError};
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    let installer = Installer { manager: PackageManager::Apt, elevation: Some(Elevation::Sudo) };
+    let error = VaultError::NoTool(Some(installer));
+    stage.send(Msg::VaultFailed { side: borg_core::Side::Left, cipher: VAULT.into(), error });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "sudo apt-get install gocryptfs")?;
+    check("vault_install_gocryptfs", &stage, buffer)
+}
+
 #[test]
 fn a_pairing_approval_shows_over_the_remote_access_dialog() -> Result<()> {
     use borg_core::AgentEvent;

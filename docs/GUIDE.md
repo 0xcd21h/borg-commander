@@ -1699,6 +1699,44 @@ says so, and a very large one opens as it is, showing its encrypted bytes. An ag
 factor needs more memory than half of what is free does not open; Borg reads work factors up to 22,
 which need 4 GiB. A file encrypted for an age key says that a password cannot open it.
 
+### Vaults
+
+A vault keeps a folder of sensitive files, such as medical or financial papers, encrypted on disk
+and opens it only while you need it. Borg drives [gocryptfs](https://github.com/rfjakob/gocryptfs)
+for this. The vault's folder holds one encrypted file for each file inside, so it syncs and backs up
+like any other folder, and gocryptfs opens it on Linux and macOS alike.
+
+**Create vault…** in the File menu (F2) asks for the new vault's name and then for its password
+twice, in fields that hide what you type. Borg makes the vault in the active panel's folder, opens
+it, and shows its **Recovery key**: eight groups of hex digits that open the vault if you forget the
+password. Borg shows the key only this once, so write it down before you press Enter. Borg creates
+vaults only in this computer's folders.
+
+Enter on a vault, a folder with `gocryptfs.conf` in it, opens the **Vault** dialog, which asks for
+the password and hides what you type. A wrong password asks again, and Esc leaves the vault closed.
+An open vault shows its files from its top, and the panel's title names the vault with ▦. Every
+program can use those files while the vault is open: open a spreadsheet in its app, copy a picture
+out, or run commands on them in the shell. `..` at the top of the vault returns to the folder that
+holds it and leaves the vault open, so Enter on it goes straight back in.
+
+**Close vault** in the File menu closes the vault the active panel shows, and every panel inside it
+returns to the folder that holds it. While a program still has a file open in the vault, the vault
+stays open and Borg says so. An open vault closes itself after 15 minutes without use, even after
+Borg quits. Set `vault-idle-minutes` in the config to change the time, or to `0` to keep vaults open
+until you close them.
+
+Borg shows each open vault from a folder in its runtime folder (see [Borg's files](#borgs-files)),
+which only you can enter. A vault protects its files while it is closed. While it is open, every
+program that runs as you can read them. To open a vault with its recovery key instead of the
+password, run `gocryptfs -masterkey=stdin` with the vault's folder and an empty folder to show it
+in, and type the key.
+
+Vaults need gocryptfs and FUSE. When gocryptfs is missing on Linux, Enter on a vault offers to
+install it, and the **Install gocryptfs** dialog works like the one for tcpdump in
+[Capturing traffic](#capturing-traffic). Inside a container, a vault also needs `/dev/fuse` from the
+host. On a Mac, vaults need [macFUSE](https://github.com/macfuse/macfuse) and gocryptfs, which you
+install as their pages describe.
+
 ## Configuration
 
 Change the interface language in **F9 → Options → Language**. Choose English, Simplified
@@ -1730,6 +1768,7 @@ return-to-panels = true    # return after commands launched from the panels
 restore-terminal = false    # bring back the shell scrollback on the next start
 screensaver = true          # one of five animations, picked at random
 screensaver-after = 300     # seconds of idle time
+vault-idle-minutes = 15     # close an unused vault after this long; 0 keeps it open
 job-notifications = true    # notes in the corner when a job starts, ends or asks
 update-check = true         # offer a new release once a day
 start-service = true        # start the background service when Borg opens
@@ -1809,12 +1848,12 @@ Panel folders, cursor positions, the split, listing modes, and sorting are saved
 folder, `~/.local/state/borg-commander`, or in the folder set by `$XDG_STATE_HOME` or
 `$BORG_STATE_DIR`.
 
-While it runs, Borg keeps its shell integration scripts and files copied out of containers in its
-runtime folder, `$XDG_RUNTIME_DIR/borg-commander`, or `borg-commander-<uid>` in the temporary
-folder. Only you can open this folder; if one already exists that someone else created, or that
-other users can enter, Borg skips it and uses a new name. Its `TTL` file starts with the time
-until which the folder is in use: every running borg pushes that time a day ahead each hour, so
-once it has passed, the folder can be deleted.
+While it runs, Borg keeps its shell integration scripts, files copied out of containers and the
+folders that show open vaults in its runtime folder, `$XDG_RUNTIME_DIR/borg-commander`, or
+`borg-commander-<uid>` in the temporary folder. Only you can open this folder; if one already exists
+that someone else created, or that other users can enter, Borg skips it and uses a new name. Its
+`TTL` file starts with the time until which the folder is in use: every running borg pushes that
+time a day ahead each hour, so once it has passed, the folder can be deleted.
 
 **F9 → Options → Borg's files…** shows every place Borg keeps files, how much each one holds, and
 where it is:
@@ -1838,7 +1877,8 @@ how long it stays. Enter opens the place's folder in the active panel. Esc close
 
 Borg cleans up after itself 30 seconds after it starts and then every hour. It only removes
 names it makes itself, and never anything that changed in the last 10 minutes, so a Borg that is
-still starting up keeps what it made. This is what goes:
+still starting up keeps what it made. Its sizes and cleanups stay out of every folder another file
+system is mounted on, such as an open vault. This is what goes:
 
 - Folders of other Borg versions in the runtime folder, once no Borg runs from them, and either
   no Borg was running when this one started or nothing in them changed for 3 days.

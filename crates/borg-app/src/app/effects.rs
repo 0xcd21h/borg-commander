@@ -93,6 +93,9 @@ impl App {
                 self.save_file(path, bytes, expected, force, slot, seal)
             }
             Effect::Unseal { file, password } => self.unseal(file, password),
+            Effect::OpenVault { side, cipher, password } => self.open_vault(side, cipher, password),
+            Effect::CreateVault { side, cipher, password } => self.create_vault(side, cipher, password),
+            Effect::CloseVault { root } => self.close_vault(root),
             Effect::WriteConcealed(bytes) => {
                 self.console_emulator().conceal();
                 self.write_console(bytes)?;
@@ -353,6 +356,36 @@ impl App {
         });
     }
 
+    fn open_vault(&self, side: Side, cipher: PathBuf, password: Password) {
+        let (vaults, messages) = (self.vaults.clone(), self.messages.clone());
+        tokio::task::spawn_blocking(move || {
+            let message = match vaults.open(&cipher, &password) {
+                Ok(vault) => Msg::VaultOpened { side, vault },
+                Err(error) => Msg::VaultFailed { side, cipher, error },
+            };
+            let _ = messages.send(message);
+        });
+    }
+
+    fn create_vault(&self, side: Side, cipher: PathBuf, password: Password) {
+        let (vaults, messages) = (self.vaults.clone(), self.messages.clone());
+        tokio::task::spawn_blocking(move || {
+            let message = match vaults.create(&cipher, &password) {
+                Ok((vault, key)) => Msg::VaultCreated { side, vault, key },
+                Err(error) => Msg::VaultFailed { side, cipher, error },
+            };
+            let _ = messages.send(message);
+        });
+    }
+
+    fn close_vault(&self, root: PathBuf) {
+        let (vaults, messages) = (self.vaults.clone(), self.messages.clone());
+        tokio::task::spawn_blocking(move || {
+            let error = vaults.close(&root).err();
+            let _ = messages.send(Msg::VaultClosed { root, error });
+        });
+    }
+
     fn unseal(&self, file: SealedFile, password: Password) {
         let (width, height) = viewer_size(self.state.cols, self.state.rows);
         let messages = self.messages.clone();
@@ -404,7 +437,20 @@ impl App {
         let messages = self.messages.clone();
         // Measured folder sizes belong to this machine, not to a container.
         let cache = (mount.is_none() && remote.is_none()).then(|| self.search.cache.clone());
+        let vaults =
+            (mount.is_none() && remote.is_none()).then(|| (self.vaults.clone(), self.state.panel(side).vault.clone()));
         let task = tokio::spawn(async move {
+            if let Some((vaults, known)) = vaults {
+                let checked = dir.clone();
+                let found = tokio::task::spawn_blocking(move || vaults.check(&checked, known.as_ref())).await;
+                if let Ok(Some(found)) = found {
+                    let replaces = found.replaces_listing();
+                    let _ = messages.send(found.message(side, generation, dir.clone()));
+                    if replaces {
+                        return;
+                    }
+                }
+            }
             let observed_dir = dir.clone();
             let totals = match cache {
                 Some(cache) => {

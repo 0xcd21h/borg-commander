@@ -296,6 +296,35 @@ pub enum Msg {
         packed: crate::PackedFile,
         result: Result<crate::EditorFile, crate::OpenError>,
     },
+    VaultFound {
+        side: crate::Side,
+        generation: u64,
+        cipher: PathBuf,
+        open: Option<PathBuf>,
+    },
+    VaultShown {
+        side: crate::Side,
+        generation: u64,
+        vault: crate::VaultMount,
+    },
+    VaultOpened {
+        side: crate::Side,
+        vault: crate::VaultMount,
+    },
+    VaultCreated {
+        side: crate::Side,
+        vault: crate::VaultMount,
+        key: crate::Password,
+    },
+    VaultFailed {
+        side: crate::Side,
+        cipher: PathBuf,
+        error: crate::VaultError,
+    },
+    VaultClosed {
+        root: PathBuf,
+        error: Option<crate::VaultError>,
+    },
     Sealed(crate::SealedFile),
     UnsealFailed {
         file: crate::SealedFile,
@@ -634,6 +663,19 @@ pub enum Effect {
     Unseal {
         file: crate::SealedFile,
         password: crate::Password,
+    },
+    OpenVault {
+        side: crate::Side,
+        cipher: PathBuf,
+        password: crate::Password,
+    },
+    CreateVault {
+        side: crate::Side,
+        cipher: PathBuf,
+        password: crate::Password,
+    },
+    CloseVault {
+        root: PathBuf,
     },
     RemoteView {
         machine: String,

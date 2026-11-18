@@ -1847,6 +1847,47 @@ cujo fator de trabalho precisa de mais de metade da memória livre não abre; o 
 trabalho até 22, que precisam de 4 GiB. Um ficheiro cifrado para uma chave age indica que uma
 palavra-passe não o consegue abrir.
 
+### Cofres
+
+Um cofre guarda uma pasta de ficheiros sensíveis, como documentos médicos ou financeiros, cifrada no
+disco e só a abre enquanto precisa dela. O Borg usa o [gocryptfs](https://github.com/rfjakob/gocryptfs)
+para isso. A pasta do cofre contém um ficheiro cifrado por cada ficheiro lá dentro, por isso
+sincroniza-se e entra nas cópias de segurança como qualquer outra pasta, e o gocryptfs abre-a tanto
+no Linux como no macOS.
+
+**Criar cofre…** no menu Ficheiro (F2) pede o nome do novo cofre e depois a palavra-passe duas
+vezes, em campos que escondem o que escreve. O Borg cria o cofre na pasta do painel ativo, abre-o e
+mostra a **Chave de recuperação**: oito grupos de dígitos hexadecimais que abrem o cofre se se
+esquecer da palavra-passe. O Borg mostra a chave só esta vez, por isso aponte-a antes de premir
+Enter. O Borg cria cofres apenas nas pastas deste computador.
+
+Enter num cofre, uma pasta com `gocryptfs.conf` lá dentro, abre a caixa de diálogo **Cofre**, que
+pede a palavra-passe e esconde o que escreve. Uma palavra-passe errada volta a perguntar, e Esc deixa
+o cofre fechado. Um cofre aberto mostra os ficheiros a partir do topo, e o título do painel indica o
+nome do cofre com ▦. Qualquer programa pode usar esses ficheiros enquanto o cofre está aberto: abrir
+uma folha de cálculo na respetiva aplicação, copiar uma imagem para fora ou executar comandos sobre
+eles na shell. `..` no topo do cofre volta à pasta que o contém e deixa o cofre aberto, por isso
+Enter nele volta a entrar diretamente.
+
+**Fechar cofre** no menu Ficheiro fecha o cofre que o painel ativo mostra, e cada painel que está lá
+dentro volta à pasta que o contém. Enquanto um programa tiver um ficheiro aberto no cofre, o cofre
+continua aberto e o Borg indica-o. Um cofre aberto fecha-se sozinho após 15 minutos sem uso, mesmo
+depois de o Borg terminar. Defina `vault-idle-minutes` na configuração para mudar esse tempo, ou `0`
+para manter os cofres abertos até os fechar.
+
+O Borg mostra cada cofre aberto a partir de uma pasta na sua pasta de execução (consulte
+[Ficheiros do Borg](#borgs-files)), onde só o utilizador pode entrar. Um cofre protege os ficheiros
+enquanto está fechado. Enquanto está aberto, qualquer programa que corra com o seu utilizador
+consegue lê-los. Para abrir um cofre com a chave de recuperação em vez da palavra-passe, execute
+`gocryptfs -masterkey=stdin` com a pasta do cofre e uma pasta vazia onde o mostrar, e escreva a
+chave.
+
+Os cofres precisam do gocryptfs e do FUSE. Quando o gocryptfs falta no Linux, Enter num cofre propõe
+instalá-lo, e a caixa de diálogo **Instalar gocryptfs** funciona como a do tcpdump em
+[Capturar tráfego](#capturing-traffic). Dentro de um contentor, um cofre precisa também de
+`/dev/fuse` do host. Num Mac, os cofres precisam do [macFUSE](https://github.com/macfuse/macfuse) e
+do gocryptfs, que se instalam como as respetivas páginas descrevem.
+
 ## Configuração
 
 Mude o idioma da interface em **F9 → Opções → Idioma**. Escolha inglês, chinês simplificado,
@@ -1880,6 +1921,7 @@ return-to-panels = true    # return after commands launched from the panels
 restore-terminal = false    # bring back the shell scrollback on the next start
 screensaver = true          # one of five animations, picked at random
 screensaver-after = 300     # seconds of idle time
+vault-idle-minutes = 15     # close an unused vault after this long; 0 keeps it open
 job-notifications = true    # notes in the corner when a job starts, ends or asks
 update-check = true         # offer a new release once a day
 start-service = true        # start the background service when Borg opens
@@ -1961,8 +2003,8 @@ As pastas dos painéis, as posições do cursor, a divisão, os modos de listage
 guardados na pasta de estado, `~/.local/state/borg-commander`, ou na pasta indicada por
 `$XDG_STATE_HOME` ou `$BORG_STATE_DIR`.
 
-Enquanto corre, o Borg guarda os scripts de integração com a shell e os ficheiros copiados de
-contentores na sua pasta de execução, `$XDG_RUNTIME_DIR/borg-commander`, ou em
+Enquanto corre, o Borg guarda os scripts de integração com a shell, os ficheiros copiados de
+contentores e as pastas que mostram os cofres abertos na sua pasta de execução, `$XDG_RUNTIME_DIR/borg-commander`, ou em
 `borg-commander-<uid>` na pasta temporária. Só o utilizador pode abrir esta pasta; se já existir uma
 criada por outra pessoa, ou em que outros utilizadores possam entrar, o Borg ignora-a e usa outro
 nome. O ficheiro `TTL` começa com a hora até à qual a pasta está em uso: cada borg em execução adia
@@ -1991,7 +2033,8 @@ e quanto tempo fica guardado. Enter abre a pasta desse sítio no painel ativo. E
 
 O Borg faz a sua própria limpeza 30 segundos depois de arrancar e, a seguir, de hora a hora. Só
 remove nomes que ele próprio cria e nunca nada que tenha mudado nos últimos 10 minutos, pelo que um
-Borg que está a arrancar mantém o que acabou de criar. É isto que sai:
+Borg que está a arrancar mantém o que acabou de criar. As medições e limpezas não entram em nenhuma
+pasta onde esteja montado outro sistema de ficheiros, como um cofre aberto. É isto que sai:
 
 - Pastas de outras versões do Borg na pasta de execução, quando já nenhum Borg corre a partir delas
   e, além disso, nenhum Borg estava a correr quando este arrancou ou há 3 dias que nada nelas muda.
