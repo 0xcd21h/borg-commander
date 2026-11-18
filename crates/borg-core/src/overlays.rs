@@ -158,6 +158,13 @@ fn on_menu(state: &mut AppState, cursor: MenuCursor, key: &KeyEvent, now: Instan
     Vec::new()
 }
 
+fn close_secret(state: &mut AppState, prompt: &mut Prompt) {
+    if let Some(Overlay::Prompt(mut shown)) = state.overlay.take() {
+        shown.input.wipe();
+    }
+    prompt.input.wipe();
+}
+
 fn on_prompt(state: &mut AppState, mut prompt: Prompt, key: &KeyEvent, now: Instant) -> Vec<Effect> {
     if let PromptPurpose::RemoteName { browser, identity, session, original } = &prompt.purpose {
         if key.code == KeyCode::Esc {
@@ -191,6 +198,23 @@ fn on_prompt(state: &mut AppState, mut prompt: Prompt, key: &KeyEvent, now: Inst
                 state.overlay = None;
                 state.notice = Some(tr!(cloud_unlock_working).into());
                 return vec![Effect::UnlockComputerKey(crate::Password::new(prompt.input.text()))];
+            }
+            _ => {}
+        }
+    }
+    if let PromptPurpose::FilePassword(file) = &prompt.purpose {
+        match key.code {
+            KeyCode::Esc => {
+                let file = (**file).clone();
+                close_secret(state, &mut prompt);
+                crate::sealed::abandon(state, &file);
+                return Vec::new();
+            }
+            KeyCode::Enter if prompt.input.text().is_empty() => return Vec::new(),
+            KeyCode::Enter => {
+                let effects = crate::sealed::unlock(state, (**file).clone(), prompt.input.text());
+                close_secret(state, &mut prompt);
+                return effects;
             }
             _ => {}
         }
@@ -322,7 +346,9 @@ fn submit(state: &mut AppState, purpose: PromptPurpose, text: &str, now: Instant
             crate::archive::unpack(state, &sources, target, now)
         }
         PromptPurpose::Pack { sources, moving } => crate::archive::pack(state, sources, text, moving, now),
-        PromptPurpose::ArchivePassword { .. } | PromptPurpose::ComputerKeyPassword => Vec::new(),
+        PromptPurpose::ArchivePassword { .. } | PromptPurpose::ComputerKeyPassword | PromptPurpose::FilePassword(_) => {
+            Vec::new()
+        }
         PromptPurpose::Compress { sources } => match ArchiveFormat::detect(text) {
             Some(format) => {
                 let command = ops::compress(text, format, sources.iter().map(String::as_str));

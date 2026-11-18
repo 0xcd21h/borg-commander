@@ -154,6 +154,58 @@ fn plain_text_and_empty_files_are_not_age_files() {
     assert!(matches!(open(b"just some notes\n", PASSPHRASE), Err(Error::Armor(ArmorError::FirstLine))));
 }
 
+fn header_len(file: &[u8]) -> usize {
+    let mac = file.windows(4).position(|window| window == b"\n---").expect("mac line") + 1;
+    mac + file[mac..].iter().position(|byte| *byte == b'\n').expect("mac line end") + 1
+}
+
+#[test]
+fn reopened_text_reseals_under_the_same_header() {
+    let file = encrypt_text(b"first", PASSPHRASE, FAST, &fresh(4)).expect("encrypt");
+    let (text, rekey) = open_text(&file, PASSPHRASE, WorkFactor::MAX).expect("open");
+    assert_eq!(*text, b"first");
+    let resealed = rekey.seal_text(b"second", &[9; NONCE_LEN]).expect("reseal");
+    let header = header_len(&file);
+    assert_eq!(resealed[..header], file[..header]);
+    assert_ne!(resealed[header..header + NONCE_LEN], file[header..header + NONCE_LEN]);
+    assert_eq!(*decrypt_text(&resealed, PASSPHRASE, WorkFactor::MAX).expect("decrypt"), b"second");
+    assert_eq!(format!("{rekey:?}"), "Rekey { armored: false, .. }");
+}
+
+#[test]
+fn armored_files_stay_armored_when_resealed() {
+    let file = armored(&encrypt_text(b"first", PASSPHRASE, FAST, &fresh(5)).expect("encrypt"), "\r\n");
+    let (_, rekey) = open_text(&file, PASSPHRASE, WorkFactor::MAX).expect("open");
+    let resealed = rekey.seal_text(b"second", &[9; NONCE_LEN]).expect("reseal");
+    assert!(resealed.starts_with(b"-----BEGIN AGE ENCRYPTED FILE-----\n"));
+    assert_eq!(*decrypt_text(&resealed, PASSPHRASE, WorkFactor::MAX).expect("decrypt"), b"second");
+}
+
+#[test]
+fn armor_is_written_in_lines_of_64_columns() {
+    for len in [0, 1, 47, 48, 49, 1000] {
+        let binary = pattern(len);
+        assert_eq!(armor::encode(&binary), armored(&binary, "\n"), "{len} bytes");
+    }
+}
+
+#[test]
+fn reseal_refuses_text_over_the_limit() {
+    let file = encrypt_text(b"first", PASSPHRASE, FAST, &fresh(6)).expect("encrypt");
+    let (_, rekey) = open_text(&file, PASSPHRASE, WorkFactor::MAX).expect("open");
+    assert!(matches!(rekey.seal_text(&pattern(TEXT_LIMIT + 1), &[0; NONCE_LEN]), Err(Error::TooLong { .. })));
+}
+
+#[test]
+fn the_work_factor_limit_follows_free_memory() {
+    const GIB: u64 = 1024 * 1024 * 1024;
+    assert_eq!(WorkFactor::DEFAULT.memory(), GIB);
+    assert_eq!(WorkFactor::within(2 * GIB), Some(WorkFactor::DEFAULT));
+    assert_eq!(WorkFactor::within(2 * GIB - 1), WorkFactor::new(19));
+    assert_eq!(WorkFactor::within(u64::MAX), Some(WorkFactor::MAX));
+    assert_eq!(WorkFactor::within(0), None);
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(32))]
 

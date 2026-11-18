@@ -217,9 +217,9 @@ segunda pregunta indica el texto y los archivos, y empieza en **No**. Pulsa Y pa
 no guarda una copia del texto anterior. Los interruptores de la búsqueda se aplican, así que una
 búsqueda de palabras completas reemplaza palabras completas, y con una expresión regular `$1`
 devuelve el primer grupo. Borg escribe cada archivo como guarda su editor, así que los permisos y
-los enlaces se mantienen. Omite los archivos que no son texto, que pasan de 32 MiB o que cambiaron
-mientras la tarea se ejecutaba. La tarea aparece en Alt-J, y los resultados se actualizan cuando
-termina.
+los enlaces se mantienen. Omite los archivos cifrados y los que no son texto, que pasan de 32 MiB o
+que cambiaron mientras la tarea se ejecutaba. La tarea aparece en Alt-J, y los resultados se
+actualizan cuando termina.
 
 ### Analizar archivos con reglas
 
@@ -1843,6 +1843,29 @@ recuperan las búsquedas recientes. Esc cierra la barra; después, `n` y `N` en 
 vista rápida, o F3 y Shift-F3 en el editor, recorren las coincidencias. En un archivo grande, el
 visor y la vista rápida buscan en segundo plano, muestran hasta dónde han llegado y se detienen al
 pulsar Esc. Borg cuenta las coincidencias en archivos de hasta 64 MiB, hasta 10.000 de ellas.
+
+### Archivos cifrados
+
+Borg abre archivos de texto cifrados con contraseña en dos formatos:
+[age](https://age-encryption.org), cuyos archivos suelen terminar en `.age`, y Paranoia Text
+Encryption, un formato para notas cifradas. F3, F4 o Alt-E sobre uno de estos archivos abre el
+diálogo **Archivo cifrado**, que pide la contraseña y oculta lo que escribes. Borg descifra el
+archivo en memoria y nunca escribe el texto en el disco. Una contraseña incorrecta vuelve a
+preguntar, y Esc deja el archivo cerrado. La vista rápida indica el formato y no pregunta.
+
+El visor muestra el texto como lo mostraría el nombre del archivo sin `.age`, así que `notes.md.age`
+se lee como Markdown. En el editor, F2 o Ctrl-S vuelve a cifrar el texto antes de escribir el
+archivo, con la misma contraseña y el mismo formato, y la línea de estado dice **Guardado, cifrado
+con age**. Un archivo age escrito como líneas de texto, lo que age llama armored, se mantiene así.
+Borg olvida la contraseña en cuanto descifra el archivo, y conserva la clave necesaria para guardar
+solo mientras el editor tiene el archivo abierto. Borg llena de ceros cada bloque de memoria que
+libera, así que la contraseña y el texto no quedan en memoria cuando Borg termina con ellos.
+
+Borg descifra hasta 256 KiB de texto, y el editor no guarda más que eso. Un archivo que contiene más
+lo indica, y uno muy grande se abre tal cual, con sus bytes cifrados. Un archivo age cuyo factor de
+trabajo necesita más de la mitad de la memoria libre no se abre; Borg lee factores de trabajo de
+hasta 22, que necesitan 4 GiB. Un archivo cifrado para una clave age indica que una contraseña no
+puede abrirlo.
 
 ## Configuración
 

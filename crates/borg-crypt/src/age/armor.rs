@@ -40,6 +40,20 @@ pub enum ArmorError {
     Whitespace,
 }
 
+pub(super) fn encode(binary: &[u8]) -> Vec<u8> {
+    let encoded = PADDED_BASE64.encode(binary);
+    let mut out = Vec::new();
+    out.extend_from_slice(BEGIN);
+    out.push(LINE_END);
+    for line in encoded.as_bytes().chunks(COLUMNS_PER_LINE) {
+        out.extend_from_slice(line);
+        out.push(LINE_END);
+    }
+    out.extend_from_slice(END);
+    out.push(LINE_END);
+    out
+}
+
 impl From<ArmorError> for io::Error {
     fn from(error: ArmorError) -> Self {
         io::Error::new(io::ErrorKind::InvalidData, error)

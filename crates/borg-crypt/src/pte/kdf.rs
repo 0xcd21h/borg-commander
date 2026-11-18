@@ -22,6 +22,7 @@ const STRETCHED_LEN: usize = 256;
 const KEPT_AS_TYPED: RangeInclusive<u32> = 32..=126;
 const LONGEST_EXPANSION: usize = 12;
 
+#[derive(Clone, PartialEq, Eq)]
 pub struct MasterKey(Zeroizing<[u8; MASTER_LEN]>);
 
 impl MasterKey {

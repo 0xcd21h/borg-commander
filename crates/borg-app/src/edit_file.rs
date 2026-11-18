@@ -13,7 +13,7 @@ use borg_core::{EditorFile, FileStamp, OpenError, SaveError};
 const EDIT_LIMIT: u64 = 32 * 1024 * 1024;
 const NEW_FILE_MODE: u32 = 0o644;
 
-fn stamp(meta: &fs::Metadata) -> FileStamp {
+pub(crate) fn stamp(meta: &fs::Metadata) -> FileStamp {
     FileStamp { len: meta.len(), modified: meta.modified().ok(), inode: meta.ino() }
 }
 

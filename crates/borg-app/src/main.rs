@@ -5,6 +5,7 @@
 mod activity;
 mod admin;
 mod agent;
+mod allocator;
 mod app;
 mod archive;
 mod backup;
@@ -14,6 +15,7 @@ mod delete_check;
 mod docker;
 mod document;
 mod edit_file;
+mod encrypted;
 mod entropy_scan;
 mod host_asks;
 mod host_overview;
