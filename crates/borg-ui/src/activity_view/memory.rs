@@ -48,14 +48,14 @@ pub(super) fn sizes(totals: &MemoryTotals) -> [String; 3] {
 /// A horizontal bar filled to `fraction`, shaded along the theme accent.
 /// How a meter colors its filled cells.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Fill {
+pub(crate) enum Fill {
     /// Along the theme's accent, from the empty end to the full one.
     Accent,
     /// In the notice color, for something that runs short.
     Warning,
 }
 
-pub(super) fn meter(buf: &mut Buffer, area: Rect, fraction: f64, tone: Fill, look: &Look<'_>) {
+pub(crate) fn meter(buf: &mut Buffer, area: Rect, fraction: f64, tone: Fill, look: &Look<'_>) {
     let theme = look.theme;
     let accent = look.accent();
     let eighths = (fraction.clamp(0.0, 1.0) * f64::from(area.width) * 8.0).round() as u32;

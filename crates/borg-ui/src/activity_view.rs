@@ -27,7 +27,7 @@ mod system;
 
 pub(crate) use controls::{keybar, panel_mouse};
 use files::{file_details, files};
-pub(crate) use memory::{Unit, chart};
+pub(crate) use memory::{Fill, Unit, chart, meter};
 use memory::{memory, metrics, sized_line, sizes};
 use processes::filter_row;
 use regions::{Page, regions, snapshot};

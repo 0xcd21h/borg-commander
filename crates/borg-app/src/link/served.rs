@@ -45,6 +45,8 @@ pub(super) struct Served {
     pub(super) calls: UnboundedSender<(Call, oneshot::Sender<Reply>)>,
     pub(super) messages: UnboundedSender<Msg>,
     pub(super) clients: Arc<AtomicUsize>,
+    /// What this Borg last read of the machine for a computer's hosts screen.
+    pub(super) overview: crate::host_overview::Overview,
 }
 
 impl Served {
@@ -295,11 +297,12 @@ impl Served {
         })
     }
 
-    /// This borg's version, machine and named sessions, for the computer's list of hosts.
-    pub(super) fn host_info(&self) -> Reply {
+    /// This borg's version, machine and named sessions, for the computer's list of hosts, and
+    /// the machine's figures when the computer's hosts screen asks for them.
+    pub(super) async fn host_info(&self, args: &serde_json::Value) -> Reply {
         match self.sessions() {
-            Some(Ok(sessions)) => Reply::ok(
-                json!({
+            Some(Ok(sessions)) => {
+                let mut info = json!({
                     "version": env!("CARGO_PKG_VERSION"),
                     "hostname": this_computer(),
                     "os": std::env::consts::OS,
@@ -310,9 +313,12 @@ impl Served {
                         .filter(|entry| !entry.archived)
                         .map(|entry| self.running(entry))
                         .collect::<Vec<_>>(),
-                })
-                .to_string(),
-            ),
+                });
+                if args[super::OVERVIEW_ARG] == true {
+                    info[super::OVERVIEW_ARG] = json!(self.overview.figures().await);
+                }
+                Reply::ok(info.to_string())
+            }
             Some(Err(error)) => Reply::error(format!("{error:#}")),
             None => Reply::error("Borg has no state folder for sessions"),
         }

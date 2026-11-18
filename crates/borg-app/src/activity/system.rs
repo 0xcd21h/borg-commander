@@ -47,7 +47,7 @@ pub(super) fn disk_activity(previous: &DiskReading, current: &DiskReading, elaps
 }
 
 /// The load average, in hundredths.
-pub(super) fn load() -> LoadAverage {
+pub(crate) fn load() -> LoadAverage {
     let load = System::load_average();
     let hundredths = |value: f64| (value.max(0.0) * HUNDREDTHS).round() as u32;
     LoadAverage { one: hundredths(load.one), five: hundredths(load.five), fifteen: hundredths(load.fifteen) }

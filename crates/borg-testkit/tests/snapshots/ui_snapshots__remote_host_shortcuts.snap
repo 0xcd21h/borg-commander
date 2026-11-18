@@ -21,7 +21,7 @@ expression: describe(&buffer)
 ││ Original host: production · Session: Default                                         ││
 ╰│ Borg 0.10.0 · linux / x86_64 · background service · RTT 38 ms                        │╯
  │ Relay: wss://relay.example                                                           │
-$│ U: update this host · Shift-F8: forget it on this client                             │
+$│ U: update this host · O: hosts overview · Shift-F8: forget it on this client         │
 F╰────── Enter files  M mirror  F2 rename  F8 remove  Tab clients  R reload  Esc ───────╯
 Alt-H Remote hosts  Alt-I Count sizes  Ctrl-F Search             ◈ Borg Commander v0.12.0
 --- styles ---

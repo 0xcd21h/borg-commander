@@ -111,6 +111,8 @@ pub struct RemoteBrowser {
     pub forgetting: Option<String>,
     /// The host being updated, until it comes back on the new version.
     pub updating: Option<String>,
+    /// The list holds one host's sessions for the hosts screen, which its questions return to.
+    pub from_overview: bool,
 }
 
 impl RemoteBrowser {
@@ -141,6 +143,11 @@ pub(crate) fn on_key(state: &mut AppState, mut browser: RemoteBrowser, key: &Key
     }
     let key = &crate::keyboard::latin(key);
     if browser.show_clients { clients_key(state, browser, key.code) } else { sessions_key(state, browser, key) }
+}
+
+/// Where a question the list asked returns to: the list, or the hosts screen it was opened for.
+pub(crate) fn back_to(browser: RemoteBrowser) -> Option<Overlay> {
+    (!browser.from_overview).then_some(Overlay::Remotes(browser))
 }
 
 fn show(state: &mut AppState, browser: RemoteBrowser) -> Vec<Effect> {
@@ -205,6 +212,7 @@ fn sessions_key(state: &mut AppState, mut browser: RemoteBrowser, key: &KeyEvent
         KeyCode::Enter => open_choice(state, browser, true),
         KeyCode::Char('m') | KeyCode::Char('M') => open_choice(state, browser, false),
         KeyCode::Char('u') | KeyCode::Char('U') => ask_update(state, browser),
+        KeyCode::Char('o') | KeyCode::Char('O') => crate::hosts::open(state),
         _ => show(state, browser),
     }
 }
@@ -244,7 +252,7 @@ fn ask_delete(state: &mut AppState, mut browser: RemoteBrowser, forget: bool) ->
 }
 
 /// U asks before updating the chosen machine, which needs a session there to reach it.
-fn ask_update(state: &mut AppState, mut browser: RemoteBrowser) -> Vec<Effect> {
+pub(crate) fn ask_update(state: &mut AppState, mut browser: RemoteBrowser) -> Vec<Effect> {
     let Some(choice) = browser.choices.get(browser.selected) else { return Vec::new() };
     if choice.session.is_none() {
         browser.error = Some(tr!(remote_host_no_session, machine = choice.host_name()));
@@ -263,7 +271,7 @@ fn ask_update(state: &mut AppState, mut browser: RemoteBrowser) -> Vec<Effect> {
 }
 
 /// F2 asks for a new name for the chosen machine, or with Shift for its session.
-fn ask_rename(state: &mut AppState, browser: RemoteBrowser, session: bool) -> Vec<Effect> {
+pub(crate) fn ask_rename(state: &mut AppState, browser: RemoteBrowser, session: bool) -> Vec<Effect> {
     let Some(choice) = browser.choices.get(browser.selected) else { return Vec::new() };
     if choice.identity.is_empty() || (session && choice.session.is_none()) {
         return Vec::new();
@@ -286,7 +294,7 @@ fn ask_rename(state: &mut AppState, browser: RemoteBrowser, session: bool) -> Ve
 }
 
 /// Enter mounts the chosen session in the panel, and M mirrors it instead.
-fn open_choice(state: &mut AppState, mut browser: RemoteBrowser, mount: bool) -> Vec<Effect> {
+pub(crate) fn open_choice(state: &mut AppState, mut browser: RemoteBrowser, mount: bool) -> Vec<Effect> {
     let Some(choice) = browser.choices.get(browser.selected) else { return Vec::new() };
     let Some(session) = choice.session.clone() else {
         browser.error = Some(tr!(remote_host_no_session, machine = choice.host_name()));
@@ -316,6 +324,7 @@ pub(crate) fn browse(state: &mut AppState) -> Vec<Effect> {
         deleting: None,
         forgetting: None,
         updating: None,
+        from_overview: false,
     }));
     vec![Effect::OpenRemotes]
 }
@@ -364,6 +373,7 @@ pub(crate) fn mirror(state: &mut AppState, machine: String, session: String) -> 
             deleting: None,
             forgetting: None,
             updating: None,
+            from_overview: false,
         }));
     }
     vec![Effect::MirrorRemote { machine, session }]
