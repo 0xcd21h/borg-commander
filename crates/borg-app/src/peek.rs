@@ -11,6 +11,7 @@ use std::{
 use anyhow::Result;
 use borg_core::{Aside, Content, Facts, FirstMatch, Nature, Peek};
 use borg_drives::Drives;
+use borg_i18n::tr;
 use borg_vfs::{Entry, entries};
 
 const PERMISSION_BITS: u32 = 0o7777;
@@ -41,6 +42,9 @@ fn quick_view(
 ) -> Result<Peek> {
     if fs::metadata(path)?.is_dir() {
         return folder(path, size.1, &cancelled);
+    }
+    if let Some(format) = crate::encrypted::detect(path) {
+        return Ok(Peek::Unavailable(tr!(quick_view_sealed, format = borg_core::format_name(format))));
     }
     match crate::document::open_on(path, at, size, cell, cancelled)? {
         Content::Text(pager) => Ok(Peek::Text(pager)),

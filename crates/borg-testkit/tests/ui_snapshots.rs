@@ -5627,6 +5627,23 @@ fn a_locked_computer_key_asks_for_its_password_without_showing_it() -> Result<()
 }
 
 #[test]
+fn an_encrypted_file_asks_for_its_password_without_showing_it() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    let path = PathBuf::from("/home/me/projects/borg/notes.md.age");
+    stage.state.opening = Some(path.clone());
+    let then = borg_core::Then::View;
+    stage.send(Msg::Sealed(borg_core::SealedFile { path, format: borg_crypt::sealed::Format::Age, then }));
+    for msg in chars("rain cobalt") {
+        stage.send(msg);
+    }
+    let buffer = stage.render(stage.started + PASSWORD_SETTLED)?;
+    ensure_text(&buffer, "Encrypted file")?;
+    ensure_text(&buffer, "notes.md.age, encrypted with age")?;
+    anyhow::ensure!(!describe(&buffer).contains("cobalt"), "the password must stay hidden");
+    check("encrypted_file_password", &stage, buffer)
+}
+
+#[test]
 fn a_pairing_approval_shows_over_the_remote_access_dialog() -> Result<()> {
     use borg_core::AgentEvent;
     let mut stage = stage(GridSize { cols: 90, rows: 34 }, Motion::STILL)?;

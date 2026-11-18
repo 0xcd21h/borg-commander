@@ -30,7 +30,7 @@ fn kdf_value(name: &str) -> Vec<u8> {
     unhex(&row[1])
 }
 
-fn open_text(file: &[u8], password: &str) -> Result<Vec<u8>, Error> {
+fn opened(file: &[u8], password: &str) -> Result<Vec<u8>, Error> {
     Ok(Envelope::parse(file)?.open(&MasterKey::from_password(password))?.to_vec())
 }
 
@@ -113,14 +113,14 @@ fn sealed_text_round_trips_exactly() {
         let envelope = Envelope::parse(file.as_bytes()).expect("parse");
         assert_eq!(envelope.cipher(), cipher);
         assert!(!envelope.compressed());
-        assert_eq!(open_text(file.as_bytes(), PASSWORD).expect("open"), text);
+        assert_eq!(opened(file.as_bytes(), PASSWORD).expect("open"), text);
     }
 }
 
 #[test]
 fn a_wrong_password_is_reported() {
     let file = seal(b"secret", &MasterKey::from_password(PASSWORD), Cipher::Blowfish448, &RANDOM).expect("seal");
-    assert_eq!(open_text(file.as_bytes(), "wrong"), Err(Error::WrongPasswordOrDamaged));
+    assert_eq!(opened(file.as_bytes(), "wrong"), Err(Error::WrongPasswordOrDamaged));
 }
 
 #[test]
@@ -129,7 +129,7 @@ fn spaces_line_breaks_and_a_byte_order_mark_are_ignored() {
     let spaced: String =
         file.chars().enumerate().flat_map(|(at, ch)| [ch].into_iter().chain((at % 7 == 6).then_some(' '))).collect();
     let marked = [BYTE_ORDER_MARK, spaced.as_bytes(), b"\r\n"].concat();
-    assert_eq!(open_text(&marked, PASSWORD).expect("open"), b"spaced");
+    assert_eq!(opened(&marked, PASSWORD).expect("open"), b"spaced");
 }
 
 #[test]
@@ -173,7 +173,7 @@ fn compressed_payloads_are_checked_before_decoding() {
     ];
     for (payload, expected) in cases {
         let file = seal_payload(&payload, &master, Cipher::Aes256, &RANDOM, flags);
-        assert_eq!(open_text(file.as_bytes(), PASSWORD), Err(expected));
+        assert_eq!(opened(file.as_bytes(), PASSWORD), Err(expected));
     }
 }
 
@@ -214,6 +214,28 @@ proptest! {
         let at = index.index(bytes.len());
         bytes[at] ^= flip;
         let changed = format!("{}!", PTE_BASE64.encode(&bytes));
-        prop_assert!(open_text(changed.as_bytes(), PASSWORD).is_err());
+        prop_assert!(opened(changed.as_bytes(), PASSWORD).is_err());
     }
+}
+
+#[test]
+fn reopened_text_reseals_with_its_cipher_and_a_fresh_salt() {
+    let file = seal(b"first", &MasterKey::from_password(PASSWORD), Cipher::Blowfish448, &RANDOM).expect("seal");
+    let (text, rekey) = super::open_text(file.as_bytes(), PASSWORD).expect("open");
+    assert_eq!(*text, b"first");
+    assert_eq!(rekey.cipher(), Cipher::Blowfish448);
+    let resealed = rekey.seal_text(b"second", &[7; RANDOM_LEN]).expect("reseal");
+    assert_ne!(resealed, file);
+    assert_eq!(Envelope::parse(resealed.as_bytes()).expect("parse").cipher(), Cipher::Blowfish448);
+    assert_eq!(opened(resealed.as_bytes(), PASSWORD).expect("open"), b"second");
+    assert!(!format!("{rekey:?}").contains(PASSWORD));
+}
+
+#[test]
+fn files_ending_in_the_end_mark_look_like_pte() {
+    assert!(ends_like_pte(b"abc!"));
+    assert!(ends_like_pte(b"abc! \r\n"));
+    assert!(!ends_like_pte(b"abc"));
+    assert!(!ends_like_pte(b"!abc"));
+    assert!(!ends_like_pte(b""));
 }

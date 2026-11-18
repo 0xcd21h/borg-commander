@@ -23,6 +23,11 @@ impl LineInput {
         &self.text
     }
 
+    pub fn wipe(&mut self) {
+        zeroize::Zeroize::zeroize(&mut self.text);
+        self.cursor = 0;
+    }
+
     pub fn cursor_chars(&self) -> usize {
         self.text[..self.cursor].chars().count()
     }

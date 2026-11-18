@@ -33,6 +33,7 @@ borg-docker = { workspace = true }
 borg-git = { workspace = true }
 anyhow    = { workspace = true }
 borg-core = { workspace = true }
+borg-crypt = { workspace = true }
 borg-rules = { workspace = true }
 borg-gfx  = { workspace = true }
 borg-jobs = { workspace = true }
@@ -62,6 +63,7 @@ toml_edit = { workspace = true }
 uzers     = { workspace = true }
 unicode-width = { workspace = true }
 zeroize   = { workspace = true }
+zeroizing-alloc = { workspace = true }
 borg-watch-ebpf = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]

@@ -644,6 +644,7 @@ dependencies = [
  "base64 0.22.1",
  "borg-archive",
  "borg-core",
+ "borg-crypt",
  "borg-docker",
  "borg-drives",
  "borg-gfx",
@@ -700,6 +701,7 @@ dependencies = [
  "ureq",
  "uzers",
  "zeroize",
+ "zeroizing-alloc",
  "zip",
 ]
 
@@ -729,6 +731,7 @@ version = "0.12.0"
 dependencies = [
  "aes-gcm",
  "borg-archive",
+ "borg-crypt",
  "borg-docker",
  "borg-drives",
  "borg-edit",
@@ -754,6 +757,7 @@ dependencies = [
  "thiserror 2.0.21",
  "unicode-normalization",
  "unicode-width",
+ "zeroize",
 ]
 
 [[package]]
@@ -924,6 +928,7 @@ dependencies = [
  "anyhow",
  "borg-archive",
  "borg-core",
+ "borg-crypt",
  "borg-docker",
  "borg-drives",
  "borg-gfx",
@@ -5530,6 +5535,12 @@ name = "zeroize"
 version = "1.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e13084392c5e4bc371903e2935a5eaeed24905a7511356b883835e18a78f6879"
+
+[[package]]
+name = "zeroizing-alloc"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1b5564c80013ee0edbfc4e4d7d66d1a5a44b8adaffbf0103069f51ce0efc5031"
 
 [[package]]
 name = "zip"

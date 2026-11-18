@@ -38,6 +38,9 @@ pub(crate) fn run(request: &ReplaceRequest, control: &Control, emit: &mut dyn Fn
 /// Whether `path` changed. A file that is not text, is too large for the editor, or changed
 /// since it was read is skipped.
 fn replace_in(search: &Search, path: &Path, with: &str) -> Result<bool, Skipped> {
+    if crate::encrypted::detect(path).is_some() {
+        return Err(Skipped);
+    }
     let file = edit_file::read(path).map_err(|_| Skipped)?;
     let (text, count) = search.replace_all(&file.text, with);
     if count == 0 {

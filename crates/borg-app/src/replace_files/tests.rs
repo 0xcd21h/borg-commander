@@ -58,3 +58,17 @@ fn a_cancelled_job_changes_nothing_more_and_a_bad_expression_changes_nothing() {
     assert!(matches!(run(&broken, &Control::default(), &mut |_| {}), Outcome::Failed(_)));
     assert_eq!(fs::read_to_string(dir.path().join("a.conf")).unwrap(), "port 80\r\nexport PORT=81\n");
 }
+
+#[test]
+fn encrypted_files_are_skipped_even_when_their_text_matches() {
+    const SEALED_PART: usize = 4;
+    let dir = tempfile::tempdir().unwrap();
+    let master = borg_crypt::pte::MasterKey::from_password("hunter two");
+    let random = [0x42; borg_crypt::pte::RANDOM_LEN];
+    let sealed = borg_crypt::pte::seal(b"notes", &master, borg_crypt::pte::Cipher::Aes256, &random).unwrap();
+    fs::write(dir.path().join("notes.txt"), &sealed).unwrap();
+    let outcome =
+        run(&request(dir.path(), &sealed[..SEALED_PART], "zzzz", &["notes.txt"]), &Control::default(), &mut |_| {});
+    assert_eq!(outcome, Outcome::Done { done: Totals::default(), skipped: 1 });
+    assert_eq!(fs::read_to_string(dir.path().join("notes.txt")).unwrap(), sealed);
+}
