@@ -47,6 +47,36 @@ fn an_agent_reaches_only_the_tools_listed_to_it() {
     }
 }
 
+#[tokio::test]
+async fn only_borg_mcp_reads_every_host_and_says_so_when_none_is_paired() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut routing = server::Backend::Routing(Router {
+        runtime_dir: temp.path().into(),
+        state: Some(temp.path().into()),
+        selected: "local:default".into(),
+        locals: HashMap::new(),
+        remotes: HashMap::new(),
+    });
+    assert!(routing.lists("hosts"));
+    let tools = routing.tools();
+    let hosts = tools.as_array().unwrap().iter().find(|tool| tool["name"] == "hosts").unwrap();
+    assert!(hosts["inputSchema"]["properties"].get("session").is_none(), "hosts covers every target");
+    let reply = routing.call(&Call::new("hosts", json!({}))).await;
+    assert!(reply.ok && reply.text.starts_with("No hosts are paired"), "{}", reply.text);
+
+    let server = crate::link::Server {
+        name: "web-01".into(),
+        relay: "wss://relay.example".into(),
+        key: "00".repeat(32),
+        computer: None,
+        offered: None,
+    };
+    let remote = server::Backend::Remote { state: temp.path().into(), server, remote: None };
+    assert!(!remote.lists("hosts"), "a server of its own sees one host; borg mcp sees them all");
+    let local = server::Backend::Local { runtime_dir: temp.path().into(), session_id: "default".into(), session: None };
+    assert!(!local.lists("hosts"));
+}
+
 #[test]
 fn a_command_is_asked_about_only_when_the_dialog_shows_all_of_it() {
     for shown in ["ls -la", "cd app\ncargo test", "echo 'naïve — 雪'"] {

@@ -139,17 +139,25 @@ pub const ASKS_ANSWER: &str = "asks_answer";
 pub const ASKS_STOP: &str = "asks_stop";
 /// The only calls a viewer connection makes, and which no other connection may make.
 const VIEWER_CALLS: [&str; 3] = [ASKS_WAIT, ASKS_ANSWER, ASKS_STOP];
+/// The only calls a monitor connection makes: what the host is and how it is doing, for the
+/// hosts page and for agents. Neither reaches a session or waits for approval.
+const MONITOR_CALLS: [&str; 2] = ["host_info", "list_sessions"];
+/// What a server answers to a hello it does not know, as a Borg from before monitor connections
+/// does to one.
+const UNREADABLE_HELLO: &str = "unreadable hello";
 /// How long an `asks_wait` call waits for a change before it answers with what it has.
 pub const ASKS_WAIT_TIME: Duration = Duration::from_secs(15);
 
-/// The first message of a channel, encrypted: a pairing, a session of a paired computer, or a
-/// paired computer's borg watching for the asks of a session its panels show.
+/// The first message of a channel, encrypted: a pairing, a session of a paired computer, a
+/// paired computer's borg watching for the asks of a session its panels show, or one reading how
+/// the host is doing.
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum Hello {
     Pair { secret: String, name: String },
     Session,
     Viewer,
+    Monitor,
 }
 
 /// The server's answer to a hello.

@@ -112,10 +112,11 @@ pub use folders::{
 pub use game2048::{Game2048, GameDirection, GameStatus, SavedGame2048};
 pub use history::{HISTORY_LIMIT, PastSearch, SearchHistory};
 pub use hosts::{
-    CARD_GAP, CARD_HEIGHT, CARD_WIDTH, CARDS_CHROME, ContainerFigures, DiskFigures, HOSTS_EVERY, HostCard, HostFigures,
-    HostHeard, HostReply, Hosts, HostsLayout, MemoryFigures, PairedHost, ROWS_CHROME, Reach, STALE_AFTER, WHOLE,
-    WatchFigures, card_columns, fits_card_rows, fits_cards, fullest, holds_files, hosts_filtered, older_than, share,
-    worse,
+    CARD_GAP, CARD_HEIGHT, CARD_WIDTH, CARDS_CHROME, ConcernLevel, ConcernReport, ContainerFigures, DiskFigures,
+    DiskReport, Figure, FiguresReport, HOSTS_EVERY, HostCard, HostFigures, HostHeard, HostReply, HostReport, Hosts,
+    HostsLayout, LoadReport, MemoryFigures, MemoryReport, PairedHost, ROWS_CHROME, Reach, ReachReport, STALE_AFTER,
+    SessionReport, WHOLE, WatchFigures, WatcherReport, card_columns, fits_card_rows, fits_cards, fullest, holds_files,
+    host_reports, hosts_filtered, older_than, share, worse,
 };
 pub use input::LineInput;
 pub use install::{Elevation, InstallOffer, Installer, PackageManager, Platform, Tool};

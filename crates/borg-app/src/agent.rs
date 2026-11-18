@@ -9,6 +9,7 @@
 mod answers;
 mod capture;
 mod files;
+mod hosts;
 mod location;
 mod scan;
 mod secrets;
@@ -55,7 +56,7 @@ pub use server::{serve, serve_remote, setup};
 use socket::SOCKET_SUFFIX;
 pub(crate) use socket::{SOCKET_PREFIX, same_user, socket_dir, socket_dirs, socket_path};
 pub use socket::{connect_info, hostname, program_path};
-use tools::{routing_tools, tools, transfer_tools};
+use tools::{hosts_tool, routing_tools, tools, transfer_tools};
 
 pub(crate) const LIST_LIMIT: usize = 500;
 const OUTPUT_LIMIT: usize = 64 * 1024;
@@ -138,15 +139,18 @@ impl Call {
 pub struct Reply {
     pub ok: bool,
     pub text: String,
+    /// The same answer as data, for an agent that reads MCP's structured content.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub structured: Option<Value>,
 }
 
 impl Reply {
     pub fn ok(text: impl Into<String>) -> Self {
-        Self { ok: true, text: text.into() }
+        Self { ok: true, text: text.into(), structured: None }
     }
 
     pub fn error(text: impl Into<String>) -> Self {
-        Self { ok: false, text: text.into() }
+        Self { ok: false, text: text.into(), structured: None }
     }
 }
 
@@ -250,7 +254,11 @@ impl Typed {
     pub fn finish(self, exit: Option<i32>, output: &str, messages: &UnboundedSender<Msg>) {
         let status = exit.map_or_else(|| "finished".to_owned(), |code| format!("exit {code}"));
         note(messages, &format!("ran in {}\n$ {}\n[{status}]", self.place, self.command));
-        let _ = self.reply.send(Reply { ok: exit.is_none_or(|code| code == 0), text: format!("{status}\n{output}") });
+        let _ = self.reply.send(Reply {
+            ok: exit.is_none_or(|code| code == 0),
+            text: format!("{status}\n{output}"),
+            structured: None,
+        });
         let notice = match exit {
             Some(code) => tr!(agent_ran, command = self.command, code = code),
             None => tr!(agent_stopped, command = self.command),
@@ -351,7 +359,7 @@ impl Agent {
             let (exit, output) = run(&command, &dir).await;
             let status = exit.map_or_else(|| "stopped".to_owned(), |code| format!("exit {code}"));
             note(&messages, &format!("ran in {}\n$ {command}\n[{status}]", home_relative(&dir)));
-            let _ = reply.send(Reply { ok: exit == Some(0), text: format!("{status}\n{output}") });
+            let _ = reply.send(Reply { ok: exit == Some(0), text: format!("{status}\n{output}"), structured: None });
             let notice = match exit {
                 Some(code) => tr!(agent_ran, command = command, code = code),
                 None => tr!(agent_stopped, command = command),
@@ -382,7 +390,7 @@ impl Agent {
                 }
                 Err(error) => (format!("{error:#}"), tr!(agent_write_failed, path = uri)),
             };
-            let _ = reply.send(Reply { ok: result.is_ok(), text: reply_text });
+            let _ = reply.send(Reply { ok: result.is_ok(), text: reply_text, structured: None });
             let _ = messages.send(Msg::Agent(AgentEvent::Finished { id, notice }));
         });
     }

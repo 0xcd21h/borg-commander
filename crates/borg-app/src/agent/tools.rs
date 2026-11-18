@@ -168,6 +168,23 @@ pub(super) fn routing_tools() -> Vec<Value> {
     ]
 }
 
+/// The tool only `borg mcp` offers that reads every paired host at once.
+pub(super) fn hosts_tool() -> Value {
+    json!({
+        "name": "hosts",
+        "description": "Lists every paired host with how it is doing, as Borg's hosts page shows it: whether it answers (answering, not answering in time, offline, or failed) and when it last answered, its Borg version and system, CPU use, the load over 1, 5 and 15 minutes against its cores, memory and swap, the fullest filesystem, the process watcher's unread alerts and frozen processes, and its containers. Each host comes with its concerns (load, memory, disk, watcher or containers, as warning or alert) and its target ID: pass it to use_session or as the session argument of any other tool to work on that host. Asks every host once, 8 at a time, waiting up to 5 seconds for each. Hosts send only numbers and counts, so this needs no approval. The answer is text, and the same as data in the structured content.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "filter": {
+                    "type": "string",
+                    "description": "Words that narrow the hosts, as the hosts page's filter does: each must appear in the host's name, Borg version or system, and none written after !. For example \"web !staging\"."
+                }
+            }
+        }
+    })
+}
+
 /// The tools only `borg mcp remote` offers: it runs on the user's computer, so it can copy
 /// files between that and the server.
 pub(super) fn transfer_tools() -> Vec<Value> {

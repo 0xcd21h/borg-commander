@@ -4,7 +4,7 @@ use super::caller::{Caller, Role};
 use super::{
     APPROVAL_WAIT, Answer, CLIENTS_SOCKET, CLIENTS_TIMEOUT, COMPUTERS_FILE, ClientConnection, Computer, Hello,
     KeyChanged, LINK_DIR, NOT_PAIRED, PAIR_CALL, PAIRING_TRIES, PRIVATE_FILE, RETRY_FIRST, RETRY_LAST, Shared,
-    clean_name, client_status, same, save, this_computer,
+    UNREADABLE_HELLO, clean_name, client_status, same, save, this_computer,
 };
 use crate::{
     agent::{Call, Reply, note},
@@ -144,7 +144,8 @@ impl Served {
             Ok(Hello::Pair { secret, name }) => self.pair(channel, &secret, &name).await,
             Ok(Hello::Session) => self.serve(channel, Role::Session).await,
             Ok(Hello::Viewer) => self.serve(channel, Role::Viewer).await,
-            Err(_) => refuse(&mut channel, "unreadable hello").await,
+            Ok(Hello::Monitor) => self.serve(channel, Role::Monitor).await,
+            Err(_) => refuse(&mut channel, UNREADABLE_HELLO).await,
         };
     }
 
@@ -208,8 +209,8 @@ impl Served {
     }
 
     /// A paired computer's session: its calls go to the session as the local socket's do,
-    /// marked with the computer's name. A viewer connection is no agent, so it is not counted
-    /// as one.
+    /// marked with the computer's name. A viewer or monitor connection is no agent, so it is not
+    /// counted as one; a monitor leaves a line in the log, so the reads stay visible here.
     pub(super) async fn serve(&self, mut channel: Channel, role: Role) -> Result<()> {
         let key = hex(channel.peer());
         let computer = self.shared.lock().expect("link lock").computers.iter().find(|c| c.key == key).cloned();
@@ -222,6 +223,9 @@ impl Served {
         let _connection = (role == Role::Session).then(|| {
             ClientConnection::new(self.shared.clone(), self.clients.clone(), self.messages.clone(), computer.clone())
         });
+        if role == Role::Monitor {
+            crate::agent::note(&self.messages, &format!("{} reads how this host is doing", computer.name));
+        }
         self.calls_of(&mut channel, &computer, role).await
     }
 
