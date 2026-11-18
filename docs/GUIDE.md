@@ -1079,11 +1079,11 @@ servers.
 
 ### Named sessions and the background service
 
-With named workspaces, `borg sessions list` shows their IDs and names,
-`borg sessions create NAME` adds one, and `borg --session NAME` opens it. Over MCP, the agent can
-call `list_sessions`, `list_remote_sessions`, and `use_session` to choose which session that
-connection works with. A single tool call can also pass a `session` ID to target another session
-just once. The chosen session applies only to that MCP connection.
+With named workspaces, `borg sessions list` shows their IDs and names, `borg sessions create NAME`
+adds one, and `borg --session NAME` opens it. Over MCP, the agent can call `list_sessions`,
+`list_remote_sessions`, and `use_session` to choose which session that connection works with, and
+`hosts` to see how every paired host is doing. A single tool call can also pass a `session` ID to
+target another session just once. The chosen session applies only to that MCP connection.
 
 With more than one session, or when the only one is open in another terminal, `borg` starts with the
 **Borg sessions** window. Its first lines say what a session is, and the list shows each session
@@ -1267,9 +1267,21 @@ its system, relay, round trip, sessions, when it last answered, and each figure 
 The figures travel through borg cloud like any other call, encrypted end to end. They are numbers
 and counts: the machine's totals for CPU, load, memory and swap, the size and free space of one
 filesystem with its mount point, the watcher's unread counts, and the number of containers. No
-process, file name or alert text leaves the host this way, so the host answers without asking,
-even with "ask before another computer reads" turned on. While the page is open, each host lists
-this computer as connected.
+process, file name or alert text leaves the host this way, so the host answers without asking, even
+with "ask before another computer reads" turned on. The page, the remote hosts list on **Alt-H** and
+the `hosts` tool for agents read each host over a connection that can only ask how the host is
+doing. The host leaves it out of its connected clients and notes in its remote log which computer
+reads, at most once an hour for each computer. A host on a Borg from before these connections
+refuses them, so Borg reads it over a regular session, and that host lists the reader among its
+connected clients.
+
+An agent connected through `borg mcp` reads the same page with the `hosts` tool. It lists every
+paired host in the page's order: whether it answers, its Borg version and system, its figures, what
+turns its card to the warning or alert color, and its target ID. `use_session` and the `session`
+argument of every other tool take that ID, so the agent can go from `hosts` straight to working on a
+host. `filter` narrows the hosts with the same words as **/** on the page. The answer comes as text,
+with the same figures as data for agents that read structured content. The tool reaches every host
+through the borg on your computer, so `borg mcp remote NAME`, which reaches one host, leaves it out.
 
 ### Mirroring a session
 

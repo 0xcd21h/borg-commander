@@ -9,12 +9,17 @@ use crate::{AppState, Effect, RemoteChoice, RemoteHostInfo, RemoteNames, Side, V
 
 mod figures;
 mod keys;
+mod report;
 
 pub use figures::{
-    ContainerFigures, DiskFigures, HostFigures, MemoryFigures, WHOLE, WatchFigures, fullest, holds_files, older_than,
-    share, worse,
+    ContainerFigures, DiskFigures, Figure, HostFigures, MemoryFigures, WHOLE, WatchFigures, fullest, holds_files,
+    older_than, share, worse,
 };
 pub(crate) use keys::{click, paste, route_key};
+pub use report::{
+    ConcernLevel, ConcernReport, DiskReport, FiguresReport, HostReport, LoadReport, MemoryReport, ReachReport,
+    SessionReport, WatcherReport, host_reports,
+};
 
 const EXCLUDE: char = '!';
 /// How often the app asks each host while the screen is open.
@@ -318,7 +323,7 @@ impl Hosts {
 
     /// The paired hosts as the app listed them: new ones wait for their first answer, and those
     /// no longer paired go.
-    fn list(&mut self, hosts: Vec<PairedHost>) {
+    pub fn list(&mut self, hosts: Vec<PairedHost>) {
         let mut cards = Vec::with_capacity(hosts.len());
         for host in hosts {
             let card = match self.cards.iter().position(|card| card.identity == host.identity) {
@@ -338,7 +343,8 @@ impl Hosts {
         self.rebuild();
     }
 
-    fn answer(&mut self, identity: &str, answer: HostHeard, now: Instant) {
+    /// What a host answered, or that it did not.
+    pub fn answer(&mut self, identity: &str, answer: HostHeard, now: Instant) {
         let Some(card) = self.cards.iter_mut().find(|card| card.identity == identity) else { return };
         card.reach = match answer {
             HostHeard::Answered(reply) => {
@@ -361,7 +367,7 @@ impl Hosts {
     }
 
     /// Takes the names the user gave hosts on this computer.
-    fn name(&mut self, names: &RemoteNames) {
+    pub fn take_names(&mut self, names: &RemoteNames) {
         let mut renamed = false;
         for card in &mut self.cards {
             let label = names.0.get(&card.identity).and_then(|names| names.host.clone());
@@ -409,7 +415,7 @@ pub(crate) fn sync(state: &mut AppState, now: Instant) -> Vec<Effect> {
         effects.push(Effect::WatchHosts(live));
     }
     let names = state.remote_names.clone();
-    state.hosts.name(&names);
+    state.hosts.take_names(&names);
     if !live || state.overlay.is_some() {
         return effects;
     }

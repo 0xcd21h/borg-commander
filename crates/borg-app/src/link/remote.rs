@@ -1,7 +1,7 @@
 //! The computer's side of borg cloud: pairing with a server, calling it, and copying files to and from it.
 
 use super::{
-    APPROVAL_WAIT, Answer, Hello, LINK_DIR, ROTATE_CALL, SERVERS_FILE, Server, clean_name,
+    APPROVAL_WAIT, Answer, Hello, LINK_DIR, ROTATE_CALL, SERVERS_FILE, Server, UNREADABLE_HELLO, clean_name,
     keys::{ComputerKeys, computer_keys, legacy_key, lock, retire_unused, saved_server, update_server},
     load_to_change, save, this_computer,
 };
@@ -75,6 +75,18 @@ impl Remote {
         Self::open_as(state, server, &Hello::Viewer).await
     }
 
+    /// A monitor connection, which only asks what the host is and how it is doing: the host
+    /// counts no agent for it and reaches no session. A Borg from before monitor connections
+    /// gets a session connection instead.
+    pub async fn open_monitor(state: &Path, server: &Server) -> Result<Self> {
+        match Self::open_as(state, server, &Hello::Monitor).await {
+            Err(error) if error.chain().any(|cause| cause.downcast_ref::<HelloUnknown>().is_some()) => {
+                Self::open(state, server).await
+            }
+            opened => opened,
+        }
+    }
+
     async fn open_as(state: &Path, server: &Server, hello: &Hello) -> Result<Self> {
         let relay = Relay::parse(&server.relay).context("the saved relay is not valid")?;
         let key: PublicKey = unhex(&server.key).context("the saved key is not valid")?;
@@ -101,7 +113,7 @@ impl Remote {
                     saved.offered = None;
                 })?;
             }
-            let rotates = matches!(hello, Hello::Session) && answer.rotation && round < ROUNDS;
+            let rotates = matches!(hello, Hello::Session | Hello::Monitor) && answer.rotation && round < ROUNDS;
             if used == keys.current || !rotates {
                 return Ok(Self { channel });
             }
@@ -173,10 +185,25 @@ pub(super) async fn connect(
     } else if answer.refused() {
         channel.close().await;
         Ok(None)
+    } else if answer.error == UNREADABLE_HELLO {
+        channel.close().await;
+        Err(HelloUnknown.into())
     } else {
         bail!("{}", answer.error)
     }
 }
+
+/// The server's Borg does not know the kind of connection asked for.
+#[derive(Debug)]
+pub(super) struct HelloUnknown;
+
+impl std::fmt::Display for HelloUnknown {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("borg there does not know this kind of connection")
+    }
+}
+
+impl std::error::Error for HelloUnknown {}
 
 pub(super) async fn rotate(channel: &mut Channel, new: &Identity) -> Result<bool> {
     let proof = channel.rotation_proof(new).context("the new key shares no secret with the server")?;

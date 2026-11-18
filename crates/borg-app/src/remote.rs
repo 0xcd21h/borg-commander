@@ -171,7 +171,7 @@ pub(crate) struct HostSession {
 async fn host_catalog(state: &std::path::Path, server: link::Server) -> Vec<borg_core::RemoteChoice> {
     let mut info = borg_core::RemoteHostInfo { relay: server.relay.clone(), ..Default::default() };
     let result = tokio::time::timeout(std::time::Duration::from_secs(5), async {
-        let mut remote = link::Remote::open(state, &server).await?;
+        let mut remote = link::Remote::open_monitor(state, &server).await?;
         let start = std::time::Instant::now();
         let reply = remote.call(&Call::new("host_info", json!({}))).await?;
         info.latency_ms = Some(start.elapsed().as_millis().min(u64::MAX as u128) as u64);

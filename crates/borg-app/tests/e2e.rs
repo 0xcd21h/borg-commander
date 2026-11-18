@@ -3720,11 +3720,59 @@ fn the_hosts_overview_shows_a_card_with_the_hosts_figures() -> Result<()> {
     local.wait_until("the host's figures on its card", |screen| {
         screen.contains(&name) && screen.contains("CPU") && screen.contains("RAM") && screen.contains("Up ")
     })?;
+    // The page reads the host over a monitor connection, which the host counts as no client.
+    let paired: serde_json::Value = serde_json::from_slice(&fs::read(host.state().join("link/computers.json"))?)?;
+    let client_name = paired[0]["name"].as_str().context("paired client name")?;
+    remote.send(keys::alt(KeyCode::Char('h')))?;
+    remote.wait_text(&format!("Client {client_name} · Not connected"))?;
+    remote.wait_text("Connections: 0")?;
+    remote.send(keys::esc())?;
     local.send(keys::esc())?;
     local.wait_gone("1 of 1 answering")?;
     local.wait_until("the time the host last answered saved", |_| {
         fs::read_to_string(client.state().join("hosts-seen.json")).is_ok_and(|seen| seen.contains("\": "))
     })?;
+    Ok(())
+}
+
+/// An agent connected to `borg mcp` on the computer reads how every paired host is doing, with
+/// the target IDs the other tools take, as text and as data.
+#[test]
+fn an_agent_reads_every_paired_host_through_borg_mcp() -> Result<()> {
+    let relay = relay()?;
+    let host = fixture()?;
+    host.configure(&format!("return-to-panels = false\nrelay = \"{relay}\"\n"))?;
+    let mut remote = Session::builder(BORG, &host).size(130, 34).label("agent-hosts-host").spawn()?;
+    remote.wait_text(READY)?;
+    let (computer, name) = pair_computer(&mut remote, &host)?;
+    // Its own runtime folder, so `borg mcp` finds no borg session to work in but the hosts.
+    let elsewhere = fixture()?;
+    let child = std::process::Command::new(BORG)
+        .arg("mcp")
+        .env("BORG_STATE_DIR", &computer)
+        .env("HOME", &computer)
+        .env("XDG_RUNTIME_DIR", elsewhere.runtime())
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()?;
+    let mut mcp = Mcp::talk(child);
+    mcp.request("initialize", serde_json::json!({ "protocolVersion": "2025-06-18" }))?;
+    let tools = mcp.request("tools/list", serde_json::json!({}))?;
+    ensure!(tools.to_string().contains("\"hosts\""), "{tools}");
+
+    let result = mcp.request("tools/call", serde_json::json!({ "name": "hosts", "arguments": {} }))?;
+    let text = result["content"][0]["text"].as_str().unwrap_or_default();
+    ensure!(result["isError"] == false, "{text}");
+    ensure!(text.starts_with("1 of 1 paired hosts: 1 answering."), "{text}");
+    ensure!(text.contains(&format!("{name} (remote:{name}): answering in ")), "{text}");
+    let report = &result["structuredContent"]["hosts"][0];
+    ensure!(report["target"] == format!("remote:{name}") && report["reach"] == "answering", "{report}");
+    ensure!(report["figures"]["cores"].as_u64().is_some_and(|cores| cores > 0), "{report}");
+    ensure!(report["borg"].is_string() && report["older_borg"] == false, "{report}");
+
+    let (error, text) = mcp.call("hosts", serde_json::json!({ "filter": "no-such-host" }))?;
+    ensure!(!error && text == "0 of 1 paired hosts.", "{text}");
+    ensure!(fs::read_to_string(computer.join("hosts-seen.json"))?.contains("\": "), "the answer is remembered");
     Ok(())
 }
 

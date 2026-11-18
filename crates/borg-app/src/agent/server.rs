@@ -1,7 +1,8 @@
 //! `borg mcp` itself: the MCP server that routes an agent's calls to a session here or to a paired borg.
 
 use super::{
-    Call, PROTOCOL, Reply, SOCKET_PREFIX, SOCKET_SUFFIX, hostname, routing_tools, socket_dir, tools, transfer_tools,
+    Call, PROTOCOL, Reply, SOCKET_PREFIX, SOCKET_SUFFIX, hostname, hosts_tool, routing_tools, socket_dir, tools,
+    transfer_tools,
 };
 use anyhow::{Result, bail};
 use serde_json::{Value, json};
@@ -149,6 +150,12 @@ impl Router {
                 );
                 return Reply::ok(lines.join("\n"));
             }
+            "hosts" => {
+                let Some(state) = self.state.as_ref() else {
+                    return Reply::error("Borg has no state folder for paired servers");
+                };
+                return super::hosts::hosts(state, call.args["filter"].as_str().unwrap_or_default()).await;
+            }
             "use_session" => {
                 let Some(name) = call.args["session"].as_str() else {
                     return Reply::error("use_session needs a session ID or name from list_sessions");
@@ -261,7 +268,7 @@ impl Backend {
                 server.name
             ),
             Self::Routing(_) => format!(
-                "Borg Commander can work in the local session on {} or a paired remote. Call list_sessions, then use_session to choose the target for this MCP connection. Every tool also accepts an optional session ID to override the target for one call. Commands and changes wait for approval in the target Borg.",
+                "Borg Commander can work in the local session on {} or a paired remote. Call hosts to see how every paired host is doing, list_sessions to see every target, then use_session to choose the target for this MCP connection. Every tool also accepts an optional session ID to override the target for one call. Commands and changes wait for approval in the target Borg.",
                 hostname()
             ),
         }
@@ -281,6 +288,7 @@ impl Backend {
                     "description": "Target ID from list_sessions. Overrides the session selected with use_session for this call."
                 });
             }
+            list.push(hosts_tool());
         }
         tools
     }
@@ -479,7 +487,11 @@ pub(super) async fn serve_with(mut backend: Backend) -> Result<()> {
                     Some(Err(refused)) => refused,
                     None => Reply::error(format!("unknown tool {name}")),
                 };
-                json!({ "content": [{ "type": "text", "text": reply.text }], "isError": !reply.ok })
+                let mut result = json!({ "content": [{ "type": "text", "text": reply.text }], "isError": !reply.ok });
+                if let Some(structured) = reply.structured {
+                    result["structuredContent"] = structured;
+                }
+                result
             }
             _ => {
                 let error =

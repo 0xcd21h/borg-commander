@@ -1,6 +1,7 @@
 //! Asks every paired host how it is doing while the hosts screen is open: every few seconds, a
 //! few hosts at a time, over one channel per host kept open between rounds. Remembers when each
-//! host last answered, so an offline host's card can say since when.
+//! host last answered, so an offline host's card can say since when. An agent's `hosts` call
+//! asks once the same way.
 
 use std::{
     collections::{BTreeMap, HashMap},
@@ -11,7 +12,7 @@ use std::{
 
 use anyhow::{Result, bail};
 use borg_core::{HOSTS_EVERY, HostHeard, HostReply, Msg, PairedHost, RemoteHostInfo};
-use futures::{StreamExt, stream};
+use futures::{Stream, StreamExt, stream};
 use serde_json::json;
 use tokio::{
     sync::{Notify, mpsc::UnboundedSender},
@@ -80,16 +81,7 @@ async fn poll(messages: UnboundedSender<Msg>, refresh: Arc<Notify>) {
     loop {
         let servers = link::servers(state.path());
         seen.keep(&servers);
-        let hosts = servers
-            .iter()
-            .map(|server| PairedHost {
-                identity: server.key.clone(),
-                machine: server.name.clone(),
-                relay: server.relay.clone(),
-                last_seen: seen.get(&server.key),
-            })
-            .collect();
-        if messages.send(Msg::HostsListed(Ok(hosts))).is_err() {
+        if messages.send(Msg::HostsListed(Ok(paired_hosts(&servers, &seen)))).is_err() {
             return;
         }
         let jobs: Vec<_> = servers
@@ -100,26 +92,87 @@ async fn poll(messages: UnboundedSender<Msg>, refresh: Arc<Notify>) {
             })
             .collect();
         kept.clear();
-        let mut asked = stream::iter(jobs.into_iter().map(|(server, remote)| ask(state.path(), server, remote)))
-            .buffer_unordered(AT_ONCE);
-        while let Some((identity, heard, remote)) = asked.next().await {
-            if let HostHeard::Answered(reply) = &heard {
-                seen.mark(&identity, reply.seen);
-            }
-            if let Some(remote) = remote {
-                kept.insert(identity.clone(), remote);
-            }
-            if messages.send(Msg::HostAnswered { identity, answer: heard }).is_err() {
-                return;
-            }
+        let heard = match link::unlock_keys(state.path()).await {
+            Ok(()) => ask_round(state.path(), jobs, &messages, &mut seen, &mut kept).await,
+            Err(error) => fail_round(jobs, &format!("{error:#}"), &messages),
+        };
+        if heard.is_err() {
+            return;
         }
-        drop(asked);
         seen.save_when_due();
         tokio::select! {
             () = tokio::time::sleep(HOSTS_EVERY) => {}
             () = refresh.notified() => {}
         }
     }
+}
+
+/// Asks each host and passes on each answer as it comes, keeping the channels to ask again
+/// over. Fails once nobody listens any more.
+async fn ask_round(
+    state: &Path,
+    jobs: Vec<(link::Server, Option<link::Remote>)>,
+    messages: &UnboundedSender<Msg>,
+    seen: &mut Seen,
+    kept: &mut HashMap<String, link::Remote>,
+) -> Result<(), Closed> {
+    let mut asked = ask_each(state, jobs);
+    while let Some((identity, heard, remote)) = asked.next().await {
+        if let HostHeard::Answered(reply) = &heard {
+            seen.mark(&identity, reply.seen);
+        }
+        if let Some(remote) = remote {
+            kept.insert(identity.clone(), remote);
+        }
+        messages.send(Msg::HostAnswered { identity, answer: heard }).map_err(|_| Closed)?;
+    }
+    Ok(())
+}
+
+/// Says why no host could be asked this round, for each of them.
+fn fail_round(
+    jobs: Vec<(link::Server, Option<link::Remote>)>,
+    error: &str,
+    messages: &UnboundedSender<Msg>,
+) -> Result<(), Closed> {
+    for (server, _) in jobs {
+        let answer = HostHeard::Failed(error.to_owned());
+        messages.send(Msg::HostAnswered { identity: server.key, answer }).map_err(|_| Closed)?;
+    }
+    Ok(())
+}
+
+/// The screen closed while hosts were being asked.
+struct Closed;
+
+/// The paired hosts as the page lists them before it asks each one.
+pub(crate) fn paired_hosts(servers: &[link::Server], seen: &Seen) -> Vec<PairedHost> {
+    servers
+        .iter()
+        .map(|server| PairedHost {
+            identity: server.key.clone(),
+            machine: server.name.clone(),
+            relay: server.relay.clone(),
+            last_seen: seen.get(&server.key),
+        })
+        .collect()
+}
+
+/// Asks each host once, a few at a time, and closes the channels after. Fails when this
+/// computer's keys stay locked.
+pub(crate) async fn ask_once(state: &Path, servers: Vec<link::Server>) -> Result<Vec<(String, HostHeard)>> {
+    link::unlock_keys(state).await?;
+    let jobs = servers.into_iter().map(|server| (server, None)).collect();
+    Ok(ask_each(state, jobs).map(|(identity, heard, _)| (identity, heard)).collect().await)
+}
+
+/// The hosts' answers as they come, a few hosts at a time, each with the channel to ask again
+/// over.
+fn ask_each(
+    state: &Path,
+    jobs: Vec<(link::Server, Option<link::Remote>)>,
+) -> impl Stream<Item = (String, HostHeard, Option<link::Remote>)> + '_ {
+    stream::iter(jobs.into_iter().map(move |(server, remote)| ask(state, server, remote))).buffer_unordered(AT_ONCE)
 }
 
 /// One host's answer, and the channel to ask it again over.
@@ -147,7 +200,7 @@ async fn answer(state: &Path, server: &link::Server, kept: Option<link::Remote>)
             return Ok((read(server, &reply, start.elapsed())?, remote));
         }
     }
-    let mut remote = link::Remote::open(state, server).await?;
+    let mut remote = link::Remote::open_monitor(state, server).await?;
     let start = Instant::now();
     let reply = remote.call(&call).await?;
     Ok((read(server, &reply, start.elapsed())?, remote))
@@ -175,7 +228,7 @@ fn offline(error: &anyhow::Error) -> bool {
 }
 
 /// When each paired host last answered, by its key, in seconds since 1970.
-struct Seen {
+pub(crate) struct Seen {
     path: PathBuf,
     times: BTreeMap<String, u64>,
     saved: Instant,
@@ -183,7 +236,7 @@ struct Seen {
 }
 
 impl Seen {
-    fn load(state: &Path) -> Self {
+    pub(crate) fn load(state: &Path) -> Self {
         let path = state.join(SEEN_FILE);
         let times = std::fs::read(&path).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default();
         Self { path, times, saved: Instant::now(), changed: false }
@@ -193,14 +246,14 @@ impl Seen {
         self.times.get(key).map(|seconds| UNIX_EPOCH + Duration::from_secs(*seconds))
     }
 
-    fn mark(&mut self, key: &str, at: SystemTime) {
+    pub(crate) fn mark(&mut self, key: &str, at: SystemTime) {
         let seconds = at.duration_since(UNIX_EPOCH).map(|since| since.as_secs()).unwrap_or_default();
         self.times.insert(key.to_owned(), seconds);
         self.changed = true;
     }
 
     /// Forgets the hosts no longer paired.
-    fn keep(&mut self, servers: &[link::Server]) {
+    pub(crate) fn keep(&mut self, servers: &[link::Server]) {
         let before = self.times.len();
         self.times.retain(|key, _| servers.iter().any(|server| &server.key == key));
         self.changed |= self.times.len() != before;
