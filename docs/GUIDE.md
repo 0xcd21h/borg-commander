@@ -1268,9 +1268,12 @@ The figures travel through borg cloud like any other call, encrypted end to end.
 and counts: the machine's totals for CPU, load, memory and swap, the size and free space of one
 filesystem with its mount point, the watcher's unread counts, and the number of containers. No
 process, file name or alert text leaves the host this way, so the host answers without asking, even
-with "ask before another computer reads" turned on. The page reads each host over a connection that
-can only ask how the host is doing. The host leaves it out of its connected clients and notes in its
-remote log when the page starts reading.
+with "ask before another computer reads" turned on. The page, the remote hosts list on **Alt-H** and
+the `hosts` tool for agents read each host over a connection that can only ask how the host is
+doing. The host leaves it out of its connected clients and notes in its remote log which computer
+reads, at most once an hour for each computer. A host on a Borg from before these connections
+refuses them, so Borg reads it over a regular session, and that host lists the reader among its
+connected clients.
 
 An agent connected through `borg mcp` reads the same page with the `hosts` tool. It lists every
 paired host in the page's order: whether it answers, its Borg version and system, its figures, what

@@ -58,6 +58,12 @@ use store::{claim, clean_name, load, load_to_change, same, save, state_dir, this
 static UNLOCK_PROMPT: std::sync::OnceLock<UnboundedSender<Msg>> = std::sync::OnceLock::new();
 static UNLOCK_ASKED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+/// Unlocks this computer's keys for borg cloud, asking for Touch ID or a password when they
+/// are locked away, so the asks that follow do not wait for that.
+pub async fn unlock_keys(state: &std::path::Path) -> Result<()> {
+    keys::computer_keys(state).await.map(drop)
+}
+
 pub fn register_unlock_prompt(messages: UnboundedSender<Msg>) {
     UNLOCK_PROMPT.set(messages).ok();
 }
@@ -368,6 +374,7 @@ impl LinkServer {
                 messages: self.messages.clone(),
                 clients: self.clients.clone(),
                 overview: Default::default(),
+                reads_noted: Default::default(),
             };
             self.task = Some(tokio::spawn(server.run()));
         } else if !wanted {

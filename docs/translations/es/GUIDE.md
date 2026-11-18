@@ -1379,9 +1379,12 @@ números y recuentos: los totales de la máquina para CPU, carga, memoria y swap
 espacio libre de un sistema de archivos con su punto de montaje, los recuentos sin leer del
 vigilante y el número de contenedores. Ningún proceso, nombre de archivo ni texto de alerta sale del
 host por esta vía, así que el host responde sin preguntar, incluso con "preguntar antes de que otra
-computadora lea" activado. La página lee cada host por una conexión que solo puede preguntar cómo
-está el host. El host no la cuenta entre los clientes conectados y anota en su registro remoto
-cuándo la página empieza a leer.
+computadora lea" activado. La página, la lista de hosts remotos en **Alt-H** y la herramienta
+`hosts` para agentes leen cada host por una conexión que solo puede preguntar cómo está el host. El
+host no la cuenta entre los clientes conectados y anota en su registro remoto qué computadora lee,
+como mucho una vez por hora para cada computadora. Un host con un Borg anterior a estas conexiones
+las rechaza, así que Borg lo lee por una sesión normal, y ese host muestra al lector entre sus
+clientes conectados.
 
 Un agente conectado mediante `borg mcp` lee la misma página con la herramienta `hosts`. Lista todos
 los hosts emparejados en el orden de la página: si responde, su versión de Borg y su sistema, sus

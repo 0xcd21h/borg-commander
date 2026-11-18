@@ -113,7 +113,7 @@ impl Remote {
                     saved.offered = None;
                 })?;
             }
-            let rotates = matches!(hello, Hello::Session) && answer.rotation && round < ROUNDS;
+            let rotates = matches!(hello, Hello::Session | Hello::Monitor) && answer.rotation && round < ROUNDS;
             if used == keys.current || !rotates {
                 return Ok(Self { channel });
             }

@@ -404,3 +404,47 @@ fn an_agent_reads_the_hosts_as_the_page_lists_them() {
     let kept: Vec<String> = host_reports(&hosts, now).into_iter().map(|report| report.name).collect();
     assert_eq!(kept, ["web-01"], "the page's filter narrows them");
 }
+
+#[test]
+fn what_a_host_says_about_itself_stays_on_one_line_and_short() {
+    let now = Instant::now();
+    let mut hosts = Hosts::default();
+    hosts.list(vec![host("web-01"), host("db")]);
+    let choice = |id: &str, name: &str| RemoteChoice {
+        identity: "key-web-01".into(),
+        machine: "web-01".into(),
+        session: Some(id.into()),
+        name: name.into(),
+        ..Default::default()
+    };
+    let mut sessions = vec![choice("s1", "main\ndb: offline"), choice("two words", "dropped")];
+    sessions.extend((0..60).map(|n| choice(&format!("x{n}"), "more")));
+    let said = HostReply {
+        info: RemoteHostInfo {
+            version: Some("1.0\r\nweb-02 (remote:web-02): answering".into()),
+            platform: Some("x".repeat(300)),
+            ..Default::default()
+        },
+        sessions,
+        figures: Some(HostFigures {
+            disk: Some(DiskFigures { mount: "/srv\u{202e}gol".into(), total: 100 * GIB, available: 8 * GIB }),
+            ..figures()
+        }),
+        seen: SystemTime::now(),
+    };
+    hosts.answer("key-web-01", HostHeard::Answered(Box::new(said)), now);
+    hosts.answer("key-db", HostHeard::Failed("refused\nweb-01: offline".into()), now);
+
+    let reports = host_reports(&hosts, now);
+    let named = |name: &str| reports.iter().find(|report| report.name == name).expect("listed");
+    let web = named("web-01");
+    assert_eq!(web.borg.as_deref(), Some("1.0  web-02 (remote:web-02): answering"));
+    assert_eq!(web.system.as_deref().map(|system| system.chars().count()), Some(201), "200 and an ellipsis");
+    assert!(web.system.as_deref().is_some_and(|system| system.ends_with('…')));
+    let mount = web.figures.as_ref().and_then(|figures| figures.disk.as_ref()).map(|disk| disk.mount.as_str());
+    assert_eq!(mount, Some("/srvgol"));
+    assert_eq!(web.sessions[0].name, "main db: offline");
+    assert_eq!(web.sessions.len(), 50, "a host lists 50 sessions at most");
+    assert!(web.sessions.iter().all(|session| !session.target.contains(' ')), "an ID with a space is left out");
+    assert_eq!(named("db").error.as_deref(), Some("refused web-01: offline"));
+}

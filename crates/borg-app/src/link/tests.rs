@@ -162,6 +162,7 @@ mod rotation {
             messages,
             clients: Arc::new(AtomicUsize::new(0)),
             overview: Default::default(),
+            reads_noted: Default::default(),
         };
         let served = tokio::spawn(async move { served.listen().await });
         let stage = Stage { relay, server, server_state, shared, notices, _served: served };
@@ -373,22 +374,46 @@ mod rotation {
             let reply = monitor.call(&crate::agent::Call::new(tool, json!({}))).await.unwrap();
             assert!(reply.ok, "{tool}: {}", reply.text);
         }
-        for tool in ["read", "run", ASKS_WAIT, ROTATE_CALL, "mirror_open", "console_open"] {
+        let others = [
+            "read",
+            "run",
+            "write",
+            "host_update",
+            "session_delete",
+            "file_transfer",
+            "approval_mode",
+            "mirror_open",
+            "mirror_take",
+            "console_open",
+            ASKS_WAIT,
+        ];
+        for tool in others {
             let reply = monitor.call(&crate::agent::Call::new(tool, json!({}))).await.unwrap();
             assert!(!reply.ok, "a monitor cannot call {tool}");
             assert_eq!(reply.text, format!("unknown tool {tool}"));
         }
         assert!(stage.shared.lock().unwrap().connections.is_empty(), "the host counts no client for it");
-        let mut notes = Vec::new();
-        while let Ok(message) = stage.notices.try_recv() {
-            match message {
-                borg_core::Msg::Agent(borg_core::AgentEvent::Note(note)) => notes.push(note),
-                borg_core::Msg::Agent(borg_core::AgentEvent::Connected { .. }) => panic!("a monitor is no agent"),
-                _ => {}
+        let new = hex(load_computer_keys(computer.path()).unwrap().current.public());
+        assert_eq!(stage.accepted(), vec![new.clone()], "a monitor moves the computer to its own key");
+        assert_eq!(saved(computer.path()).computer, Some(new));
+
+        let notes = |stage: &mut Stage| {
+            let mut notes = Vec::new();
+            while let Ok(message) = stage.notices.try_recv() {
+                match message {
+                    borg_core::Msg::Agent(borg_core::AgentEvent::Note(note)) => notes.push(note),
+                    borg_core::Msg::Agent(borg_core::AgentEvent::Connected { .. }) => panic!("a monitor is no agent"),
+                    _ => {}
+                }
             }
-        }
-        assert!(notes.iter().any(|note| note.ends_with("laptop reads how this host is doing")), "{notes:?}");
-        assert_eq!(saved(computer.path()).computer, Some(hex(old.public())), "a monitor moves no key");
+            notes
+        };
+        let read = "laptop reads how this host is doing";
+        assert!(notes(&mut stage).iter().any(|note| note.ends_with(read)), "the log says who reads");
+        let mut again = Remote::open_monitor(computer.path(), &server).await.unwrap();
+        assert!(again.call(&crate::agent::Call::new("host_info", json!({}))).await.unwrap().ok);
+        let later = notes(&mut stage);
+        assert!(!later.iter().any(|note| note.ends_with(read)), "once an hour is enough: {later:?}");
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -411,7 +436,7 @@ mod rotation {
                             .to_owned();
                         hellos.lock().unwrap().push(kind.clone());
                         if kind == "monitor" {
-                            let refused = json!({ "ok": false, "error": UNREADABLE_HELLO });
+                            let refused = json!({ "ok": false, "error": "unreadable hello" });
                             channel.send(&serde_json::to_vec(&refused).unwrap()).await.unwrap();
                             return;
                         }
@@ -850,6 +875,7 @@ async fn the_server_holds_only_so_many_sessions_whose_clients_have_not_said_hell
         messages,
         clients: Arc::new(AtomicUsize::new(0)),
         overview: Default::default(),
+        reads_noted: Default::default(),
     };
     let server = tokio::spawn(async move { served.listen().await });
 

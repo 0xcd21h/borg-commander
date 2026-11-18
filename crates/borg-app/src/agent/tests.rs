@@ -4,6 +4,14 @@ use serde_json::json;
 use std::{collections::HashMap, os::unix::fs::MetadataExt, path::Path};
 
 #[test]
+fn structured_content_never_crosses_borg_cloud() {
+    let from_host: Reply = serde_json::from_str(r#"{"ok":true,"text":"fine","structured":{"hosts":[]}}"#).unwrap();
+    assert!(from_host.structured.is_none(), "a host cannot hand an agent data of its own");
+    let mine = Reply { ok: true, text: "fine".into(), structured: Some(json!({ "hosts": [] })) };
+    assert_eq!(serde_json::to_value(&mine).unwrap(), json!({ "ok": true, "text": "fine" }));
+}
+
+#[test]
 fn a_log_entry_starts_with_the_date_and_time_it_happened() {
     let time: jiff::Zoned = "2026-11-09T14:03:07+00:00[UTC]".parse().unwrap();
     assert_eq!(stamped(&time, "read /srv/app"), "2026-11-09 14:03:07  read /srv/app");
@@ -63,6 +71,7 @@ async fn only_borg_mcp_reads_every_host_and_says_so_when_none_is_paired() {
     assert!(hosts["inputSchema"]["properties"].get("session").is_none(), "hosts covers every target");
     let reply = routing.call(&Call::new("hosts", json!({}))).await;
     assert!(reply.ok && reply.text.starts_with("No hosts are paired"), "{}", reply.text);
+    assert_eq!(reply.structured, Some(json!({ "hosts": [] })));
 
     let server = crate::link::Server {
         name: "web-01".into(),

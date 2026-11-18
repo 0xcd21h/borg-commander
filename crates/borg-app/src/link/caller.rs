@@ -109,7 +109,8 @@ impl<'a> Caller<'a> {
 
     fn rotation(&self, message: &[u8]) -> Option<Rotation> {
         let call = serde_json::from_slice::<Call>(message).ok()?;
-        (self.role == Role::Session && call.tool == ROTATE_CALL).then(|| serde_json::from_value(call.args).ok())?
+        let rotates = matches!(self.role, Role::Session | Role::Monitor);
+        (rotates && call.tool == ROTATE_CALL).then(|| serde_json::from_value(call.args).ok())?
     }
 
     fn rotate(&self, channel: &Channel, rotation: Rotation) -> Reply {

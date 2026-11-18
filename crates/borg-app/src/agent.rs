@@ -139,8 +139,9 @@ impl Call {
 pub struct Reply {
     pub ok: bool,
     pub text: String,
-    /// The same answer as data, for an agent that reads MCP's structured content.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// The same answer as data, for an agent that reads MCP's structured content. Only this
+    /// computer's own tools fill it, so a reply from a host never carries any.
+    #[serde(skip)]
     pub structured: Option<Value>,
 }
 

@@ -1378,8 +1378,11 @@ números e contagens: os totais da máquina para CPU, carga, memória e swap, o 
 livre de um sistema de ficheiros com o seu ponto de montagem, as contagens por ler do observador e o
 número de contentores. Nenhum processo, nome de ficheiro ou texto de alerta sai do host desta forma,
 por isso o host responde sem perguntar, mesmo com "perguntar antes de outro computador ler" ativado.
-A página lê cada host por uma ligação que só pode perguntar como o host está. O host não a conta
-entre os clientes ligados e anota no registo remoto quando a página começa a ler.
+A página, a lista de hosts remotos em **Alt-H** e a ferramenta `hosts` para agentes leem cada host
+por uma ligação que só pode perguntar como o host está. O host não a conta entre os clientes ligados
+e anota no registo remoto qual computador lê, no máximo uma vez por hora para cada computador. Um
+host com um Borg anterior a estas ligações recusa-as, por isso o Borg lê-o por uma sessão normal, e
+esse host mostra o leitor entre os clientes ligados.
 
 Um agente ligado através de `borg mcp` lê a mesma página com a ferramenta `hosts`. Ela lista todos
 os hosts emparelhados pela ordem da página: se responde, a versão do Borg e o sistema, os números, o

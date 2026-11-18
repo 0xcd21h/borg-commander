@@ -1,5 +1,6 @@
 //! A paired host as an agent reads it: what its card on the hosts page shows, from the same
-//! cards in the same order, in plain units.
+//! cards in the same order, in plain units. What a host says in its own words comes on one
+//! line, cut short, so it cannot pass for more of the answer.
 
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
@@ -7,6 +8,11 @@ use serde::Serialize;
 
 use super::{ContainerFigures, Figure, HostCard, HostFigures, Hosts, Reach, WHOLE};
 use crate::{LoadAverage, Severity};
+
+/// The most characters of a host's own text in one field.
+const TEXT_LIMIT: usize = 200;
+/// The most sessions of one host in a report.
+const SESSIONS_LIMIT: usize = 50;
 
 /// How much a concern should worry the user.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -47,7 +53,7 @@ pub struct HostReport {
     /// What `use_session` and the tools' `session` argument take to work on the host.
     pub target: String,
     pub reach: ReachReport,
-    /// Why reaching the host failed.
+    /// Why reaching the host failed, which may be the host's own words.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
     /// How long the host has not answered in time.
@@ -149,9 +155,12 @@ fn report(card: &HostCard, now: Instant) -> HostReport {
     let (reach, error, silent_seconds) = match &card.reach {
         Reach::Waiting => (ReachReport::Waiting, None, None),
         Reach::Answering => (ReachReport::Answering, None, None),
-        Reach::Silent { since } => (ReachReport::Silent, None, Some(now.saturating_duration_since(*since).as_secs())),
+        Reach::Silent { since } => {
+            let seconds = now.saturating_duration_since(*since).as_secs();
+            (ReachReport::Silent, None, Some(seconds).filter(|seconds| *seconds > 0))
+        }
         Reach::Offline => (ReachReport::Offline, None, None),
-        Reach::Failed(error) => (ReachReport::Failed, Some(error.clone()), None),
+        Reach::Failed(error) => (ReachReport::Failed, Some(plain(error)), None),
     };
     let figures = card.figures.as_ref().filter(|_| !card.offline());
     let concerns: Vec<ConcernReport> = figures
@@ -162,15 +171,15 @@ fn report(card: &HostCard, now: Instant) -> HostReport {
         .collect();
     let target = format!("remote:{}", card.machine);
     HostReport {
-        name: card.name().to_owned(),
+        name: plain(card.name()),
         reach,
         error,
         silent_seconds,
         last_answered: card.last_seen.map(utc),
         round_trip_ms: card.info.latency_ms.filter(|_| reach == ReachReport::Answering),
-        borg: card.info.version.clone(),
+        borg: card.info.version.as_deref().map(plain),
         older_borg: card.older(),
-        system: card.info.platform.clone(),
+        system: card.info.platform.as_deref().map(plain),
         level: figures.and_then(HostFigures::worst).map(ConcernLevel::from),
         concerns,
         figures: figures.map(figures_report),
@@ -179,9 +188,10 @@ fn report(card: &HostCard, now: Instant) -> HostReport {
             .sessions
             .iter()
             .filter_map(|choice| {
-                let id = choice.session.as_deref()?;
-                Some(SessionReport { name: choice.name.clone(), target: format!("{target}/{id}") })
+                let id = choice.session.as_deref().filter(|id| usable_id(id))?;
+                Some(SessionReport { name: plain(&choice.name), target: format!("{target}/{id}") })
             })
+            .take(SESSIONS_LIMIT)
             .collect(),
         target,
     }
@@ -201,7 +211,7 @@ fn figures_report(figures: &HostFigures) -> FiguresReport {
             swap_total_bytes: memory.swap_total,
         }),
         disk: figures.disk.as_ref().map(|disk| DiskReport {
-            mount: disk.mount.clone(),
+            mount: plain(&disk.mount),
             total_bytes: disk.total,
             available_bytes: disk.available,
             percent_used: percent(disk.share()),
@@ -226,6 +236,29 @@ fn load_report(load: LoadAverage, figures: &HostFigures) -> LoadReport {
         fifteen: hundredths(load.fifteen),
         percent_of_cores: figures.load_share().map(percent),
     }
+}
+
+/// A host's own text on one line: control characters become spaces, characters that hide text
+/// or turn its direction go, and it ends with an ellipsis after `TEXT_LIMIT` characters.
+fn plain(text: &str) -> String {
+    let mut chars = text.chars().filter(|c| !hiding(*c)).map(|c| if c.is_control() { ' ' } else { c });
+    let mut plain: String = chars.by_ref().take(TEXT_LIMIT).collect();
+    if chars.next().is_some() {
+        plain.push('…');
+    }
+    plain
+}
+
+/// Characters that show nothing or turn the direction of the text after them.
+fn hiding(c: char) -> bool {
+    matches!(c, '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2060}'..='\u{2069}' | '\u{feff}')
+}
+
+/// A session ID that goes into a target as it is: one word of visible characters.
+fn usable_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.chars().count() <= TEXT_LIMIT
+        && id.chars().all(|c| !c.is_whitespace() && !c.is_control() && !hiding(c))
 }
 
 /// Hundredths of a percent as a percent.

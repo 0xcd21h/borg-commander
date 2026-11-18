@@ -92,19 +92,13 @@ async fn poll(messages: UnboundedSender<Msg>, refresh: Arc<Notify>) {
             })
             .collect();
         kept.clear();
-        let mut asked = ask_each(state.path(), jobs);
-        while let Some((identity, heard, remote)) = asked.next().await {
-            if let HostHeard::Answered(reply) = &heard {
-                seen.mark(&identity, reply.seen);
-            }
-            if let Some(remote) = remote {
-                kept.insert(identity.clone(), remote);
-            }
-            if messages.send(Msg::HostAnswered { identity, answer: heard }).is_err() {
-                return;
-            }
+        let heard = match link::unlock_keys(state.path()).await {
+            Ok(()) => ask_round(state.path(), jobs, &messages, &mut seen, &mut kept).await,
+            Err(error) => fail_round(jobs, &format!("{error:#}"), &messages),
+        };
+        if heard.is_err() {
+            return;
         }
-        drop(asked);
         seen.save_when_due();
         tokio::select! {
             () = tokio::time::sleep(HOSTS_EVERY) => {}
@@ -112,6 +106,44 @@ async fn poll(messages: UnboundedSender<Msg>, refresh: Arc<Notify>) {
         }
     }
 }
+
+/// Asks each host and passes on each answer as it comes, keeping the channels to ask again
+/// over. Fails once nobody listens any more.
+async fn ask_round(
+    state: &Path,
+    jobs: Vec<(link::Server, Option<link::Remote>)>,
+    messages: &UnboundedSender<Msg>,
+    seen: &mut Seen,
+    kept: &mut HashMap<String, link::Remote>,
+) -> Result<(), Closed> {
+    let mut asked = ask_each(state, jobs);
+    while let Some((identity, heard, remote)) = asked.next().await {
+        if let HostHeard::Answered(reply) = &heard {
+            seen.mark(&identity, reply.seen);
+        }
+        if let Some(remote) = remote {
+            kept.insert(identity.clone(), remote);
+        }
+        messages.send(Msg::HostAnswered { identity, answer: heard }).map_err(|_| Closed)?;
+    }
+    Ok(())
+}
+
+/// Says why no host could be asked this round, for each of them.
+fn fail_round(
+    jobs: Vec<(link::Server, Option<link::Remote>)>,
+    error: &str,
+    messages: &UnboundedSender<Msg>,
+) -> Result<(), Closed> {
+    for (server, _) in jobs {
+        let answer = HostHeard::Failed(error.to_owned());
+        messages.send(Msg::HostAnswered { identity: server.key, answer }).map_err(|_| Closed)?;
+    }
+    Ok(())
+}
+
+/// The screen closed while hosts were being asked.
+struct Closed;
 
 /// The paired hosts as the page lists them before it asks each one.
 pub(crate) fn paired_hosts(servers: &[link::Server], seen: &Seen) -> Vec<PairedHost> {
@@ -126,10 +158,12 @@ pub(crate) fn paired_hosts(servers: &[link::Server], seen: &Seen) -> Vec<PairedH
         .collect()
 }
 
-/// Asks each host once, a few at a time, and closes the channels after.
-pub(crate) async fn ask_once(state: &Path, servers: Vec<link::Server>) -> Vec<(String, HostHeard)> {
+/// Asks each host once, a few at a time, and closes the channels after. Fails when this
+/// computer's keys stay locked.
+pub(crate) async fn ask_once(state: &Path, servers: Vec<link::Server>) -> Result<Vec<(String, HostHeard)>> {
+    link::unlock_keys(state).await?;
     let jobs = servers.into_iter().map(|server| (server, None)).collect();
-    ask_each(state, jobs).map(|(identity, heard, _)| (identity, heard)).collect().await
+    Ok(ask_each(state, jobs).map(|(identity, heard, _)| (identity, heard)).collect().await)
 }
 
 /// The hosts' answers as they come, a few hosts at a time, each with the channel to ask again
