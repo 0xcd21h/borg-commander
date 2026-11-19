@@ -189,11 +189,12 @@ fn file_menu(state: &AppState) -> Menu {
     let listed = state.docked[state.active.index()].is_none();
     let has_selection = listed && !panel.selection().is_empty();
     let hovered_file = listed && panel.hovered_entry().is_some_and(|entry| !entry.is_dir());
+    let counts = listed && !crate::measure::folders_to_count(panel).is_empty();
     let archive = listed && !panel.foreign() && panel.hovered_entry().is_some_and(crate::archive::opens);
     Menu {
         title: tr!(file).into(),
         entries: vec![
-            when(item(tr!(view), Action::View), hovered_file),
+            when(item(if counts { tr!(count_size) } else { tr!(view) }, Action::View), hovered_file || counts),
             when(item(tr!(edit), Action::Edit), hovered_file),
             when(item(tr!(edit_in_panel), Action::EditInPanel), hovered_file),
             when(item(tr!(edit_external), Action::EditExternal), hovered_file),

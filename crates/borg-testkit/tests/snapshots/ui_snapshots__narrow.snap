@@ -12,7 +12,7 @@ expression: describe(&buffer)
 ╰ 9 items ───────────╯╰ 5 items ───────────╯
  Up to the parent directory
 $
-F1H…F2F…F3V…F4E…F5C…F6M…F7M…F8D…F9M…F10…^OS…
+F1H…F2F…F3C…F4E…F5C…F6M…F7M…F8D…F9M…F10…^OS…
 Ctrl-F Search      ◈ Borg Commander v0.12.0
 --- styles ---
   0: 0-0 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 1-1 Rgb(255, 255, 255) Rgb(30, 30, 30) BOLD | 2-2 Rgb(255, 255, 255) Rgb(30, 30, 30) NONE | 3-5 Rgb(88, 88, 88) Rgb(30, 30, 30) NONE | 6-6 Rgb(255, 255, 255) Rgb(30, 30, 30) NONE | 7-9 Rgb(88, 88, 88) Rgb(30, 30, 30) NONE | 10-14 Rgb(255, 255, 255) Rgb(30, 30, 30) BOLD | 15-21 Rgb(17, 168, 205) Rgb(30, 30, 30) NONE | 22-22 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE | 23-24 Rgb(169, 169, 169) Rgb(30, 30, 30) NONE | 25-27 Rgb(71, 71, 71) Rgb(30, 30, 30) NONE | 28-30 Rgb(169, 169, 169) Rgb(30, 30, 30) NONE | 31-33 Rgb(71, 71, 71) Rgb(30, 30, 30) NONE | 34-37 Rgb(169, 169, 169) Rgb(30, 30, 30) NONE | 38-43 Rgb(80, 80, 80) Rgb(30, 30, 30) NONE

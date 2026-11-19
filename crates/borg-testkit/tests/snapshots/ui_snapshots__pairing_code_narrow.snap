@@ -22,7 +22,7 @@ expression: describe(&buffer)
 ╰ ╰──────────── F3 full screen ────────────╯─╯
  Up to the parent directory
 $
-F1H…F2F…F3V…F4E…F5C…F6M…F7M…F8D…F9M…F10…^OS…
+F1H…F2F…F3C…F4E…F5C…F6M…F7M…F8D…F9M…F10…^OS…
 Alt-H Remote hosts   ◈ Borg Commander v0.12.0
 --- styles ---
   0: 0-0 Rgb(23, 106, 126) Rgb(30, 30, 30) NONE | 1-1 Rgb(154, 154, 154) Rgb(30, 30, 30) BOLD | 2-2 Rgb(154, 154, 154) Rgb(30, 30, 30) NONE | 3-5 Rgb(62, 62, 62) Rgb(30, 30, 30) NONE | 6-13 Rgb(154, 154, 154) Rgb(30, 30, 30) NONE | 14-16 Rgb(62, 62, 62) Rgb(30, 30, 30) NONE | 17-21 Rgb(154, 154, 154) Rgb(30, 30, 30) BOLD | 22-22 Rgb(23, 106, 126) Rgb(30, 30, 30) NONE | 23-23 Rgb(58, 58, 58) Rgb(30, 30, 30) NONE | 24-25 Rgb(106, 106, 106) Rgb(30, 30, 30) NONE | 26-28 Rgb(53, 53, 53) Rgb(30, 30, 30) NONE | 29-31 Rgb(106, 106, 106) Rgb(30, 30, 30) NONE | 32-34 Rgb(53, 53, 53) Rgb(30, 30, 30) NONE | 35-38 Rgb(106, 106, 106) Rgb(30, 30, 30) NONE | 39-45 Rgb(58, 58, 58) Rgb(30, 30, 30) NONE

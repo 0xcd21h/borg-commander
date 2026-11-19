@@ -76,6 +76,9 @@ catalog! {
     background_sizes_directory_required => "Open a directory panel to count folder sizes",
     background_sizes_done => "Sizes measured · {count} scanned · {errors} errors · {skipped} skipped",
     background_sizes_cache_unavailable => "Sizes measured; cache could not be saved",
+    sizes_already_counting => "Already counting sizes in {folder}.",
+    count_folder => "Count",
+    count_size => "Count size",
 
     activity_admin_button => "A Administrator",
     activity_back_button => "Esc Back",
@@ -825,6 +828,7 @@ catalog! {
     job_listen => "Listen",
     job_subject_to => "{what} → {target}",
     job_search_in => "{query} in {root}",
+    job_sizes_subject => "{folders} in {folder}",
     job_search_contents => "“{text}” in {root}",
     job_search_done => "Found {found}",
     job_search_stopped => "Search stopped",

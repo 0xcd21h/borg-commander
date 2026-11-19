@@ -1,10 +1,10 @@
 {
   "locales": {
     "zh-CN": {
-      "source": "5c1f373b0311e8775f2e43eceab45e7b32a176ec1a2e4e5fa745f5d196ae2230",
+      "source": "0eba732d0ec3fa6306c184f39202b1df6046744ce4f3094cffb55e583d032845",
       "protected": {
         "code blocks": "838a80b5dc1af3d789f36cba4a22a1d1bfa97f0ecbffeeeb68cdd7358d3a2d4d",
-        "inline code": "7ce71d701e7ec688dfb0264630b8f396cdfedd3cbe83f18f1b8520be0d6147d1",
+        "inline code": "9cc720cdc73c50e1fa051e60d73765678fb43cce2823c28ec6c07a941d08bb96",
         "external links": "3bd3f0312e059adc2034c6cc153045f880cb81879c22fd067139f0212b1c4920",
         "heading levels": "7bbc05d6301bc6b44d85a57c18381e35757497cb40636dbdbd8fa591cc47c4d6"
       },
@@ -184,10 +184,6 @@
         {
           "level": 3,
           "title": "Encrypted files"
-        },
-        {
-          "level": 3,
-          "title": "Vaults"
         },
         {
           "level": 2,
@@ -324,10 +320,10 @@
       ]
     },
     "pt": {
-      "source": "5c1f373b0311e8775f2e43eceab45e7b32a176ec1a2e4e5fa745f5d196ae2230",
+      "source": "0eba732d0ec3fa6306c184f39202b1df6046744ce4f3094cffb55e583d032845",
       "protected": {
         "code blocks": "838a80b5dc1af3d789f36cba4a22a1d1bfa97f0ecbffeeeb68cdd7358d3a2d4d",
-        "inline code": "7ce71d701e7ec688dfb0264630b8f396cdfedd3cbe83f18f1b8520be0d6147d1",
+        "inline code": "9cc720cdc73c50e1fa051e60d73765678fb43cce2823c28ec6c07a941d08bb96",
         "external links": "3bd3f0312e059adc2034c6cc153045f880cb81879c22fd067139f0212b1c4920",
         "heading levels": "7bbc05d6301bc6b44d85a57c18381e35757497cb40636dbdbd8fa591cc47c4d6"
       },
@@ -507,10 +503,6 @@
         {
           "level": 3,
           "title": "Encrypted files"
-        },
-        {
-          "level": 3,
-          "title": "Vaults"
         },
         {
           "level": 2,
@@ -647,10 +639,10 @@
       ]
     },
     "es": {
-      "source": "5c1f373b0311e8775f2e43eceab45e7b32a176ec1a2e4e5fa745f5d196ae2230",
+      "source": "0eba732d0ec3fa6306c184f39202b1df6046744ce4f3094cffb55e583d032845",
       "protected": {
         "code blocks": "838a80b5dc1af3d789f36cba4a22a1d1bfa97f0ecbffeeeb68cdd7358d3a2d4d",
-        "inline code": "7ce71d701e7ec688dfb0264630b8f396cdfedd3cbe83f18f1b8520be0d6147d1",
+        "inline code": "9cc720cdc73c50e1fa051e60d73765678fb43cce2823c28ec6c07a941d08bb96",
         "external links": "3bd3f0312e059adc2034c6cc153045f880cb81879c22fd067139f0212b1c4920",
         "heading levels": "7bbc05d6301bc6b44d85a57c18381e35757497cb40636dbdbd8fa591cc47c4d6"
       },
@@ -830,10 +822,6 @@
         {
           "level": 3,
           "title": "Encrypted files"
-        },
-        {
-          "level": 3,
-          "title": "Vaults"
         },
         {
           "level": 2,
@@ -970,10 +958,10 @@
       ]
     },
     "ru": {
-      "source": "5c1f373b0311e8775f2e43eceab45e7b32a176ec1a2e4e5fa745f5d196ae2230",
+      "source": "0eba732d0ec3fa6306c184f39202b1df6046744ce4f3094cffb55e583d032845",
       "protected": {
         "code blocks": "838a80b5dc1af3d789f36cba4a22a1d1bfa97f0ecbffeeeb68cdd7358d3a2d4d",
-        "inline code": "7ce71d701e7ec688dfb0264630b8f396cdfedd3cbe83f18f1b8520be0d6147d1",
+        "inline code": "9cc720cdc73c50e1fa051e60d73765678fb43cce2823c28ec6c07a941d08bb96",
         "external links": "3bd3f0312e059adc2034c6cc153045f880cb81879c22fd067139f0212b1c4920",
         "heading levels": "7bbc05d6301bc6b44d85a57c18381e35757497cb40636dbdbd8fa591cc47c4d6"
       },
@@ -1153,10 +1141,6 @@
         {
           "level": 3,
           "title": "Encrypted files"
-        },
-        {
-          "level": 3,
-          "title": "Vaults"
         },
         {
           "level": 2,

@@ -14,7 +14,8 @@ use crate::{
     ops::{self, DEFAULT_ARCHIVE_SUFFIX},
 };
 
-/// F3: views the hovered file, from this machine, a container, a remote Borg or an archive.
+/// F3: views the hovered file, from this machine, a container, a remote Borg or an archive. On a
+/// folder or `..` of this machine it counts sizes in the background instead.
 pub(super) fn view(state: &mut AppState, side: Side, now: Instant) -> Vec<Effect> {
     let panel = state.panel(side);
     if panel.archive.is_some() {
@@ -25,6 +26,9 @@ pub(super) fn view(state: &mut AppState, side: Side, now: Instant) -> Vec<Effect
     }
     if panel.remote_mount.is_some() {
         return remote_view(state, side);
+    }
+    if let Some(effects) = crate::measure::count_folders(state, side, now) {
+        return effects;
     }
     let Some(path) = hovered_file(state) else { return Vec::new() };
     if crate::network::is_capture(&path) && state.settings.preferences.system_plugin {

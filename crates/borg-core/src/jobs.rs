@@ -442,15 +442,19 @@ pub(crate) fn cancel(state: &mut AppState, id: u64, now: Instant) -> Vec<Effect>
     match job.link.clone() {
         Link::Runner => vec![Effect::JobControl { id, command: JobCommand::Cancel }],
         Link::Search { side, generation } => watched::cancel_search(state, side, generation),
-        Link::Sizes => crate::measure::cancel(state, now),
+        Link::Sizes => crate::measure::cancel_job(state, id, now),
         Link::Entropy => vec![Effect::StopEntropyScan],
         Link::Index(_) => Vec::new(),
     }
 }
 
+/// Stops every running job. The size counts stop together first, so that stopping one does not
+/// start the next one waiting.
 pub(crate) fn cancel_all(state: &mut AppState, now: Instant) -> Vec<Effect> {
+    let mut effects = crate::measure::cancel(state, now);
     let running: Vec<u64> = state.jobs.iter().filter(|job| job.running()).map(|job| job.id).collect();
-    running.into_iter().flat_map(|id| cancel(state, id, now)).collect()
+    effects.extend(running.into_iter().flat_map(|id| cancel(state, id, now)));
+    effects
 }
 
 /// Keeps the jobs that follow other state up with it, opens a waiting question when it may
