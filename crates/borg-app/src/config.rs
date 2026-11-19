@@ -17,6 +17,8 @@ const ENV_HOME: &str = "HOME";
 const DOT_CONFIG: &str = ".config";
 const APP_DIR: &str = "borg-commander";
 const CONFIG_FILE: &str = "config.toml";
+const DEFAULT_VAULT_IDLE_MINUTES: u64 = 15;
+const SECONDS_PER_MINUTE: u64 = 60;
 /// A configuration Borg could not read, kept under this name when a new one is saved.
 const CONFIG_ASIDE: &str = "config-unreadable.toml";
 const THEMES_DIR: &str = "themes";
@@ -58,6 +60,7 @@ pub struct Config {
     pub restore_terminal: Option<bool>,
     pub screensaver: Option<bool>,
     pub screensaver_after: Option<u64>,
+    pub vault_idle_minutes: Option<u64>,
     /// Toasts that say when a job starts, ends or waits for an answer.
     pub job_notifications: Option<bool>,
     pub icon_spacing: Option<u8>,
@@ -451,6 +454,11 @@ impl Config {
         self.screensaver_after.map(Duration::from_secs)
     }
 
+    pub fn vault_idle(&self) -> Option<Duration> {
+        let minutes = self.vault_idle_minutes.unwrap_or(DEFAULT_VAULT_IDLE_MINUTES);
+        (minutes > 0).then(|| Duration::from_secs(minutes * SECONDS_PER_MINUTE))
+    }
+
     pub fn graphics(&self) -> Result<Preference, String> {
         self.graphics.as_deref().map_or(Ok(Preference::default()), str::parse)
     }
@@ -487,6 +495,7 @@ impl Config {
             restore_terminal: Some(prefs.restore_terminal),
             screensaver: Some(prefs.screensaver),
             screensaver_after: self.screensaver_after,
+            vault_idle_minutes: self.vault_idle_minutes,
             job_notifications: Some(prefs.job_notifications),
             icon_spacing: self.icon_spacing,
             icon_style: Some(self.icon_style.unwrap_or_default()),

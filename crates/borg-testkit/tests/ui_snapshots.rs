@@ -223,6 +223,54 @@ fn file_menu_open() -> Result<()> {
     check("file_menu", &stage, buffer)
 }
 
+/// The row of the screen that shows `needle`, and the column it starts at.
+fn place_of(buffer: &Buffer, needle: &str) -> Result<(u16, u16)> {
+    let text = describe(buffer);
+    let (row, line) = text.lines().enumerate().find(|(_, line)| line.contains(needle)).context("the text on screen")?;
+    let column = line[..line.find(needle).unwrap_or_default()].chars().count();
+    Ok((u16::try_from(row)?, u16::try_from(column)?))
+}
+
+fn click(column: u16, row: u16) -> crossterm::event::MouseEvent {
+    use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column, row, modifiers: KeyModifiers::NONE }
+}
+
+/// Where the menu titled `title` is on the menu bar.
+fn menu_index(stage: &Stage, title: &str) -> Result<usize> {
+    borg_core::menus(&stage.state).iter().position(|menu| menu.title == title).context("the menu")
+}
+
+#[test]
+fn a_menu_taller_than_the_screen_scrolls_and_a_click_takes_the_entry_shown() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    stage.send(key(KeyCode::F(2))).send(key(KeyCode::End));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Quit")?;
+    ensure_no_text(&buffer, "  View ")?;
+    check("file_menu_scrolled", &stage, buffer.clone())?;
+    let (row, column) = place_of(&buffer, "Quit")?;
+    let quit = borg_core::menus(&stage.state)[menu_index(&stage, "File")?].entries.len() - 1;
+    let msg = borg_ui::mouse_input(&stage.state, click(column, row), false, stage.started);
+    anyhow::ensure!(matches!(msg, Some(Msg::Pointer(borg_core::Pointer::MenuItem(index))) if index == quit), "{msg:?}");
+    Ok(())
+}
+
+#[test]
+fn the_menu_bar_moves_to_show_a_menu_past_its_end_and_takes_clicks_where_its_titles_show() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    stage.send(key(KeyCode::F(9))).send(key(KeyCode::Left));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Encryption")?;
+    ensure_text(&buffer, "Create vault…")?;
+    check("encryption_menu", &stage, buffer.clone())?;
+    let (row, column) = place_of(&buffer, "Search")?;
+    let msg = borg_ui::mouse_input(&stage.state, click(column, row), false, stage.started);
+    let search = menu_index(&stage, "Search")?;
+    anyhow::ensure!(matches!(msg, Some(Msg::Pointer(borg_core::Pointer::Menu(index))) if index == search), "{msg:?}");
+    Ok(())
+}
+
 #[test]
 fn context_menu_opens_where_a_right_click_lands_and_a_click_chooses_an_entry() -> Result<()> {
     use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
@@ -5670,6 +5718,101 @@ fn an_encrypted_file_asks_for_its_password_without_showing_it() -> Result<()> {
     ensure_text(&buffer, "notes.md.age, encrypted with age")?;
     anyhow::ensure!(!describe(&buffer).contains("cobalt"), "the password must stay hidden");
     check("encrypted_file_password", &stage, buffer)
+}
+
+const VAULT: &str = "/home/me/projects/borg/Papers";
+const VAULT_ROOT: &str = "/run/user/1000/borg-commander/vaults/Papers";
+
+fn vault_found(stage: &mut Stage) {
+    let generation = stage.state.panel(borg_core::Side::Left).generation();
+    stage.send(Msg::VaultFound { side: borg_core::Side::Left, generation, cipher: VAULT.into(), open: None });
+}
+
+#[test]
+fn a_locked_vault_asks_for_its_password_without_showing_it() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    vault_found(&mut stage);
+    for msg in chars("rain cobalt") {
+        stage.send(msg);
+    }
+    let buffer = stage.render(stage.started + PASSWORD_SETTLED)?;
+    ensure_text(&buffer, "Vault")?;
+    ensure_text(&buffer, "Papers")?;
+    anyhow::ensure!(!describe(&buffer).contains("cobalt"), "the password must stay hidden");
+    check("vault_password", &stage, buffer)
+}
+
+const RECOVERY_KEY: &str = "0a1b2c3d-4e5f6a7b-8c9d0e1f-2a3b4c5d-6e7f8a9b-0c1d2e3f-4a5b6c7d-8e9f0a1b";
+const RECOVERY_KEY_LAST: &str = "8e9f0a1b";
+
+fn recovery_key_shown(size: GridSize) -> Result<Stage> {
+    let mut stage = stage(size, Motion::STILL)?;
+    let vault = borg_core::VaultMount { cipher: VAULT.into(), root: VAULT_ROOT.into() };
+    let key = borg_core::Password::new(RECOVERY_KEY);
+    let tax = vec![entry("2024", EntryKind::Dir, 4096, RECENT, false)];
+    let created = Msg::VaultCreated { side: borg_core::Side::Left, cipher: VAULT.into(), key, opened: Ok(vault) };
+    list_after(&mut stage, created, tax)?;
+    Ok(stage)
+}
+
+fn ensure_whole_key(buffer: &Buffer) -> Result<()> {
+    let shown: String = describe(buffer).split_whitespace().filter(|word| word.contains('-')).collect::<String>();
+    let groups = RECOVERY_KEY.split('-').filter(|group| shown.contains(group)).count();
+    anyhow::ensure!(groups == RECOVERY_KEY.split('-').count(), "the whole key shows\n{}", describe(buffer));
+    Ok(())
+}
+
+#[test]
+fn a_new_vault_shows_its_recovery_key_over_its_files() -> Result<()> {
+    let mut stage = recovery_key_shown(SIZE)?;
+    for msg in chars("8e9f") {
+        stage.send(msg);
+    }
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Recovery key")?;
+    ensure_text(&buffer, "type the key's last group below")?;
+    ensure_whole_key(&buffer)?;
+    ensure_text(&buffer, "Papers · vault")?;
+    check("vault_recovery_key", &stage, buffer)?;
+    stage.send(key(KeyCode::Enter));
+    ensure_text(&stage.render(stage.started)?, "Recovery key")?;
+    for msg in chars("0a1b") {
+        stage.send(msg);
+    }
+    stage.send(key(KeyCode::Enter));
+    let buffer = stage.render(stage.started)?;
+    ensure_no_text(&buffer, "Recovery key")?;
+    Ok(())
+}
+
+#[test]
+fn a_recovery_key_fits_a_narrow_screen() -> Result<()> {
+    let mut stage = recovery_key_shown(GridSize { cols: 40, rows: 24 })?;
+    let buffer = stage.render(stage.started)?;
+    ensure_whole_key(&buffer)?;
+    anyhow::ensure!(!describe(&buffer).contains("-…"), "no group is cut");
+    check("vault_recovery_key_narrow", &stage, buffer)
+}
+
+#[test]
+fn a_recovery_key_keeps_its_rows_on_a_short_screen() -> Result<()> {
+    let mut stage = recovery_key_shown(GridSize { cols: 90, rows: 10 })?;
+    let buffer = stage.render(stage.started)?;
+    ensure_whole_key(&buffer)?;
+    ensure_text(&buffer, RECOVERY_KEY_LAST)?;
+    check("vault_recovery_key_short", &stage, buffer)
+}
+
+#[test]
+fn a_vault_without_gocryptfs_offers_to_install_it() -> Result<()> {
+    use borg_core::{Elevation, Installer, PackageManager, VaultError};
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    let installer = Installer { manager: PackageManager::Apt, elevation: Some(Elevation::Sudo) };
+    let error = VaultError::NoTool(Some(installer));
+    stage.send(Msg::VaultFailed { side: borg_core::Side::Left, cipher: VAULT.into(), error });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "sudo apt-get install gocryptfs")?;
+    check("vault_install_gocryptfs", &stage, buffer)
 }
 
 #[test]

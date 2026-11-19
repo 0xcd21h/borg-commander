@@ -57,6 +57,7 @@ mod store;
 mod subfolders;
 mod tools;
 mod update;
+mod vaults;
 mod watch;
 
 use std::{env, ffi::OsString, fs, io::stdout, os::fd::OwnedFd, process::ExitCode};

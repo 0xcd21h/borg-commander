@@ -155,6 +155,7 @@ fn changes_here(action: Action) -> bool {
             | Action::EditInPanel
             | Action::EditExternal
             | Action::Mkdir
+            | Action::CreateVault
             | Action::Compress
             | Action::ExtractHere
     )

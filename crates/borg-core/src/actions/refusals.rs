@@ -40,7 +40,10 @@ pub(super) fn refusal(state: &AppState, action: Action) -> Option<String> {
     } else if (mounted || other_mounted) && action == Action::Move {
         tr!(docker_move_unsupported)
     } else if state.active_panel().is_results()
-        && matches!(action, Action::Compress | Action::ExtractHere | Action::ExtractToOther | Action::Mkdir)
+        && matches!(
+            action,
+            Action::Compress | Action::ExtractHere | Action::ExtractToOther | Action::Mkdir | Action::CreateVault
+        )
     {
         tr!(reveal_the_original_folder_to_create_directories)
     } else {
@@ -88,6 +91,7 @@ fn on_files(action: Action) -> bool {
             | Action::EditInPanel
             | Action::EditExternal
             | Action::Mkdir
+            | Action::CreateVault
             | Action::Compress
             | Action::ExtractHere
             | Action::ExtractToOther
@@ -140,6 +144,7 @@ fn needs_local_files(action: Action) -> bool {
             | Action::EditInPanel
             | Action::EditExternal
             | Action::Mkdir
+            | Action::CreateVault
             | Action::Compress
             | Action::ExtractHere
             | Action::ExtractToOther
@@ -169,6 +174,7 @@ fn needs_this_machine(action: Action) -> bool {
         Action::Edit
             | Action::EditInPanel
             | Action::EditExternal
+            | Action::CreateVault
             | Action::QuickView
             | Action::Info
             | Action::Compress

@@ -2,7 +2,7 @@
 source: crates/borg-testkit/tests/ui_snapshots.rs
 expression: describe(&buffer)
 ---
-    Left    File    Command    Remote    Options    Right    Git    Docker    Search
+    Left    File    Command    Remote    Options    Right    Git    Docker    Search    E▶
 │▐↑ ..                      UP             ▌││▐↑ ..        ╭───────────────────────────╮▌│
 │ / docs                   DIR Jun  1  2024 ││ / journal   │  Repository status        │ │
 │ / src               M    DIR Jan 10 09:30 ││ · auth.log  │  Diff selection           │ │

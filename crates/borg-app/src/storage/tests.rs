@@ -131,3 +131,20 @@ fn the_report_measures_each_place_and_leaves_the_service_runtime_out_of_the_stat
     assert_eq!(usage(Place::Temporary).bytes, 8, "the service's runtime folder counts as temporary");
     assert_eq!(usage(Place::Caches).bytes, 0);
 }
+
+#[test]
+fn a_folder_without_mount_points_can_go_and_its_size_counts_everything_in_it() {
+    let temp = tempfile::tempdir().unwrap();
+    write(&temp.path().join("vaults/Papers/2024/tax.pdf"));
+    assert!(!holds_mount(temp.path(), device(temp.path()).unwrap()));
+    assert_eq!(sum(&[temp.path().to_path_buf()]).bytes, 4);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn measuring_and_removing_stop_at_a_mounted_filesystem() {
+    let dev = Path::new("/dev");
+    let device = device(dev).unwrap();
+    assert!(holds_mount(dev, device), "/dev/pts and /dev/shm are mounted inside /dev");
+    assert!(local_entries(dev, device).all(|(entry, _)| entry.file_name() != "pts"));
+}

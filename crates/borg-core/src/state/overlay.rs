@@ -69,6 +69,22 @@ pub enum PromptPurpose {
     },
     ComputerKeyPassword,
     FilePassword(Box<crate::SealedFile>),
+    VaultPassword {
+        side: crate::Side,
+        cipher: PathBuf,
+    },
+    VaultName {
+        side: crate::Side,
+    },
+    VaultNewPassword {
+        side: crate::Side,
+        cipher: PathBuf,
+    },
+    VaultRepeat {
+        side: crate::Side,
+        cipher: PathBuf,
+        first: crate::Password,
+    },
 }
 
 impl PromptPurpose {
@@ -83,7 +99,15 @@ impl PromptPurpose {
 
     /// Whether the field hides what is typed.
     pub fn masked(&self) -> bool {
-        matches!(self, Self::ArchivePassword { .. } | Self::ComputerKeyPassword | Self::FilePassword(_))
+        matches!(
+            self,
+            Self::ArchivePassword { .. }
+                | Self::ComputerKeyPassword
+                | Self::FilePassword(_)
+                | Self::VaultPassword { .. }
+                | Self::VaultNewPassword { .. }
+                | Self::VaultRepeat { .. }
+        )
     }
 
     pub(crate) fn toggle_option(&mut self) {
@@ -227,6 +251,7 @@ pub enum Overlay {
     Listen(crate::ListenForm),
     /// The command that installs a missing program, before it runs in the shell.
     Install(crate::InstallOffer),
+    VaultKey(Box<crate::VaultKey>),
     /// The command that installs or starts the background service, before it runs in the shell.
     Service(crate::ServiceOffer),
     /// A newer Borg and the command that installs it, before it runs in the shell.
