@@ -62,6 +62,14 @@ impl Header {
         mac.update(&self.authenticated);
         mac.verify_slice(&self.mac).map_err(|_| Error::HeaderMac)
     }
+
+    pub fn encoded(&self) -> Vec<u8> {
+        let mut out = self.authenticated.clone();
+        out.push(SEPARATOR);
+        out.extend_from_slice(encode_raw(&self.mac).as_bytes());
+        out.push(LINE_END);
+        out
+    }
 }
 
 pub(super) fn read(input: &mut impl BufRead) -> Result<Header, Error> {

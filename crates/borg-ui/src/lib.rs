@@ -19,6 +19,7 @@ mod format;
 mod fx;
 mod game2048_view;
 mod hints;
+mod hosts_view;
 mod icons;
 mod install_view;
 mod job_view;

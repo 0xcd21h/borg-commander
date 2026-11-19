@@ -24,6 +24,7 @@ borg-term = { workspace = true }
 borg-vfs  = { workspace = true }
 borg-view = { workspace = true }
 borg-edit = { workspace = true }
+borg-crypt = { workspace = true }
 crossterm = { workspace = true }
 globset   = { workspace = true }
 jiff      = { workspace = true }
@@ -33,6 +34,7 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 unicode-width = { workspace = true }
 unicode-normalization = { workspace = true }
+zeroize = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

@@ -42,4 +42,4 @@ jobs:
           node-version: 24
 
       - name: npm advisories
-        run: npm audit --prefix website
+        run: python3 scripts/check-npm-audit.py

@@ -25,6 +25,7 @@ mod find_bar;
 mod folders;
 mod game2048;
 mod history;
+mod hosts;
 mod input;
 mod install;
 mod jobs;
@@ -51,6 +52,7 @@ mod replace;
 mod report;
 mod results;
 mod screens;
+mod sealed;
 mod service;
 mod session_picker;
 mod settings;
@@ -110,6 +112,13 @@ pub use folders::{
 };
 pub use game2048::{Game2048, GameDirection, GameStatus, SavedGame2048};
 pub use history::{HISTORY_LIMIT, PastSearch, SearchHistory};
+pub use hosts::{
+    CARD_GAP, CARD_HEIGHT, CARD_WIDTH, CARDS_CHROME, ConcernLevel, ConcernReport, ContainerFigures, DiskFigures,
+    DiskReport, Figure, FiguresReport, HOSTS_EVERY, HostCard, HostFigures, HostHeard, HostReply, HostReport, Hosts,
+    HostsLayout, LoadReport, MemoryFigures, MemoryReport, PairedHost, ROWS_CHROME, Reach, ReachReport, STALE_AFTER,
+    SessionReport, WHOLE, WatchFigures, WatcherReport, card_columns, fits_card_rows, fits_cards, fullest, holds_files,
+    host_reports, hosts_filtered, older_than, share, worse,
+};
 pub use input::LineInput;
 pub use install::{Elevation, InstallOffer, Installer, PackageManager, Platform, Tool};
 pub use jobs::{
@@ -127,6 +136,7 @@ pub use pattern::{Pattern, PatternError, composed};
 pub use plugins::{GitPanel, Plugins};
 pub use pointer::Pointer;
 pub use query::{Candidate, Problem as QueryProblem, QueryError, SearchQuery};
+pub use sealed::{SealedFile, Then, UnsealError, describe as describe_unseal_error, format_name};
 pub use service::{ServiceCheck, ServiceOffer, ServiceStatus, ServiceStep};
 pub use session_picker::{
     DEFAULT_SESSION, PickerInput, PickerStep, SESSION_NAME_LIMIT, SessionChoice, SessionEntry, SessionPicker,
@@ -248,4 +258,4 @@ pub use capture::{
 };
 
 pub use delete_check::{DeleteCheck, DeleteFound, DeleteSize, FileHolder};
-pub use measure::SizeScan;
+pub use measure::{SizeScan, folders_to_count};

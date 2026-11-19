@@ -3,7 +3,8 @@
 
 use super::{App, Flow, Plain, TERMINAL_CLIPBOARD_LIMIT};
 use anyhow::Result;
-use borg_core::{Aside, EditorSlot, Effect, FileStamp, FirstMatch, Msg, Side, viewer_size};
+use borg_core::{Aside, EditorSlot, Effect, FileStamp, FirstMatch, Msg, Password, SealedFile, Side, Then, viewer_size};
+use borg_crypt::sealed::Seal;
 use borg_i18n::tr;
 use borg_term::Scroll;
 use futures::StreamExt;
@@ -11,6 +12,7 @@ use std::{
     path::PathBuf,
     sync::{Arc, atomic::AtomicBool},
 };
+use zeroize::Zeroizing;
 
 impl App {
     pub(super) fn apply(&mut self, effects: Vec<Effect>) -> Result<Flow> {
@@ -45,6 +47,8 @@ impl App {
             Effect::StopUpdateChecks => self.stop_update_checks(),
             Effect::Docker { id, request } => self.docker.request(id, request),
             Effect::DockerWatch(on) => self.docker.watch(on),
+            Effect::WatchHosts(on) => self.hosts.watch(on),
+            Effect::RefreshHosts => self.hosts.refresh(),
             Effect::Network { id, neighbors } => self.network.request(id, neighbors),
             Effect::StartupItems { id } => self.startup_items.request(id),
             Effect::Alerts { id, request } => self.alerts.request(id, request),
@@ -85,9 +89,10 @@ impl App {
             Effect::GitTool { id, tool, dir, paths } => self.run_git_tool(id, tool, dir, paths),
             Effect::Write(bytes) => self.write_console(bytes)?,
             Effect::OpenEditor { path, slot } => self.read_for_editor(path, slot),
-            Effect::SaveFile { path, bytes, expected, force, slot } => {
-                self.save_file(path, bytes, expected, force, slot)
+            Effect::SaveFile { path, bytes, expected, force, slot, seal } => {
+                self.save_file(path, bytes, expected, force, slot, seal)
             }
+            Effect::Unseal { file, password } => self.unseal(file, password),
             Effect::WriteConcealed(bytes) => {
                 self.console_emulator().conceal();
                 self.write_console(bytes)?;
@@ -319,15 +324,40 @@ impl App {
     fn read_for_editor(&self, path: PathBuf, slot: EditorSlot) {
         let messages = self.messages.clone();
         tokio::task::spawn_blocking(move || {
-            let _ = messages.send(Msg::EditorOpened(slot, crate::edit_file::read(&path)));
+            let read = match crate::encrypted::detect(&path) {
+                Some(format) => Msg::Sealed(SealedFile { path, format, then: Then::Edit(slot) }),
+                None => Msg::EditorOpened(slot, crate::edit_file::read(&path)),
+            };
+            let _ = messages.send(read);
         });
     }
 
-    fn save_file(&self, path: PathBuf, bytes: Vec<u8>, expected: FileStamp, force: bool, slot: EditorSlot) {
+    fn save_file(
+        &self,
+        path: PathBuf,
+        bytes: Vec<u8>,
+        expected: FileStamp,
+        force: bool,
+        slot: EditorSlot,
+        seal: Option<Seal>,
+    ) {
         let messages = self.messages.clone();
         tokio::task::spawn_blocking(move || {
-            let saved = crate::edit_file::write(&path, &bytes, expected, force);
+            let text = Zeroizing::new(bytes);
+            let saved = match seal {
+                Some(seal) => crate::encrypted::seal(&seal, &text, &path)
+                    .and_then(|sealed| crate::edit_file::write(&path, &sealed, expected, force)),
+                None => crate::edit_file::write(&path, &text, expected, force),
+            };
             let _ = messages.send(Msg::EditorSaved(slot, saved));
+        });
+    }
+
+    fn unseal(&self, file: SealedFile, password: Password) {
+        let (width, height) = viewer_size(self.state.cols, self.state.rows);
+        let messages = self.messages.clone();
+        tokio::task::spawn_blocking(move || {
+            let _ = messages.send(crate::encrypted::open(file, &password, (width, height)));
         });
     }
 

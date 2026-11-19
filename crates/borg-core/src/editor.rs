@@ -5,9 +5,11 @@
 use borg_i18n::tr;
 use std::{path::PathBuf, time::SystemTime};
 
+use borg_crypt::{TEXT_LIMIT, sealed::Seal};
 use borg_edit::Buffer;
 use borg_view::Query;
 use crossterm::event::KeyCode;
+use zeroize::Zeroize as _;
 
 use crate::{AppState, Aside, Effect, LineInput, Side, View, find_bar::FindBar, viewer::Landing};
 
@@ -27,6 +29,7 @@ const PAINT_LINE_LIMIT: usize = 20_000;
 const UNPAINTED: &str = "\n";
 /// Rows the editor's title and status lines take from the screen.
 pub const EDITOR_CHROME: u16 = 2;
+const BYTES_PER_KIB: usize = 1024;
 
 /// Where an editor shows: over the whole screen, or in a panel in place of its files.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -182,15 +185,19 @@ pub struct Editor {
     pub(crate) beside: Option<Beside>,
     /// The archive entry the file was unpacked from, which each save writes back into.
     pub packed: Option<crate::PackedFile>,
+    pub seal: Option<Seal>,
 }
 
 impl Editor {
     fn new(file: EditorFile, slot: EditorSlot) -> Self {
-        let language = borg_view::language_of(&file.path, file.text.lines().next().unwrap_or_default());
+        let EditorFile { path, mut text, stamp } = file;
+        let language = borg_view::language_of(&path, text.lines().next().unwrap_or_default());
+        let buffer = Buffer::new(&text);
+        text.zeroize();
         Self {
-            buffer: Buffer::new(&file.text),
-            path: file.path,
-            stamp: file.stamp,
+            buffer,
+            path,
+            stamp,
             top: 0,
             left: 0,
             prompt: None,
@@ -205,6 +212,7 @@ impl Editor {
             slot,
             beside: None,
             packed: None,
+            seal: None,
         }
     }
 
@@ -316,14 +324,21 @@ impl Editor {
     }
 
     fn save(&mut self, close: bool, force: bool) -> Vec<Effect> {
+        let mut text = self.buffer.text();
+        if self.seal.is_some() && text.len() > TEXT_LIMIT {
+            text.zeroize();
+            self.note = Some(tr!(editor_sealed_too_long, kib = TEXT_LIMIT / BYTES_PER_KIB));
+            return Vec::new();
+        }
         self.saving = Some((self.buffer.revision(), close));
         self.note = None;
         vec![Effect::SaveFile {
             path: self.path.clone(),
-            bytes: self.buffer.text().into_bytes(),
+            bytes: text.into_bytes(),
             expected: self.stamp,
             force,
             slot: self.slot,
+            seal: self.seal.clone(),
         }]
     }
 
@@ -440,6 +455,12 @@ fn display_name(path: &std::path::Path) -> String {
     path.file_name().unwrap_or(path.as_os_str()).to_string_lossy().into_owned()
 }
 
+pub(crate) fn seal(state: &mut AppState, slot: EditorSlot, seal: Seal) {
+    if let Some(editor) = holder(state, slot).as_mut() {
+        editor.seal = Some(seal);
+    }
+}
+
 /// Marks the editor in `slot` as holding a file unpacked from an archive.
 pub(crate) fn pack(state: &mut AppState, slot: EditorSlot, packed: crate::PackedFile) {
     if let Some(editor) = holder(state, slot).as_mut() {
@@ -462,9 +483,10 @@ pub(crate) fn saved(
                 editor.buffer.mark_saved();
             }
             let packed = editor.packed.clone().map(|packed| (packed, editor.path.clone()));
-            editor.note = Some(match &packed {
-                Some((packed, _)) => tr!(editor_saved_into_archive, name = display_name(&packed.archive)),
-                None => tr!(editor_saved).into(),
+            editor.note = Some(match (&packed, &editor.seal) {
+                (Some((packed, _)), _) => tr!(editor_saved_into_archive, name = display_name(&packed.archive)),
+                (None, Some(seal)) => tr!(editor_saved_encrypted, format = crate::format_name(seal.format())),
+                (None, None) => tr!(editor_saved).into(),
             });
             let beside = editor.beside;
             let mut effects = match packed {

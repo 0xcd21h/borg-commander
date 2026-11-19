@@ -111,6 +111,9 @@ impl<'a> Drawing<'_, 'a> {
         if state.startup_items.is_open() {
             crate::startup_view::draw(state, &self.look, screen, self.scene.clock, now, &mut self.buf);
         }
+        if state.hosts.is_open() {
+            crate::hosts_view::draw(state, &self.look, screen, self.scene.clock, now, &mut self.buf);
+        }
         if let Some(side) = lent {
             self.lent(side);
             return;
@@ -257,6 +260,8 @@ impl<'a> Drawing<'_, 'a> {
         } else if state.startup_items.is_open() {
             Line::styled(crate::startup_view::status(&state.startup_items), styles.status)
                 .render(status, &mut self.buf);
+        } else if state.hosts.is_open() {
+            Line::styled(crate::hosts_view::status(&state.hosts), styles.status).render(status, &mut self.buf);
         } else if let Some(editor) = state.docked[state.active.index()].as_ref().filter(|_| self.focused.is_some()) {
             Line::styled(format!(" {}", editor.shown_path().display()), styles.status).render(status, &mut self.buf);
         } else {
@@ -320,6 +325,8 @@ impl<'a> Drawing<'_, 'a> {
             crate::alerts_view::keybar(state, area, self.theme, &mut self.buf);
         } else if state.startup_items.is_open() {
             crate::startup_view::keybar(state, area, self.theme, &mut self.buf);
+        } else if state.hosts.is_open() {
+            crate::hosts_view::keybar(state, area, self.theme, &mut self.buf);
         } else if self.focused.is_some() {
             crate::editor_view::keybar(state, area, self.theme, &mut self.buf);
         } else {
@@ -350,16 +357,19 @@ fn activity(scene: &Scene<'_>, side: Side) -> Option<Activity> {
         return Some(Activity { label: crate::docker_view::file_work_label(work), fraction: None });
     }
     let scan = state.sizing.as_ref().filter(|scan| scan.side == side)?;
-    Some(Activity { label: tr!(background_sizes_progress, count = scan.progress.visited), fraction: None })
+    Some(Activity { label: tr!(background_sizes_progress, count = scan.visited()), fraction: None })
 }
 
-/// The key bar's names for F5 and F8: a copy collects into a collection shown in the other
-/// panel, and deleting from one only removes it from the collection.
-fn file_labels(state: &borg_core::AppState) -> (&'static str, &'static str) {
+/// The key bar's names for F3, F5 and F8: F3 counts sizes on a folder, a copy collects into a
+/// collection shown in the other panel, and deleting from one only removes it from the collection.
+fn file_labels(state: &borg_core::AppState) -> crate::keybar::FileLabels {
     let shows_collection = |panel: &borg_core::Panel| {
         matches!(panel.results.as_ref().map(|r| &r.source), Some(borg_core::ResultSource::Collection(_)))
     };
-    let copy = if shows_collection(state.panel(state.active.other())) { tr!(collect) } else { tr!(copy) };
-    let remove = if shows_collection(state.active_panel()) { tr!(remove) } else { tr!(delete) };
-    (copy, remove)
+    let counts = !borg_core::folders_to_count(state.active_panel()).is_empty();
+    crate::keybar::FileLabels {
+        view: if counts { tr!(count_folder) } else { tr!(view) },
+        copy: if shows_collection(state.panel(state.active.other())) { tr!(collect) } else { tr!(copy) },
+        remove: if shows_collection(state.active_panel()) { tr!(remove) } else { tr!(delete) },
+    }
 }

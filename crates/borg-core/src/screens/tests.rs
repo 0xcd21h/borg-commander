@@ -272,7 +272,20 @@ fn typed_filter(state: &AppState) -> (String, bool) {
         Some(Screen::Network) => (state.network.filter.clone(), state.network.filtering),
         Some(Screen::Startup) => (state.startup_items.filter.clone(), state.startup_items.filtering),
         Some(Screen::Alerts) => (state.alerts.filter.clone(), state.alerts.filtering),
+        Some(Screen::Hosts) => (state.hosts.filter.clone(), state.hosts.filtering),
         None => (String::new(), false),
+    }
+}
+
+/// Opens `screen` with its key, or for the hosts as the remote sessions' window does.
+fn open_screen_by(state: &mut AppState, screen: Screen) -> Vec<Effect> {
+    match screen {
+        Screen::Activity => alt(state, 'm'),
+        Screen::Docker => alt(state, 'c'),
+        Screen::Network => alt(state, 'n'),
+        Screen::Startup => alt(state, 'u'),
+        Screen::Alerts => alt(state, 'l'),
+        Screen::Hosts => crate::hosts::open(state),
     }
 }
 
@@ -292,19 +305,20 @@ fn a_click_on_a_screen_s_filter_while_it_is_typed_types_nothing_into_it() {
     use crate::Pointer;
     let on_filter = KeyCode::Char('/');
     let screens = [
-        ('m', Pointer::ActivityControl { preview: false, code: on_filter }),
-        ('c', Pointer::DockerControl { details: false, code: on_filter }),
-        ('n', Pointer::NetworkControl { details: false, code: on_filter }),
-        ('u', Pointer::StartupControl(on_filter)),
-        ('l', Pointer::AlertsControl(on_filter)),
+        (Screen::Activity, Pointer::ActivityControl { preview: false, code: on_filter }),
+        (Screen::Docker, Pointer::DockerControl { details: false, code: on_filter }),
+        (Screen::Network, Pointer::NetworkControl { details: false, code: on_filter }),
+        (Screen::Startup, Pointer::StartupControl(on_filter)),
+        (Screen::Alerts, Pointer::AlertsControl(on_filter)),
+        (Screen::Hosts, Pointer::HostsControl(on_filter)),
     ];
-    for (key, pointer) in screens {
+    for (screen, pointer) in screens {
         let mut state = state();
-        alt(&mut state, key);
+        open_screen_by(&mut state, screen);
         type_filter(&mut state, "wo");
-        assert_eq!(typed_filter(&state), ("wo".into(), true), "Alt-{key} opens a screen with a filter");
+        assert_eq!(typed_filter(&state), ("wo".into(), true), "{screen:?} has a filter");
         click(&mut state, pointer);
-        assert_eq!(typed_filter(&state), ("wo".into(), true), "a click on the filter of Alt-{key} types nothing");
+        assert_eq!(typed_filter(&state), ("wo".into(), true), "a click on the filter of {screen:?} types nothing");
     }
 }
 

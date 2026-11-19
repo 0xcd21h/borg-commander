@@ -8,6 +8,8 @@ use super::{Error, FILE_KEY_LEN, SALT_LEN, WorkFactor, decode_raw, encode_raw};
 const KIND: &str = "scrypt";
 const LABEL: &[u8] = b"age-encryption.org/v1/scrypt";
 const BLOCK_SIZE: u32 = 8;
+const BYTES_PER_BLOCK: u64 = 128;
+pub(super) const BYTES_PER_COST: u64 = BYTES_PER_BLOCK * BLOCK_SIZE as u64;
 const PARALLELISM: u32 = 1;
 const WRAP_KEY_LEN: usize = 32;
 const TAG_LEN: usize = 16;

@@ -31,11 +31,13 @@ impl AppState {
         let network = self.network.side.filter(|_| self.network.expanded);
         let startup = self.startup_items.side.filter(|_| self.startup_items.expanded);
         let alerts = self.alerts.side.filter(|_| self.alerts.expanded);
+        let hosts = self.hosts.side.filter(|_| self.hosts.expanded);
         let docker = self.docker.side.filter(|_| self.docker.expanded);
         network
             .map(|side| focused(side, self.network.details_focused))
             .or(startup)
             .or(alerts)
+            .or(hosts)
             .or(docker.map(|side| focused(side, self.docker.details_focused)))
     }
 

@@ -147,6 +147,19 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
             Vec::new()
         }
         Msg::ArchiveEditorOpened { slot, packed, result } => crate::archive::editor_opened(state, slot, packed, result),
+        Msg::Sealed(file) => {
+            crate::sealed::locked(state, file, false);
+            Vec::new()
+        }
+        Msg::UnsealFailed { file, error } => {
+            crate::sealed::failed(state, file, error);
+            Vec::new()
+        }
+        Msg::SealedEditorOpened { slot, file, seal } => {
+            let effects = crate::editor::opened(state, slot, Ok(file));
+            crate::editor::seal(state, slot, seal);
+            effects
+        }
         Msg::EditorSaved(slot, result) => crate::editor::saved(state, slot, result, now),
         Msg::Opened(viewer) => crate::viewer::opened(state, viewer),
         Msg::OpenFailed { path, notice } => {
@@ -196,6 +209,14 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
         }
         Msg::AlertsChanged(log) => {
             crate::watch::changed(state, *log);
+            Vec::new()
+        }
+        Msg::HostsListed(result) => {
+            crate::hosts::listed(state, result);
+            Vec::new()
+        }
+        Msg::HostAnswered { identity, answer } => {
+            crate::hosts::answered(state, &identity, answer, now);
             Vec::new()
         }
         Msg::StartupItems { id, result } => {
@@ -281,6 +302,7 @@ fn follow(state: &mut AppState, now: Instant) -> Vec<Effect> {
     effects.extend(crate::network::sync_shell_variables(state));
     crate::startup_items::sync(state, now);
     crate::watch::sync(state, now);
+    effects.extend(crate::hosts::sync(state, now));
     effects.extend(crate::activity::sync_file_preview(state));
     effects.extend(crate::docker::sync(state, now));
     effects.extend(crate::docker::release_helpers(state));

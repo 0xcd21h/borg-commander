@@ -30,7 +30,7 @@ expression: describe(&buffer)
 ╰ 9 items ────└ Tab fields · ←→ mode · Space toggle · Esc cancel ──────────────────────────────┘─────────────╯
  Up to the parent directory
 $
-F1Help    F2File    F3View    F4Edit    F5Copy    F6Move    F7Mkdir   F8Delete  F9Menu    F10Quit   ^OShell
+F1Help    F2File    F3Count   F4Edit    F5Copy    F6Move    F7Mkdir   F8Delete  F9Menu    F10Quit   ^OShell
 Alt-H Remote hosts  Alt-I Count sizes  Ctrl-F Search  Alt-M Activity  Alt-S Size     ◈ Borg Commander v0.12.0
 --- styles ---
   0: 0-0 Rgb(23, 106, 126) Rgb(30, 30, 30) NONE | 1-1 Rgb(154, 154, 154) Rgb(30, 30, 30) BOLD | 2-2 Rgb(154, 154, 154) Rgb(30, 30, 30) NONE | 3-5 Rgb(62, 62, 62) Rgb(30, 30, 30) NONE | 6-13 Rgb(154, 154, 154) Rgb(30, 30, 30) NONE | 14-16 Rgb(62, 62, 62) Rgb(30, 30, 30) NONE | 17-21 Rgb(154, 154, 154) Rgb(30, 30, 30) BOLD | 22-54 Rgb(23, 106, 126) Rgb(30, 30, 30) NONE | 55-55 Rgb(58, 58, 58) Rgb(30, 30, 30) NONE | 56-57 Rgb(106, 106, 106) Rgb(30, 30, 30) NONE | 58-60 Rgb(53, 53, 53) Rgb(30, 30, 30) NONE | 61-63 Rgb(106, 106, 106) Rgb(30, 30, 30) NONE | 64-66 Rgb(53, 53, 53) Rgb(30, 30, 30) NONE | 67-70 Rgb(106, 106, 106) Rgb(30, 30, 30) NONE | 71-109 Rgb(58, 58, 58) Rgb(30, 30, 30) NONE

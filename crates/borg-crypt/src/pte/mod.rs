@@ -182,6 +182,39 @@ impl Envelope {
     }
 }
 
+pub fn open_text(file: &[u8], password: &str) -> Result<(Zeroizing<Vec<u8>>, Rekey), Error> {
+    let envelope = Envelope::parse(file)?;
+    let master = MasterKey::from_password(password);
+    let text = envelope.open(&master)?;
+    Ok((text, Rekey { master, cipher: envelope.cipher }))
+}
+
+pub fn ends_like_pte(tail: &[u8]) -> bool {
+    tail.iter().rev().find(|byte| !is_space(**byte)) == Some(&END_MARK)
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct Rekey {
+    master: MasterKey,
+    cipher: Cipher,
+}
+
+impl Rekey {
+    pub fn cipher(&self) -> Cipher {
+        self.cipher
+    }
+
+    pub fn seal_text(&self, text: &[u8], random: &[u8; RANDOM_LEN]) -> Result<String, Error> {
+        seal(text, &self.master, self.cipher, random)
+    }
+}
+
+impl std::fmt::Debug for Rekey {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.debug_struct("Rekey").field("cipher", &self.cipher).finish_non_exhaustive()
+    }
+}
+
 pub fn seal(text: &[u8], master: &MasterKey, cipher: Cipher, random: &[u8; RANDOM_LEN]) -> Result<String, Error> {
     if text.len() > TEXT_LIMIT {
         return Err(Error::TooLong { limit: TEXT_LIMIT });

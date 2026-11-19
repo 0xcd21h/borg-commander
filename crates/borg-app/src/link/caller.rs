@@ -13,7 +13,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::sync::oneshot;
 
-use super::{Computer, ROTATE_CALL, VIEWER_CALLS, served::Served};
+use super::{Computer, MONITOR_CALLS, ROTATE_CALL, VIEWER_CALLS, served::Served};
 use crate::{
     agent::{Call, Reply, Session},
     native_mirror, remote_copy,
@@ -31,6 +31,9 @@ pub(super) enum Role {
     /// The computer's borg, watching for the asks of a session its panels show. It makes only
     /// the viewer calls, and only it may make them.
     Viewer,
+    /// The computer's borg or an agent reading how the host is doing. It makes only the monitor
+    /// calls, which never reach a session.
+    Monitor,
 }
 
 #[derive(Deserialize)]
@@ -106,7 +109,8 @@ impl<'a> Caller<'a> {
 
     fn rotation(&self, message: &[u8]) -> Option<Rotation> {
         let call = serde_json::from_slice::<Call>(message).ok()?;
-        (self.role == Role::Session && call.tool == ROTATE_CALL).then(|| serde_json::from_value(call.args).ok())?
+        let rotates = matches!(self.role, Role::Session | Role::Monitor);
+        (rotates && call.tool == ROTATE_CALL).then(|| serde_json::from_value(call.args).ok())?
     }
 
     fn rotate(&self, channel: &Channel, rotation: Rotation) -> Reply {
@@ -131,7 +135,12 @@ impl<'a> Caller<'a> {
         };
         call.origin = Some(self.origin.clone());
         let viewing = VIEWER_CALLS.contains(&call.tool.as_str());
-        if viewing != (self.role == Role::Viewer) {
+        let allowed = match self.role {
+            Role::Session => !viewing,
+            Role::Viewer => viewing,
+            Role::Monitor => MONITOR_CALLS.contains(&call.tool.as_str()),
+        };
+        if !allowed {
             return Ok((Reply::error(format!("unknown tool {}", call.tool)), None));
         }
         call.viewer = viewing;
@@ -165,7 +174,7 @@ impl<'a> Caller<'a> {
         match tool.as_str() {
             "session_delete" | super::HOST_UPDATE_CALL => self.served.ask(call).await,
             "file_transfer" => Ok(self.file_transfer(call).await),
-            "host_info" => Ok(self.served.host_info()),
+            "host_info" => Ok(self.served.host_info(&call.args).await),
             "list_sessions" => Ok(self.served.list_sessions()),
             tool if tool.starts_with("mirror_") => self.mirror(call).await,
             tool if tool.starts_with("console_") => self.console(call).await,

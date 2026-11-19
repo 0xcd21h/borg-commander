@@ -24,11 +24,11 @@ const SUFFIX_DOT: char = '.';
 /// A password given for an archive, kept in memory while a panel shows the archive and never
 /// printed.
 #[derive(Clone, PartialEq, Eq)]
-pub struct Password(String);
+pub struct Password(zeroize::Zeroizing<String>);
 
 impl Password {
     pub fn new(text: &str) -> Self {
-        Self(text.to_owned())
+        Self(zeroize::Zeroizing::new(text.to_owned()))
     }
 
     pub fn as_str(&self) -> &str {
