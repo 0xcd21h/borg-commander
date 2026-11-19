@@ -5645,7 +5645,7 @@ fn vault_fixture() -> Result<Fixture> {
 
 #[test]
 #[ignore = "needs gocryptfs and FUSE; runs in a Linux container"]
-fn a_vault_opens_with_its_password_stays_open_outside_and_closes_from_the_file_menu() -> Result<()> {
+fn a_vault_opens_with_its_password_stays_open_outside_and_closes_from_the_encryption_menu() -> Result<()> {
     let fixture = vault_fixture()?;
     let mut app = Session::builder(BORG, &fixture).label("vault").spawn()?;
     app.wait_text("1 item")?;
