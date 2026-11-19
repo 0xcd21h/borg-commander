@@ -1526,6 +1526,17 @@ substitui todos,
 `n` ignora todos e Esc cancela. As cópias são escritas em ficheiros temporários e mudam de nome
 quando estão completas.
 
+Mover e eliminar ficam no sistema de ficheiros de cada ficheiro ou pasta que escolheu. Um sistema de
+ficheiros montado dentro de uma dessas pastas, como um cofre aberto, uma imagem de disco ou uma
+partilha de rede, fica intacto e conta como ignorado, e as pastas que o contêm mantêm-se. A contagem
+da caixa de diálogo Eliminar também o deixa de fora. Uma cópia copia também o que esses sistemas de
+ficheiros contêm. Se mover ignorar alguma coisa dentro de uma pasta que escolheu, essa pasta fica
+inteira no sítio, pelo que os ficheiros que foram movidos ficam nos dois lugares. Uma cópia ou um
+movimento é interrompido quando a pasta de destino já não é a pasta onde começou a escrever, como
+quando um cofre fecha ou uma unidade desaparece enquanto o Borg pergunta sobre um ficheiro. Nada
+mais é escrito aí, e um movimento mantém os ficheiros que ainda não tinha acabado de mover. Antes de
+um movimento eliminar as origens, o Borg garante que as cópias chegaram ao disco.
+
 ### Tarefas e notificações
 
 O trabalho que demora corre como uma tarefa: cópias, movimentações e eliminações, descompactar e
@@ -1796,17 +1807,21 @@ abrem.
 ### Editor
 
 F4 abre o ficheiro selecionado no editor do Borg, e Shift-F4 abre-o em `$VISUAL` ou `$EDITOR`. O
-editor mantém os finais de linha e a indentação do ficheiro, realça o código como os
-visualizadores e mostra os números de linha. Shift com as setas seleciona texto; Ctrl-C, Ctrl-X e
-Ctrl-V copiam, cortam e colam através da área de transferência do Borg, e o texto colado a partir
-do terminal entra exatamente como está. Ctrl-Z e Ctrl-Y anulam e refazem, e Tab e Shift-Tab
-aumentam e diminuem a indentação. F2 ou Ctrl-S guardam através de um ficheiro temporário, pelo que
-um ficheiro nunca fica escrito a meio. Os ficheiros que não são texto UTF-8, ou que têm mais de 32
-MiB, abrem no visualizador. As linhas com mais de 20 000 caracteres, como código minificado, não
-são realçadas, e só é desenhada a parte da linha que aparece no ecrã, pelo que até um ficheiro
-grande escrito numa só linha se edita sem atrasos. Alt-Shift-F organiza um ficheiro JSON com um
-valor por linha, usando a indentação do próprio ficheiro, num único passo que Ctrl-Z anula; o JSON
-que não pode ser analisado fica como está, e a linha de estado indica onde a análise parou.
+editor mantém os finais de linha e a indentação do ficheiro, realça o código como os visualizadores
+e mostra os números de linha. Shift com as setas seleciona texto; Ctrl-C, Ctrl-X e Ctrl-V copiam,
+cortam e colam através da área de transferência do Borg, e o texto colado a partir do terminal entra
+exatamente como está. Ctrl-Z e Ctrl-Y anulam e refazem, e Tab e Shift-Tab aumentam e diminuem a
+indentação. F2 ou Ctrl-S guardam através de um ficheiro temporário, pelo que um ficheiro nunca fica
+escrito a meio. Um ficheiro com outras ligações físicas é escrito no próprio sítio, para que todas
+as ligações mostrem o texto novo: o Borg guarda primeiro o texto anterior num ficheiro oculto ao
+lado e elimina-o quando o texto novo já está no disco. Se a gravação falhar, o Borg repõe o texto
+anterior e, se isso também falhar, mantém o ficheiro oculto e a linha de estado indica qual é. Os
+ficheiros que não são texto UTF-8, ou que têm mais de 32 MiB, abrem no visualizador. As linhas com
+mais de 20 000 caracteres, como código minificado, não são realçadas, e só é desenhada a parte da
+linha que aparece no ecrã, pelo que até um ficheiro grande escrito numa só linha se edita sem
+atrasos. Alt-Shift-F organiza um ficheiro JSON com um valor por linha, usando a indentação do
+próprio ficheiro, num único passo que Ctrl-Z anula; o JSON que não pode ser analisado fica como
+está, e a linha de estado indica onde a análise parou.
 
 O editor faz as suas perguntas em caixas de diálogo sobre o texto: Tab passa entre campos e
 botões, Enter confirma o selecionado, Esc cancela, e pode clicar em qualquer um deles. Ctrl-F ou

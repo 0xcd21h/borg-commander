@@ -1529,6 +1529,18 @@ Cuando ya existe un archivo con el mismo nombre: `o` sobrescribe, `s` omite, `k`
 `a` sobrescribe todos, `n` omite todos y Esc cancela. Las copias se escriben en archivos temporales
 y se renombran cuando están completas.
 
+Los movimientos y los borrados se quedan en el sistema de archivos de cada archivo o carpeta que
+elegiste. Un sistema de archivos montado dentro de una de esas carpetas, como una bóveda abierta,
+una imagen de disco o un recurso compartido de red, no se toca y cuenta como omitido, y las carpetas
+que lo contienen se conservan. El recuento del diálogo Eliminar tampoco lo incluye. Una copia sí
+copia lo que contienen esos sistemas de archivos. Si un movimiento omite algo dentro de una carpeta
+que elegiste, deja esa carpeta entera en su sitio, así que los archivos que sí movió quedan en los
+dos lugares. Una copia o un movimiento se detiene cuando su carpeta de destino ya no es la carpeta
+en la que empezó a escribir, como cuando una bóveda se cierra o una unidad desaparece mientras Borg
+pregunta por un archivo. No se escribe nada más allí, y un movimiento conserva los archivos que aún
+no había terminado de mover. Antes de que un movimiento borre sus orígenes, Borg se asegura de que
+las copias han llegado al disco.
+
 ### Tareas y notificaciones
 
 El trabajo que lleva tiempo se ejecuta como una tarea: copias, movimientos y eliminaciones, la
@@ -1801,18 +1813,21 @@ se abren.
 ### Editor
 
 F4 abre el archivo seleccionado en el editor de Borg, y Shift-F4 lo abre en `$VISUAL` o `$EDITOR`.
-El editor conserva los finales de línea y la sangría del archivo, resalta el código como los
-visores y muestra los números de línea. Shift con las flechas selecciona texto; Ctrl-C, Ctrl-X y
-Ctrl-V copian, cortan y pegan mediante el portapapeles de Borg, y el texto pegado desde el
-terminal entra exactamente tal cual. Ctrl-Z y Ctrl-Y deshacen y rehacen, y Tab y Shift-Tab
-aumentan y reducen la sangría. F2 o Ctrl-S guardan a través de un archivo temporal, de modo que un
-archivo nunca queda escrito a medias. Los archivos que no son texto UTF-8, o que superan los 32
-MiB, se abren en el visor. Las líneas de más de 20.000 caracteres, como el código minificado, no
-se resaltan, y solo se dibuja la parte de la línea que aparece en pantalla, así que incluso un
-archivo grande escrito en una sola línea se edita sin retrasos. Alt-Shift-F organiza un archivo
-JSON con un valor por línea, usando la sangría del propio archivo, en un solo paso que Ctrl-Z
-deshace; el JSON que no se puede analizar se queda como está, y la línea de estado indica dónde se
-detuvo el análisis.
+El editor conserva los finales de línea y la sangría del archivo, resalta el código como los visores
+y muestra los números de línea. Shift con las flechas selecciona texto; Ctrl-C, Ctrl-X y Ctrl-V
+copian, cortan y pegan mediante el portapapeles de Borg, y el texto pegado desde el terminal entra
+exactamente tal cual. Ctrl-Z y Ctrl-Y deshacen y rehacen, y Tab y Shift-Tab aumentan y reducen la
+sangría. F2 o Ctrl-S guardan a través de un archivo temporal, de modo que un archivo nunca queda
+escrito a medias. Un archivo con otros enlaces duros se escribe en su lugar, para que todos los
+enlaces muestren el texto nuevo: Borg guarda primero el texto anterior en un archivo oculto a su
+lado y lo borra cuando el texto nuevo ya está en el disco. Si el guardado falla, Borg restaura el
+texto anterior, y si eso también falla, deja el archivo oculto y la línea de estado indica cuál es.
+Los archivos que no son texto UTF-8, o que superan los 32 MiB, se abren en el visor. Las líneas de
+más de 20.000 caracteres, como el código minificado, no se resaltan, y solo se dibuja la parte de la
+línea que aparece en pantalla, así que incluso un archivo grande escrito en una sola línea se edita
+sin retrasos. Alt-Shift-F organiza un archivo JSON con un valor por línea, usando la sangría del
+propio archivo, en un solo paso que Ctrl-Z deshace; el JSON que no se puede analizar se queda como
+está, y la línea de estado indica dónde se detuvo el análisis.
 
 El editor hace sus preguntas en diálogos sobre el texto: Tab se mueve entre campos y botones,
 Enter confirma el seleccionado, Esc cancela, y puedes hacer clic en cualquiera de ellos. Ctrl-F o

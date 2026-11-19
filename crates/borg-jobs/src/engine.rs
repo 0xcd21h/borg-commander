@@ -1,9 +1,10 @@
 use std::{
+    collections::BTreeSet,
     ffi::OsString,
     fs::{self, File, FileTimes, OpenOptions},
     io::{self, Read, Write},
     ops::Add,
-    os::unix::fs::{PermissionsExt, symlink},
+    os::unix::fs::{MetadataExt, PermissionsExt, symlink},
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
@@ -13,7 +14,7 @@ use borg_drives::{Drives, Work};
 use crate::{
     Ask, Control, Decision, Event, Outcome, Pace, Progress, Spec, Totals,
     control::Stopped,
-    plan::{Item, Kind, Root, scan},
+    plan::{Item, Kind, Mounts, Root, scan},
 };
 
 const CHUNK: u64 = 4 * 1024 * 1024;
@@ -75,6 +76,34 @@ impl From<Stopped> for Fault {
     }
 }
 
+impl From<Halt> for Fault {
+    fn from(halt: Halt) -> Self {
+        Self::Halt(halt)
+    }
+}
+
+struct Anchor {
+    path: PathBuf,
+    device: u64,
+    inode: u64,
+}
+
+impl Anchor {
+    fn of(target: &Path) -> Option<Self> {
+        let path = if fs::metadata(target).is_ok_and(|meta| meta.is_dir()) {
+            target.to_path_buf()
+        } else {
+            target.parent()?.to_path_buf()
+        };
+        let meta = fs::metadata(&path).ok()?;
+        Some(Self { path, device: meta.dev(), inode: meta.ino() })
+    }
+
+    fn holds(&self) -> bool {
+        fs::metadata(&self.path).is_ok_and(|meta| (meta.dev(), meta.ino()) == (self.device, self.inode))
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Sticky {
     Ask,
@@ -93,6 +122,9 @@ struct Job<'a> {
     errors: Sticky,
     current: PathBuf,
     reported: Option<Instant>,
+    anchor: Option<Anchor>,
+    durable: bool,
+    touched: BTreeSet<PathBuf>,
 }
 
 pub fn run(spec: &Spec, drives: &Drives, control: &Control, emit: &mut dyn FnMut(Event)) -> Outcome {
@@ -107,6 +139,9 @@ pub fn run(spec: &Spec, drives: &Drives, control: &Control, emit: &mut dyn FnMut
         errors: Sticky::Ask,
         current: PathBuf::new(),
         reported: None,
+        anchor: None,
+        durable: matches!(spec, Spec::Move { .. }),
+        touched: BTreeSet::new(),
     };
     let outcome = match job.execute(spec) {
         Ok(()) => Outcome::Done { done: job.done, skipped: job.skipped },
@@ -194,7 +229,11 @@ fn modified(path: &Path) -> Option<std::time::SystemTime> {
 
 impl Job<'_> {
     fn execute(&mut self, spec: &Spec) -> Result<(), Halt> {
-        let roots = self.scan(spec.sources())?;
+        let mounts = if matches!(spec, Spec::Copy { .. }) { Mounts::Cross } else { Mounts::Stop };
+        let roots = self.scan(spec.sources(), mounts)?;
+        if let Spec::Copy { target, .. } | Spec::Move { target, .. } = spec {
+            self.anchor = Anchor::of(target);
+        }
         self.total = roots.iter().map(Root::totals).fold(Totals::default(), Totals::add);
         let pace = pace(self.drives, spec, self.total.bytes);
         if let Some(pace) = &pace
@@ -234,11 +273,11 @@ impl Job<'_> {
         }
     }
 
-    fn scan(&mut self, sources: &[PathBuf]) -> Result<Vec<Root>, Halt> {
+    fn scan(&mut self, sources: &[PathBuf], mounts: Mounts) -> Result<Vec<Root>, Halt> {
         let mut roots = Vec::new();
         let mut before = Totals::default();
         for source in sources {
-            if let Some(root) = self.scan_one(source, before)? {
+            if let Some(root) = self.scan_one(source, before, mounts)? {
                 before = before.add(root.totals());
                 roots.push(root);
             }
@@ -248,7 +287,7 @@ impl Job<'_> {
 
     /// Scans one source, again for as long as the user answers a failure with Retry, and gives
     /// nothing for a source they chose to leave out.
-    fn scan_one(&mut self, source: &Path, before: Totals) -> Result<Option<Root>, Halt> {
+    fn scan_one(&mut self, source: &Path, before: Totals, mounts: Mounts) -> Result<Option<Root>, Halt> {
         loop {
             let emit = &mut *self.emit;
             let mut last: Option<Instant> = None;
@@ -258,7 +297,7 @@ impl Job<'_> {
                     emit(Event::Scanning(before.add(found)));
                 }
             };
-            match scan(source, &mut seen) {
+            match scan(source, mounts, &mut seen) {
                 Ok(root) => return Ok(Some(root)),
                 Err(error) => {
                     if self.forgive(source, &error)? {
@@ -304,6 +343,35 @@ impl Job<'_> {
                     }
                 }
             }
+        }
+    }
+
+    fn guard(&self) -> Result<(), Halt> {
+        match &self.anchor {
+            Some(anchor) if !anchor.holds() => {
+                let path = anchor.path.display().to_string();
+                Err(Halt::Failed(borg_i18n::tr!(job_target_changed, path = path)))
+            }
+            _ => Ok(()),
+        }
+    }
+
+    fn touch(&mut self, written: &Path) {
+        if let Some(dir) = written.parent().filter(|_| self.durable) {
+            self.touched.insert(dir.to_path_buf());
+        }
+    }
+
+    fn settle(&mut self) -> Result<(), Halt> {
+        self.guard()?;
+        let dirs = std::mem::take(&mut self.touched);
+        let failed = |dir: &Path, error: io::Error| Halt::Failed(format!("{}: {error}", dir.display()));
+        for dir in &dirs {
+            sync_dir(dir).map_err(|error| failed(dir, error))?;
+        }
+        match dirs.first() {
+            Some(dir) => flush_drive(dir).map_err(|error| failed(dir, error)),
+            None => Ok(()),
         }
     }
 
@@ -410,6 +478,10 @@ impl Job<'_> {
                         false
                     }
                 },
+                Kind::Mount => {
+                    self.skip(item);
+                    false
+                }
             };
             complete &= copied;
         }
@@ -465,7 +537,10 @@ impl Job<'_> {
                     target
                 }
                 Some(target) => {
-                    let removed = self.retrying(item, |_| fs::remove_file(&target).map_err(Fault::Io))?;
+                    let removed = self.retrying(item, |job| {
+                        job.guard()?;
+                        fs::remove_file(&target).map_err(Fault::Io)
+                    })?;
                     if !removed {
                         return Ok(false);
                     }
@@ -478,11 +553,15 @@ impl Job<'_> {
             },
             Err(_) => dest.to_path_buf(),
         };
-        let created = self.retrying(item, |_| match fs::create_dir(&dest) {
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => Ok(()),
-            other => other.map_err(Fault::Io),
+        let created = self.retrying(item, |job| {
+            job.guard()?;
+            match fs::create_dir(&dest) {
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => Ok(()),
+                other => other.map_err(Fault::Io),
+            }
         })?;
         if created {
+            self.touch(&dest);
             made.push((item.clone(), dest));
         }
         Ok(created)
@@ -493,19 +572,25 @@ impl Job<'_> {
     }
 
     fn copy_data(&mut self, item: &Item, dest: &Path, bytes: Option<&[u8]>) -> Result<(), Fault> {
+        self.guard()?;
         let temporary = partial(dest);
         let copied = match bytes {
             Some(bytes) => self.write_buffered(bytes, &temporary),
             None => self.stream(item, &temporary),
         };
+        let durable = self.durable;
         let result = copied.and_then(|file| {
             finish_file(item, &file);
+            if durable {
+                rustix::fs::fsync(&file).map_err(io::Error::from)?;
+            }
             fs::rename(&temporary, dest).map_err(Fault::Io)
         });
         if result.is_err() {
             let _ = fs::remove_file(&temporary);
         }
         result?;
+        self.touch(dest);
         self.done.files += 1;
         self.report(false);
         Ok(())
@@ -537,10 +622,12 @@ impl Job<'_> {
     }
 
     fn copy_link(&mut self, item: &Item, link: &Path, dest: &Path) -> Result<(), Fault> {
+        self.guard()?;
         if fs::symlink_metadata(dest).is_ok_and(|meta| !meta.is_dir()) {
             fs::remove_file(dest)?;
         }
         symlink(link, dest)?;
+        self.touch(dest);
         self.done = self.done.add(item.totals());
         self.report(false);
         Ok(())
@@ -552,13 +639,20 @@ impl Job<'_> {
             return Ok(());
         }
         let Some(first) = root.items.first() else { return Ok(()) };
+        if first.kind == Kind::Mount {
+            self.skip(first);
+            return Ok(());
+        }
         let same_device = dest
             .parent()
             .and_then(|parent| fs::metadata(parent).ok())
             .is_some_and(|meta| std::os::unix::fs::MetadataExt::dev(&meta) == first.device);
         if same_device && !exists(dest) {
             self.current = root.source.clone();
-            let moved = self.retrying(first, |_| fs::rename(&root.source, dest).map_err(Fault::Io))?;
+            let moved = self.retrying(first, |job| {
+                job.guard()?;
+                fs::rename(&root.source, dest).map_err(Fault::Io)
+            })?;
             if moved {
                 self.done = self.done.add(root.totals());
                 self.report(false);
@@ -566,18 +660,28 @@ impl Job<'_> {
             return Ok(());
         }
         if self.copy_root(root, dest, false, &mut Batch::default())? {
+            self.settle()?;
             self.delete_root(root, false)?;
         }
         Ok(())
     }
 
     fn delete_root(&mut self, root: &Root, count: bool) -> Result<(), Halt> {
+        let mounts: Vec<&Path> =
+            root.items.iter().filter(|item| item.kind == Kind::Mount).map(|item| item.relative.as_path()).collect();
         for item in root.items.iter().rev() {
             self.control.checkpoint()?;
             self.current = item.source.clone();
+            if item.kind == Kind::Mount {
+                self.skip(item);
+                continue;
+            }
+            if mounts.iter().any(|mount| mount.starts_with(&item.relative)) {
+                continue;
+            }
             let removed = self.retrying(item, |_| {
                 match item.kind {
-                    Kind::Dir => fs::remove_dir(&item.source),
+                    Kind::Dir | Kind::Mount => fs::remove_dir(&item.source),
                     Kind::File(_) | Kind::Link(_) => fs::remove_file(&item.source),
                 }
                 .map_err(Fault::Io)
@@ -589,6 +693,20 @@ impl Job<'_> {
         }
         Ok(())
     }
+}
+
+fn sync_dir(dir: &Path) -> io::Result<()> {
+    rustix::fs::fsync(File::open(dir)?).map_err(io::Error::from)
+}
+
+#[cfg(target_vendor = "apple")]
+fn flush_drive(dir: &Path) -> io::Result<()> {
+    rustix::fs::fcntl_fullfsync(File::open(dir)?).map_err(io::Error::from)
+}
+
+#[cfg(not(target_vendor = "apple"))]
+fn flush_drive(_: &Path) -> io::Result<()> {
+    Ok(())
 }
 
 fn destination(root: &Root, target: &Path, single: bool) -> PathBuf {

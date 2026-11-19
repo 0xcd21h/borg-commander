@@ -1,5 +1,7 @@
 use super::*;
 
+const DEVICES: &str = "/dev";
+
 fn tree() -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("tree");
@@ -27,6 +29,33 @@ fn counting_says_so_when_it_stops_early_or_misses_a_file() {
     assert!(!size.complete);
     let gone = tally(&[dir.path().join("gone")], Instant::now() + Duration::from_secs(60));
     assert_eq!(gone, DeleteSize { bytes: 0, files: 0, complete: false });
+}
+
+#[test]
+fn counting_skips_a_source_that_is_its_own_filesystem() {
+    let devices = Path::new(DEVICES);
+    let Ok(meta) = fs::metadata(devices) else { return };
+    if !borg_jobs::mount_point(devices, meta.dev()) {
+        return;
+    }
+    let size = tally(&[devices.to_path_buf()], Instant::now() + Duration::from_secs(60));
+    assert_eq!(size, DeleteSize { bytes: 0, files: 0, complete: true });
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+#[ignore = "mounts a tmpfs, which needs root; run in a throwaway container"]
+fn counting_skips_a_filesystem_mounted_inside_a_source() {
+    let dir = tree();
+    let root = dir.path().join("tree");
+    let mounted = root.join("b");
+    let status = std::process::Command::new("mount").args(["-t", "tmpfs", "tmpfs"]).arg(&mounted).status().unwrap();
+    assert!(status.success());
+    fs::write(mounted.join("inside.txt"), "kept on its own filesystem").unwrap();
+    let size = tally(&[root], Instant::now() + Duration::from_secs(60));
+    let unmounted = std::process::Command::new("umount").arg(&mounted).status().unwrap();
+    assert!(unmounted.success());
+    assert_eq!(size, DeleteSize { bytes: 5, files: 2, complete: true });
 }
 
 #[test]
