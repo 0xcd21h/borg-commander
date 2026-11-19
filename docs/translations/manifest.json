@@ -186,6 +186,10 @@
           "title": "Encrypted files"
         },
         {
+          "level": 3,
+          "title": "Vaults"
+        },
+        {
           "level": 2,
           "title": "Configuration"
         },
@@ -503,6 +507,10 @@
         {
           "level": 3,
           "title": "Encrypted files"
+        },
+        {
+          "level": 3,
+          "title": "Vaults"
         },
         {
           "level": 2,
@@ -824,6 +832,10 @@
           "title": "Encrypted files"
         },
         {
+          "level": 3,
+          "title": "Vaults"
+        },
+        {
           "level": 2,
           "title": "Configuration"
         },
@@ -1141,6 +1153,10 @@
         {
           "level": 3,
           "title": "Encrypted files"
+        },
+        {
+          "level": 3,
+          "title": "Vaults"
         },
         {
           "level": 2,
