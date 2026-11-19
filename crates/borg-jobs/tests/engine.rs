@@ -370,3 +370,89 @@ fn retrying_a_source_that_could_not_be_read_looks_again_and_goes_on() {
     assert_eq!(read(&to.join("late.txt")), "arrived");
     assert_eq!(read(&to.join("ok.txt")), "fine");
 }
+
+#[test]
+fn a_target_folder_replaced_while_a_question_waits_stops_the_job() {
+    for moving in [false, true] {
+        let (dir, from, to) = sandbox();
+        tree(&from);
+        write(&to.join("project/README.md"), "already there");
+        let (sources, target) = (vec![from.join("project")], to.clone());
+        let spec =
+            if moving { Spec::Move { sources, target } } else { Spec::Copy { sources, target, optimize_hdd: false } };
+        let control = Control::default();
+        let away = dir.path().join("closed");
+        let outcome = run(&spec, &quick(), &control, &mut |event| {
+            if matches!(event, Event::Asking(Ask::Conflict { .. })) {
+                fs::rename(&to, &away).unwrap_or_else(|e| panic!("{e}"));
+                fs::create_dir(&to).unwrap_or_else(|e| panic!("{e}"));
+                control.answer(Decision::OverwriteAll);
+            }
+        });
+        let stopped = borg_i18n::tr!(job_target_changed, path = to.display().to_string()).to_string();
+        assert_eq!(outcome, Outcome::Failed(stopped), "{spec:?}");
+        assert_eq!(fs::read_dir(&to).map(Iterator::count).ok(), Some(0), "nothing is written to the new folder");
+        assert_eq!(read(&away.join("project/README.md")), "already there");
+        assert_eq!(read(&from.join("project/README.md")), "hello", "the sources stay");
+        assert_eq!(read(&from.join("project/src/main.rs")), "fn main() {}");
+    }
+}
+
+#[test]
+fn a_move_that_skips_a_file_keeps_every_source() {
+    let (_dir, from, to) = sandbox();
+    tree(&from);
+    write(&to.join("project/README.md"), "already there");
+    let spec = Spec::Move { sources: vec![from.join("project")], target: to.clone() };
+    let (outcome, _) = answering(&spec, &[Decision::Skip]);
+    assert!(matches!(outcome, Outcome::Done { skipped: 1, .. }), "{outcome:?}");
+    assert_eq!(read(&to.join("project/src/main.rs")), "fn main() {}");
+    assert_eq!(read(&to.join("project/README.md")), "already there");
+    assert_eq!(read(&from.join("project/README.md")), "hello");
+    assert_eq!(read(&from.join("project/src/main.rs")), "fn main() {}");
+    assert!(from.join("project/run.sh").exists() && from.join("project/readme-link").exists());
+}
+
+#[cfg(target_os = "linux")]
+fn mount_tmpfs(at: &Path) {
+    let status = std::process::Command::new("mount").args(["-t", "tmpfs", "tmpfs"]).arg(at).status();
+    assert!(status.is_ok_and(|status| status.success()), "mounting a tmpfs at {}", at.display());
+}
+
+#[cfg(target_os = "linux")]
+fn unmount(at: &Path) {
+    let status = std::process::Command::new("umount").arg(at).status();
+    assert!(status.is_ok_and(|status| status.success()), "unmounting {}", at.display());
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+#[ignore = "mounts a tmpfs, which needs root; run in a throwaway container"]
+fn deletes_and_moves_leave_a_mounted_filesystem_alone() {
+    let (_dir, from, to) = sandbox();
+    tree(&from);
+    let mounted = from.join("project/cache");
+    fs::create_dir(&mounted).unwrap_or_else(|e| panic!("{e}"));
+    mount_tmpfs(&mounted);
+    write(&mounted.join("kept.txt"), "on its own filesystem");
+
+    let (deleted, _) = answering(&Spec::Delete { sources: vec![from.join("project")] }, &[]);
+    let removed = Totals { files: 4, bytes: 26 };
+    assert_eq!(deleted, Outcome::Done { done: removed, skipped: 1 });
+    assert_eq!(read(&mounted.join("kept.txt")), "on its own filesystem");
+    assert!(!from.join("project/README.md").exists() && !from.join("project/src").exists());
+
+    write(&from.join("project/notes.txt"), "moved");
+    fs::create_dir(to.join("project")).unwrap_or_else(|e| panic!("{e}"));
+    let (moved, _) = answering(&Spec::Move { sources: vec![from.join("project")], target: to.clone() }, &[]);
+    assert!(matches!(moved, Outcome::Done { skipped: 1, .. }), "{moved:?}");
+    assert_eq!(read(&to.join("project/notes.txt")), "moved");
+    assert!(!to.join("project/cache").exists(), "the mounted filesystem is not copied");
+    assert_eq!(read(&from.join("project/notes.txt")), "moved", "a move that skipped something keeps its sources");
+    assert_eq!(read(&mounted.join("kept.txt")), "on its own filesystem");
+
+    let (deleted_mount, _) = answering(&Spec::Delete { sources: vec![mounted.clone()] }, &[]);
+    assert_eq!(deleted_mount, Outcome::Done { done: Totals::default(), skipped: 1 });
+    assert_eq!(read(&mounted.join("kept.txt")), "on its own filesystem");
+    unmount(&mounted);
+}

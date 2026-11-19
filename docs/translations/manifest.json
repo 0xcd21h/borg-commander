@@ -1,7 +1,7 @@
 {
   "locales": {
     "zh-CN": {
-      "source": "6486757e9672fba0616a5f6647bb9f1f2187f812d43b69a34605ee18d1a65bc4",
+      "source": "55e0e064f97cacedfc28bad304a8e3e188125186875bb19bae476e24c86bf295",
       "protected": {
         "code blocks": "838a80b5dc1af3d789f36cba4a22a1d1bfa97f0ecbffeeeb68cdd7358d3a2d4d",
         "inline code": "9cc720cdc73c50e1fa051e60d73765678fb43cce2823c28ec6c07a941d08bb96",
@@ -324,7 +324,7 @@
       ]
     },
     "pt": {
-      "source": "6486757e9672fba0616a5f6647bb9f1f2187f812d43b69a34605ee18d1a65bc4",
+      "source": "55e0e064f97cacedfc28bad304a8e3e188125186875bb19bae476e24c86bf295",
       "protected": {
         "code blocks": "838a80b5dc1af3d789f36cba4a22a1d1bfa97f0ecbffeeeb68cdd7358d3a2d4d",
         "inline code": "9cc720cdc73c50e1fa051e60d73765678fb43cce2823c28ec6c07a941d08bb96",
@@ -647,7 +647,7 @@
       ]
     },
     "es": {
-      "source": "6486757e9672fba0616a5f6647bb9f1f2187f812d43b69a34605ee18d1a65bc4",
+      "source": "55e0e064f97cacedfc28bad304a8e3e188125186875bb19bae476e24c86bf295",
       "protected": {
         "code blocks": "838a80b5dc1af3d789f36cba4a22a1d1bfa97f0ecbffeeeb68cdd7358d3a2d4d",
         "inline code": "9cc720cdc73c50e1fa051e60d73765678fb43cce2823c28ec6c07a941d08bb96",
@@ -970,7 +970,7 @@
       ]
     },
     "ru": {
-      "source": "6486757e9672fba0616a5f6647bb9f1f2187f812d43b69a34605ee18d1a65bc4",
+      "source": "55e0e064f97cacedfc28bad304a8e3e188125186875bb19bae476e24c86bf295",
       "protected": {
         "code blocks": "838a80b5dc1af3d789f36cba4a22a1d1bfa97f0ecbffeeeb68cdd7358d3a2d4d",
         "inline code": "9cc720cdc73c50e1fa051e60d73765678fb43cce2823c28ec6c07a941d08bb96",
