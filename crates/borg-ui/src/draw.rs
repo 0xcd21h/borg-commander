@@ -344,7 +344,7 @@ fn paint_overlay(
             (crate::discovery_view::exclusions(editor, state, theme, screen, buf), None, Unfold::FromCenter)
         }
         Overlay::Menu(cursor) => {
-            let x = menu_view::title_positions(&all).get(cursor.menu).copied().unwrap_or_default();
+            let x = menu_view::dropdown_left(&all, cursor.menu, bar.map_or(screen.width, |b| b.width));
             let top = bar.map_or(screen.y, |b| b.bottom());
             let rect = all
                 .get(cursor.menu)
@@ -385,6 +385,10 @@ fn paint_overlay(
             (crate::network_view::draw_listen_form(form, theme, screen, buf), None, Unfold::FromCenter)
         }
         Overlay::Install(offer) => (crate::install_view::draw(offer, theme, screen, buf), None, Unfold::FromCenter),
+        Overlay::VaultKey(key) => {
+            let (rect, position) = crate::vault_view::draw(key, theme, screen, buf);
+            (rect, Some(position), Unfold::FromCenter)
+        }
         Overlay::Service(offer) => (crate::service_view::draw(offer, theme, screen, buf), None, Unfold::FromCenter),
         Overlay::Update(offer) => (crate::update_view::draw(offer, theme, screen, buf), None, Unfold::FromCenter),
         Overlay::ScanNetwork(form) => {

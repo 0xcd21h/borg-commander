@@ -1029,7 +1029,7 @@ fn menu_bar_navigates_and_runs_actions() {
 
     press(&mut state, now, key(KeyCode::F(9)));
     press(&mut state, now, key(KeyCode::Left));
-    assert!(matches!(state.overlay, Some(Overlay::Menu(cursor)) if menus(&state)[cursor.menu].title == "Search"));
+    assert!(matches!(state.overlay, Some(Overlay::Menu(cursor)) if menus(&state)[cursor.menu].title == "Encryption"));
     press(&mut state, now, key(KeyCode::Esc));
     assert!(state.overlay.is_none());
 }
@@ -1423,6 +1423,29 @@ fn h_shows_the_viewers_file_as_hex_rows_that_scroll_and_find_and_the_preview_kee
     let Some(crate::Peeked { peek: crate::Peek::Text(preview), .. }) = &state.peeked else { panic!("preview") };
     assert!(preview.hex(), "the quick view keeps the hex rows");
     assert_eq!(preview.offset(), 944);
+}
+
+#[test]
+fn a_decrypted_file_closing_leaves_the_quick_view_as_it_was() {
+    use std::sync::Arc;
+
+    let (mut state, now) = setup_with(vec![file("log")]);
+    press(&mut state, now, key(KeyCode::Down));
+    let effects = press(&mut state, now, ctrl('q'));
+    let Some((path, at)) = peeked_at(&effects) else { panic!("{effects:?}") };
+    let (width, height) = crate::viewer_size(state.cols, state.rows);
+    let preview = borg_view::Pager::new(Arc::new(b"sealed bytes\n".to_vec()), width, height).unwrap();
+    let peeked =
+        crate::Peeked { aside: crate::Aside::QuickView, path: path.clone(), at, peek: crate::Peek::Text(preview) };
+    update(&mut state, Msg::Peeked(peeked), now);
+    let plain = borg_view::Pager::new(Arc::new(b"meet at noon\n".to_vec()), width, height).unwrap();
+    state.opening = Some(path.clone());
+    update(&mut state, Msg::Opened(crate::Viewer::sealed(path, crate::Content::Text(plain))), now);
+    assert!(state.secret_on_screen());
+    press(&mut state, now, key(KeyCode::Esc));
+    assert!(state.viewer.is_none() && !state.secret_on_screen());
+    let Some(crate::Peeked { peek: crate::Peek::Text(shown), .. }) = &state.peeked else { panic!("preview") };
+    assert_eq!(shown.rows()[0], "sealed bytes", "the quick view never keeps the decrypted text");
 }
 
 #[test]
@@ -2715,6 +2738,21 @@ fn the_menu_on_a_contents_result_copies_its_path_with_the_line_the_search_found(
     assert!(context_labels(&state).contains(&"Reveal original"));
     let effects = choose_context(&mut state, now, "Copy path and line");
     assert_eq!(copied(&effects), Some("/home/log:12"));
+}
+
+#[test]
+fn the_wheel_moves_through_a_context_menu() {
+    use crate::Pointer;
+    let (mut state, now) = setup_with(vec![file("notes.txt")]);
+    press(&mut state, now, key(KeyCode::Down));
+    press(&mut state, now, shift(KeyCode::F(10)));
+    let Some(Overlay::ContextMenu(context)) = &state.overlay else { panic!("a context menu") };
+    let first = context.selected;
+    let next = context.menu.scroll(first, 1);
+    assert_ne!(first, next);
+    update(&mut state, Msg::Pointer(Pointer::DialogScroll(1)), now);
+    let Some(Overlay::ContextMenu(context)) = &state.overlay else { panic!("a context menu") };
+    assert_eq!(context.selected, next);
 }
 
 #[test]

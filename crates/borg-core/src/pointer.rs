@@ -240,9 +240,7 @@ fn scroll_document(state: &mut AppState, delta: isize) {
 /// Opens a menu of the menu bar at its first item that can be chosen.
 fn open_menu(state: &mut AppState, index: usize) -> Vec<Effect> {
     if let Some(menu) = menus(state).get(index) {
-        let cursor = MenuCursor { menu: index, item: menu.first_enabled() };
-        state.last_menu = Some(cursor);
-        state.overlay = Some(Overlay::Menu(cursor));
+        state.overlay = Some(Overlay::Menu(MenuCursor { menu: index, item: menu.first_enabled() }));
     }
     Vec::new()
 }

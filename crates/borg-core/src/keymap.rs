@@ -103,6 +103,8 @@ pub enum Action {
     Compress,
     ExtractHere,
     ExtractToOther,
+    CreateVault,
+    CloseVault,
     SwapPanels,
     /// Opens the active panel's folder in the other panel.
     SameFolder,

@@ -31,6 +31,10 @@ impl Panel {
         self.incoming = Some(Incoming { dir, generation, focus: focus.map(Anchor::Name), refresh, row });
     }
 
+    pub fn abandon(&mut self, generation: u64) {
+        self.incoming.take_if(|incoming| incoming.generation == generation);
+    }
+
     pub fn reload(&mut self, generation: u64) {
         // A folder still loading keeps the entry it was opened to select; otherwise the
         // refresh selects whatever is hovered when it arrives, after any move made meanwhile.

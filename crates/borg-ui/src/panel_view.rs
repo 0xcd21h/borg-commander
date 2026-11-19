@@ -48,6 +48,7 @@ const CONTAINER_MARK: char = '▣';
 const ARCHIVE_MARK: char = '▤';
 const VOLUME_MARK: char = '▥';
 const REMOTE_MARK: char = '◈';
+const VAULT_MARK: char = '▦';
 const PARENT_NAME: &str = "..";
 const COLUMN_SEPARATOR: &str = "│";
 const LEFT_CAP: char = '▐';
@@ -194,8 +195,10 @@ fn find_bar<'a>(find: &Find, (current, total): (usize, usize), room: usize, look
 fn title<'a>(scene: &PanelScene<'_>, style: Style, separator: Style, badge: Style) -> Line<'a> {
     let mount = scene.panel.mount.as_ref();
     let volume = scene.panel.volume.as_ref();
+    let vault = scene.panel.vault.as_ref();
     let label = volume
         .map(|volume| format!(" {VOLUME_MARK} {} ", tr!(docker_volume_label, name = volume.name.as_str())))
+        .or_else(|| vault.map(|vault| format!(" {VAULT_MARK} {} ", tr!(vault_badge, name = vault.name()))))
         .or_else(|| mount.map(|mount| format!(" {CONTAINER_MARK} {} ", mount.name)))
         .or_else(|| {
             scene.panel.remote_mount.as_ref().map(|remote| {
@@ -209,9 +212,10 @@ fn title<'a>(scene: &PanelScene<'_>, style: Style, separator: Style, badge: Styl
     let reserved = label.as_ref().map_or(0, |label| label.width() + 1);
     let width = usize::from(scene.area.width).saturating_sub(TITLE_PADDING * 2 + reserved);
     let home = if mount.is_some() || scene.panel.remote_mount.is_some() { None } else { scene.home };
-    let crumbs = match volume {
-        Some(volume) => format::crumbs(&volume.inside(scene.panel.dir()), None),
-        None => format::crumbs(scene.panel.dir(), home),
+    let crumbs = match (volume, vault) {
+        (Some(volume), _) => format::crumbs(&volume.inside(scene.panel.dir()), None),
+        (None, Some(vault)) => format::crumbs(&vault.inside(scene.panel.dir()), None),
+        (None, None) => format::crumbs(scene.panel.dir(), home),
     };
     let crumbs = format::fit_crumbs(crumbs, width, CRUMB_SEPARATOR);
     let last = crumbs.len().saturating_sub(1);

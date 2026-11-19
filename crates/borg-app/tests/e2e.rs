@@ -12,10 +12,12 @@ const BORG: &str = env!("CARGO_BIN_EXE_borg");
 const READY: &str = "4 items";
 const PROMPT_FROM_BOTTOM: u16 = 3;
 const MENU_TITLES: &str = "Left    File    Command    Remote    Options    Right";
-const MENU_NAMES: [&str; 9] = ["Left", "File", "Command", "Remote", "Options", "Right", "Git", "Docker", "Search"];
+const MENU_NAMES: [&str; 10] =
+    ["Left", "File", "Command", "Remote", "Options", "Right", "Git", "Docker", "Search", "Encryption"];
 const LEFT_MENU: usize = 0;
 const FILE_MENU: usize = 1;
 const OPTIONS_MENU: usize = 4;
+const ENCRYPTION_MENU: usize = 9;
 const FIRST_KEY: &str = "F1He";
 const SPLASH_SUBTITLE: &str = "c o m m a n d e r";
 const UNLOCK: &str = "borg";
@@ -152,8 +154,10 @@ fn choose(app: &mut Session, index: usize, item: &str) -> Result<()> {
     open_menu(app, index, item)?;
     for _ in 0..MAX_ITEMS {
         let snapshot = app.settle()?;
-        let (x, y) = snapshot.find(item).ok_or_else(|| anyhow::anyhow!("menu item {item:?} missing"))?;
-        if snapshot.style_at(x, y).bg != snapshot.style_at(x.saturating_sub(BORDER_OFFSET), y).bg {
+        let chosen = snapshot.find(item).is_some_and(|(x, y)| {
+            snapshot.style_at(x, y).bg != snapshot.style_at(x.saturating_sub(BORDER_OFFSET), y).bg
+        });
+        if chosen {
             app.send(keys::enter())?;
             return Ok(());
         }
@@ -5570,5 +5574,148 @@ fn borg_unlock_seals_the_computer_key_behind_a_password_and_borg_lock_locks_it()
     ensure!(opened.status.success() && said(&opened).contains("is unlocked"), "{}", said(&opened));
     let used = sealed_borg(home.path(), &["pair", "--new-key"], None)?;
     ensure!(used.status.success(), "an unlocked key works without a terminal: {}", said(&used));
+    Ok(())
+}
+
+const VAULT_PASSWORD: &str = "rain cobalt";
+const VAULT_FILE: &str = "tax.txt";
+const VAULT_BADGE: &str = "Papers · vault";
+const VAULT_ASKS: &str = "Password for the vault Papers";
+const KEY_GROUPS: usize = 8;
+const KEY_GROUP_DIGITS: usize = 8;
+
+fn gocryptfs(args: &[&std::ffi::OsStr], input: &str) -> Result<()> {
+    let mut child = std::process::Command::new("gocryptfs")
+        .args(args)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .context("starting gocryptfs")?;
+    child.stdin.take().context("gocryptfs input")?.write_all(input.as_bytes())?;
+    ensure!(child.wait()?.success(), "gocryptfs {args:?} failed");
+    Ok(())
+}
+
+fn unmount(point: &Path) -> Result<()> {
+    let status = std::process::Command::new("fusermount3").arg("-u").arg(point).status()?;
+    ensure!(status.success(), "unmounting {}", point.display());
+    Ok(())
+}
+
+/// Whether gocryptfs is 2.5 or newer, the first that keeps a master key given at -init.
+fn gocryptfs_keeps_given_key() -> Result<bool> {
+    let output = std::process::Command::new("gocryptfs").arg("-version").output()?;
+    let printed = String::from_utf8_lossy(&output.stdout).into_owned();
+    let shown = printed.split_whitespace().nth(1).context("gocryptfs version")?;
+    let mut parts = shown.trim_start_matches('v').trim_end_matches(';').split('.');
+    let major: u32 = parts.next().context("major version")?.parse()?;
+    let minor: u32 =
+        parts.next().context("minor version")?.chars().take_while(char::is_ascii_digit).collect::<String>().parse()?;
+    Ok((major, minor) >= (2, 5))
+}
+
+fn gocryptfs_mounts() -> Result<usize> {
+    Ok(fs::read_to_string("/proc/self/mountinfo")?.lines().filter(|line| line.contains(" fuse.gocryptfs ")).count())
+}
+
+fn recovery_key(snapshot: &Snapshot) -> Option<String> {
+    let hex_group = |group: &str| group.len() == KEY_GROUP_DIGITS && group.chars().all(|c| c.is_ascii_hexdigit());
+    let key: String = snapshot
+        .lines()
+        .iter()
+        .flat_map(|line| line.split_whitespace().map(str::to_owned).collect::<Vec<_>>())
+        .filter(|word| word.split('-').filter(|group| !group.is_empty()).all(hex_group) && word.contains('-'))
+        .collect();
+    (key.split('-').filter(|group| hex_group(group)).count() == KEY_GROUPS).then_some(key)
+}
+
+/// A vault in the fixture's work folder holding one file, made with gocryptfs itself.
+fn vault_fixture() -> Result<Fixture> {
+    let fixture = Fixture::new()?;
+    let cipher = fixture.dir("Papers")?;
+    gocryptfs(&["-init".as_ref(), "-q".as_ref(), "--".as_ref(), cipher.as_os_str()], &format!("{VAULT_PASSWORD}\n"))?;
+    let plain = fixture.root().join("plain");
+    fs::create_dir(&plain)?;
+    gocryptfs(&["-q".as_ref(), "--".as_ref(), cipher.as_os_str(), plain.as_os_str()], &format!("{VAULT_PASSWORD}\n"))?;
+    fs::write(plain.join(VAULT_FILE), "secret figures\n")?;
+    unmount(&plain)?;
+    Ok(fixture)
+}
+
+#[test]
+#[ignore = "needs gocryptfs and FUSE; runs in a Linux container"]
+fn a_vault_opens_with_its_password_stays_open_outside_and_closes_from_the_encryption_menu() -> Result<()> {
+    let fixture = vault_fixture()?;
+    let mut app = Session::builder(BORG, &fixture).label("vault").spawn()?;
+    app.wait_text("1 item")?;
+    app.send(keys::down())?.send(keys::enter())?;
+    app.wait_text(VAULT_ASKS)?;
+    app.send("not it")?.send(keys::enter())?;
+    app.wait_text("That password does not open the vault Papers")?;
+    app.send(VAULT_PASSWORD)?;
+    let typed = app.settle()?;
+    ensure!(!typed.contains(VAULT_PASSWORD), "the password must stay hidden\n{}", typed.text());
+    app.send(keys::enter())?;
+    let inside = app.wait_text(VAULT_FILE)?;
+    ensure!(inside.contains(VAULT_BADGE), "the panel names the vault\n{}", inside.text());
+    ensure!(gocryptfs_mounts()? == 1, "one vault is mounted");
+
+    app.send(keys::enter())?;
+    app.wait_gone(VAULT_FILE)?;
+    ensure!(gocryptfs_mounts()? == 1, "leaving the vault keeps it open");
+    app.send(keys::enter())?;
+    let again = app.wait_text(VAULT_FILE)?;
+    ensure!(!again.contains(VAULT_ASKS), "an open vault needs no password");
+
+    choose(&mut app, ENCRYPTION_MENU, "Close vault")?;
+    app.wait_text("The vault Papers is closed.")?;
+    app.wait_gone(VAULT_FILE)?;
+    ensure!(gocryptfs_mounts()? == 0, "closing unmounts the vault");
+    let vaults = fixture.runtime().join("borg-commander").join("vaults");
+    ensure!(fs::read_dir(&vaults)?.next().is_none(), "the mount folder is gone");
+    Ok(())
+}
+
+#[test]
+#[ignore = "needs gocryptfs and FUSE; runs in a Linux container"]
+fn a_vault_created_in_borg_opens_with_the_recovery_key_it_showed() -> Result<()> {
+    let fixture = Fixture::new()?;
+    fixture.file("notes.txt", "hello\n")?;
+    let mut app = Session::builder(BORG, &fixture).label("vault-create").spawn()?;
+    app.wait_text("1 item")?;
+    choose(&mut app, ENCRYPTION_MENU, "Create vault…")?;
+    app.wait_text("Name of the new vault in this folder")?;
+    app.send("Papers")?.send(keys::enter())?;
+    app.wait_text(VAULT_ASKS)?;
+    app.send(VAULT_PASSWORD)?.send(keys::enter())?;
+    app.wait_text("The same password again")?;
+    app.send(VAULT_PASSWORD)?.send(keys::enter())?;
+    if !gocryptfs_keeps_given_key()? {
+        app.wait_text("Creating a vault needs gocryptfs 2.5 or newer")?;
+        ensure!(!fixture.work().join("Papers").exists(), "an old gocryptfs leaves nothing behind");
+        return Ok(());
+    }
+    let shown = app.wait_text("Recovery key")?;
+    let key = recovery_key(&shown).with_context(|| format!("no recovery key on screen\n{}", shown.text()))?;
+    app.send(keys::enter())?;
+    app.wait_text("type its last group")?;
+    let last = key.rsplit('-').next().unwrap_or_default().to_owned();
+    app.send(&last)?.send(keys::enter())?;
+    let inside = app.wait_gone("Recovery key")?;
+    ensure!(inside.contains(VAULT_BADGE), "the new vault is open\n{}", inside.text());
+
+    choose(&mut app, ENCRYPTION_MENU, "Close vault")?;
+    app.wait_text("The vault Papers is closed.")?;
+    ensure!(gocryptfs_mounts()? == 0, "closing unmounts the vault");
+
+    let cipher = fixture.work().join("Papers");
+    let plain = fixture.root().join("plain");
+    fs::create_dir(&plain)?;
+    let args = ["-q".as_ref(), "-masterkey=stdin".as_ref(), "--".as_ref(), cipher.as_os_str(), plain.as_os_str()];
+    gocryptfs(&args, &format!("{key}\n"))?;
+    let opened = fs::read_dir(&plain)?.count();
+    unmount(&plain)?;
+    ensure!(opened == 0, "the recovery key opens the new, empty vault");
     Ok(())
 }

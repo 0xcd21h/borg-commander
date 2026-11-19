@@ -48,6 +48,7 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<
         Some(Overlay::Capture(dialog)) => crate::network::on_capture_key(state, dialog, key, now),
         Some(Overlay::Listen(form)) => crate::network::on_listen_key(state, form, key, now),
         Some(Overlay::Install(offer)) => crate::install::on_key(state, offer, key),
+        Some(Overlay::VaultKey(shown)) => crate::vault::on_key(state, *shown, key),
         Some(Overlay::Service(offer)) => crate::service::on_key(state, offer, key),
         Some(Overlay::Update(offer)) => crate::update_offer::on_key(state, offer, key),
         Some(Overlay::Storage(window)) => crate::storage::on_key(state, window, key),
@@ -90,6 +91,7 @@ pub(crate) fn on_paste(state: &mut AppState, text: &str) -> Vec<Effect> {
             return Vec::new();
         }
         Some(Overlay::Find(find)) => &mut find.input,
+        Some(Overlay::VaultKey(shown)) => &mut shown.typed,
         Some(Overlay::Connect(connect)) => {
             match crate::agent::connect_field(connect, state.agent.connect.ssh.is_some()) {
                 Some(input) => input,
@@ -139,13 +141,14 @@ fn on_menu(state: &mut AppState, cursor: MenuCursor, key: &KeyEvent, now: Instan
         MenuCursor { menu: index, item: all.get(index).and_then(crate::Menu::first_enabled) }
     };
     let step = |delta: isize| MenuCursor { item: all[cursor.menu].step(cursor.item, delta), ..cursor };
-    state.last_menu = Some(cursor);
 
     let next = match key.code {
         KeyCode::Left => Some(switch(PREVIOUS)),
         KeyCode::Right => Some(switch(NEXT)),
         KeyCode::Up => Some(step(PREVIOUS)),
         KeyCode::Down => Some(step(NEXT)),
+        KeyCode::Home => Some(MenuCursor { item: all[cursor.menu].first_enabled(), ..cursor }),
+        KeyCode::End => Some(MenuCursor { item: all[cursor.menu].step(None, PREVIOUS), ..cursor }),
         KeyCode::Enter => {
             state.overlay = None;
             let action = cursor.item.and_then(|item| all[cursor.menu].item(item)).map(|item| item.action);
@@ -158,7 +161,7 @@ fn on_menu(state: &mut AppState, cursor: MenuCursor, key: &KeyEvent, now: Instan
     Vec::new()
 }
 
-fn close_secret(state: &mut AppState, prompt: &mut Prompt) {
+pub(crate) fn close_secret(state: &mut AppState, prompt: &mut Prompt) {
     if let Some(Overlay::Prompt(mut shown)) = state.overlay.take() {
         shown.input.wipe();
     }
@@ -201,6 +204,11 @@ fn on_prompt(state: &mut AppState, mut prompt: Prompt, key: &KeyEvent, now: Inst
             }
             _ => {}
         }
+    }
+    if is_vault(&prompt.purpose)
+        && let Some(effects) = crate::vault::on_prompt(state, &mut prompt, key)
+    {
+        return effects;
     }
     if let PromptPurpose::FilePassword(file) = &prompt.purpose {
         match key.code {
@@ -286,6 +294,16 @@ fn on_prompt(state: &mut AppState, mut prompt: Prompt, key: &KeyEvent, now: Inst
     }
 }
 
+fn is_vault(purpose: &PromptPurpose) -> bool {
+    matches!(
+        purpose,
+        PromptPurpose::VaultPassword { .. }
+            | PromptPurpose::VaultName { .. }
+            | PromptPurpose::VaultNewPassword { .. }
+            | PromptPurpose::VaultRepeat { .. }
+    )
+}
+
 fn submit(state: &mut AppState, purpose: PromptPurpose, text: &str, now: Instant) -> Vec<Effect> {
     if text.is_empty() && purpose != PromptPurpose::ResultsFilter {
         return Vec::new();
@@ -346,9 +364,13 @@ fn submit(state: &mut AppState, purpose: PromptPurpose, text: &str, now: Instant
             crate::archive::unpack(state, &sources, target, now)
         }
         PromptPurpose::Pack { sources, moving } => crate::archive::pack(state, sources, text, moving, now),
-        PromptPurpose::ArchivePassword { .. } | PromptPurpose::ComputerKeyPassword | PromptPurpose::FilePassword(_) => {
-            Vec::new()
-        }
+        PromptPurpose::ArchivePassword { .. }
+        | PromptPurpose::ComputerKeyPassword
+        | PromptPurpose::FilePassword(_)
+        | PromptPurpose::VaultPassword { .. }
+        | PromptPurpose::VaultName { .. }
+        | PromptPurpose::VaultNewPassword { .. }
+        | PromptPurpose::VaultRepeat { .. } => Vec::new(),
         PromptPurpose::Compress { sources } => match ArchiveFormat::detect(text) {
             Some(format) => {
                 let command = ops::compress(text, format, sources.iter().map(String::as_str));
