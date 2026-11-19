@@ -2,7 +2,10 @@
 //! folder sizes, the entropy scan of every process and the first build of an index. Each one's
 //! gauge and details follow that work, and the job ends when it does.
 
-use std::{path::PathBuf, time::Instant};
+use std::{
+    path::{Path, PathBuf},
+    time::Instant,
+};
 
 use borg_i18n::{Count, tr};
 
@@ -118,14 +121,27 @@ pub(super) fn cancel_search(state: &mut AppState, side: Side, generation: u64) -
     crate::results::cancel_search(state, side)
 }
 
-pub(crate) fn begin_sizes(state: &mut AppState, root: PathBuf, side: Side, now: Instant) -> u64 {
-    let id = add(state, JobKind::Sizes, root.display().to_string(), side, Link::Sizes, now);
-    super::files::reveal_folder(state, id, side, root.clone(), None);
-    sizes_progress(state, id, &root, &SearchProgress::default());
+/// Adds the job of a size count that measures `root` and then `rest`, folders of the panel on
+/// `side` or that panel's own folder. Opening it shows them in that folder. It waits with
+/// `root` in its details until measuring starts.
+pub(crate) fn begin_sizes(state: &mut AppState, root: &Path, rest: &[PathBuf], side: Side, now: Instant) -> u64 {
+    let folder = state.panel(side).dir().to_path_buf();
+    let subject = match rest {
+        [] => root.display().to_string(),
+        _ => {
+            tr!(job_sizes_subject, folders = borg_i18n::count(rest.len() + 1, Count::Folder), folder = folder.display())
+        }
+    };
+    let id = add(state, JobKind::Sizes, subject, side, Link::Sizes, now);
+    let focus = (root != folder).then(|| super::name(root));
+    super::files::reveal_folder(state, id, side, folder, focus);
+    if let Some(job) = super::find_mut(state, id) {
+        job.details = vec![Detail::new(tr!(@ job_detail_folder), Value::Path(root.to_path_buf()))];
+    }
     id
 }
 
-pub(crate) fn sizes_progress(state: &mut AppState, id: u64, root: &std::path::Path, progress: &SearchProgress) {
+pub(crate) fn sizes_progress(state: &mut AppState, id: u64, root: &Path, progress: &SearchProgress) {
     let mut details = vec![
         Detail::new(tr!(@ job_detail_folder), Value::Path(root.to_path_buf())),
         Detail::new(tr!(@ job_detail_visited), Value::Number(progress.visited as u64)),
@@ -146,7 +162,7 @@ pub(crate) fn begin_index(state: &mut AppState, root: PathBuf, now: Instant) {
 }
 
 /// Ends the job building the index of `root`, and says whether one was building it.
-pub(crate) fn end_index(state: &mut AppState, root: &std::path::Path, how: How, summary: String, now: Instant) -> bool {
+pub(crate) fn end_index(state: &mut AppState, root: &Path, how: How, summary: String, now: Instant) -> bool {
     let building = state.jobs.iter().find(|job| job.running() && job.link == Link::Index(root.to_path_buf()));
     let Some(id) = building.map(|job| job.id) else { return false };
     end(state, id, how, summary, now);

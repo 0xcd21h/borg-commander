@@ -20,10 +20,11 @@ pub(super) fn entries(state: &AppState) -> Option<Menu<ContextCommand>> {
         many => borg_i18n::count(many.len(), Count::Item),
     };
     let hovered_file = panel.hovered_entry().is_some_and(|entry| !entry.is_dir());
+    let counts = !crate::measure::folders_to_count(panel).is_empty();
     let mut entries = copies(panel, &paths);
     entries.extend([
         MenuEntry::Separator,
-        when(perform(tr!(view), Action::View), hovered_file),
+        when(perform(if counts { tr!(count_size) } else { tr!(view) }, Action::View), hovered_file || counts),
         when(perform(tr!(edit), Action::Edit), hovered_file),
         perform(tr!(copy), Action::Copy),
         perform(tr!(move), Action::Move),

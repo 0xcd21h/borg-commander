@@ -12,7 +12,7 @@ expression: describe(&buffer)
 ╰ │ [x] Optimize copying for hard drives │─╯
  d│                                      │s
 $ ╰───Tab · Space check · Enter · Esc────╯
-F1H…F2F…F3V…F4E…F5C…F6M…F7M…F8D…F9M…F10…^OS…
+F1H…F2F…F3C…F4E…F5C…F6M…F7M…F8D…F9M…F10…^OS…
 Ctrl-F Search      ◈ Borg Commander v0.12.0
 --- styles ---
   0: 0-0 Rgb(23, 106, 126) Rgb(30, 30, 30) NONE | 1-1 Rgb(154, 154, 154) Rgb(30, 30, 30) BOLD | 2-2 Rgb(154, 154, 154) Rgb(30, 30, 30) NONE | 3-5 Rgb(62, 62, 62) Rgb(30, 30, 30) NONE | 6-6 Rgb(154, 154, 154) Rgb(30, 30, 30) NONE | 7-9 Rgb(62, 62, 62) Rgb(30, 30, 30) NONE | 10-14 Rgb(154, 154, 154) Rgb(30, 30, 30) BOLD | 15-21 Rgb(23, 106, 126) Rgb(30, 30, 30) NONE | 22-22 Rgb(58, 58, 58) Rgb(30, 30, 30) NONE | 23-24 Rgb(106, 106, 106) Rgb(30, 30, 30) NONE | 25-27 Rgb(53, 53, 53) Rgb(30, 30, 30) NONE | 28-30 Rgb(106, 106, 106) Rgb(30, 30, 30) NONE | 31-33 Rgb(53, 53, 53) Rgb(30, 30, 30) NONE | 34-37 Rgb(106, 106, 106) Rgb(30, 30, 30) NONE | 38-43 Rgb(58, 58, 58) Rgb(30, 30, 30) NONE

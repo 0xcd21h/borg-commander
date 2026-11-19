@@ -428,10 +428,21 @@ actual, incluidos los archivos ocultos, y completa el total de cada carpeta cuan
 Mientras tanto, puedes seguir navegando o usar la consola. Las carpetas que aún se están midiendo
 muestran un total creciente marcado con `≥`, y los totales se conservan si sales de una carpeta y
 vuelves. El pie del panel muestra el progreso, y el recuento se ejecuta como una tarea en Alt-J.
-Pulsa **Alt-I** de nuevo, o haz clic en el pie, para detener el análisis y conservar los totales
-medidos hasta ese momento. Al iniciar una tarea de copia, movimiento o eliminación se detiene el
-análisis de tamaños en curso. Los análisis terminados comparten su caché con el árbol de tamaños y
-con Totales de carpeta.
+Pulsa **Alt-I** de nuevo, o haz clic en el pie, para detener todos los recuentos en curso y
+conservar los totales medidos hasta ese momento. Al iniciar una tarea de copia, movimiento o
+eliminación se detienen los recuentos de tamaños en curso. Los análisis terminados comparten su
+caché con el árbol de tamaños y con Totales de carpeta.
+
+Pulsa **F3** sobre una carpeta para contar solo esa carpeta, como en otros gestores de archivos de
+dos paneles. Su fila muestra el total mientras crece y después el definitivo. Mientras tanto, el
+menú Archivo llama a la acción **Contar tamaño** y la barra de atajos muestra **Contar**. Con
+carpetas marcadas, F3 sobre cualquier carpeta cuenta las carpetas marcadas una tras otra en una sola
+tarea y deja fuera los archivos marcados. F3 sobre `..` cuenta la carpeta que muestra el panel,
+igual que Alt-I. Cada F3 inicia una tarea en Alt-J, y un recuento que inicies mientras otro está en
+marcha espera a que termine. F3 sobre una carpeta que ya mide un recuento, como una carpeta dentro
+de la que se está contando, no inicia nada e indica qué recuento la cubre. Si cancelas un recuento
+en Alt-J, empieza el siguiente en espera. F3 sobre un archivo sigue abriendo el visor, y los enlaces
+simbólicos a carpetas no se cuentan.
 
 ### Análisis de tamaño guardados
 
@@ -505,7 +516,7 @@ momento.
 | Alt-E | Editar el archivo seleccionado en este panel, en lugar de sus archivos, o en el otro panel junto a los resultados |
 | F1 | Acerca de |
 | F2 | Menú Archivo |
-| F3 | Ver (texto o imagen) |
+| F3 | Ver (texto o imagen); sobre una carpeta o `..`, contar su tamaño en segundo plano |
 | F4 / Shift-F4 | Editar en el editor de Borg / en `$VISUAL` o `$EDITOR` |
 | F5 / F6 | Copiar / mover al otro panel |
 | F7 | Crear una carpeta |
@@ -1523,7 +1534,7 @@ y se renombran cuando están completas.
 El trabajo que lleva tiempo se ejecuta como una tarea: copias, movimientos y eliminaciones, la
 descompresión y la compresión de archivos comprimidos, **Reemplazar en archivos…**, cada búsqueda
 que llena un panel de resultados (Ctrl-F, Alt-D, Alt-Shift-D y Alt-S), los tamaños de carpeta
-contados con Alt-I, el análisis de entropía en Alt-M, la primera creación del índice de búsqueda de
+contados con Alt-I o F3, el análisis de entropía en Alt-M, la primera creación del índice de búsqueda de
 una carpeta y los escaneos de puertos. Alt-J abre el panel de tareas sobre el panel derecho. Muestra
 primero las tareas en curso, la más antigua arriba, y luego las terminadas, la más reciente primero.
 En un terminal de menos de 100 columnas ocupa los dos paneles.

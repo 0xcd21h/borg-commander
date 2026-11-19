@@ -22,7 +22,7 @@ expression: describe(&buffer)
 └ 9 items ──────────────────────────────────┘└ 5 items ──────────────────────────────────┘
  drw-r--r--     DIR  2026-01-10 09:30  src
 $
-F1Help  F2File  F3View  F4Edit  F5Copy  F6Move  F7Mkdir F8DeleteF9Menu  F10Quit ^OShell
+F1Help  F2File  F3Count F4Edit  F5Copy  F6Move  F7Mkdir F8DeleteF9Menu  F10Quit ^OShell
 Alt-H Remote hosts  Alt-I Count sizes  Ctrl-F Search             ◈ Borg Commander v0.12.0
 --- styles ---
   0: 0-0 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 1-1 Rgb(0, 0, 0) Rgb(0, 170, 170) BOLD | 2-2 Rgb(0, 0, 0) Rgb(0, 170, 170) NONE | 3-5 Rgb(0, 170, 170) Rgb(0, 170, 170) NONE | 6-13 Rgb(0, 0, 0) Rgb(0, 170, 170) NONE | 14-16 Rgb(0, 170, 170) Rgb(0, 170, 170) NONE | 17-21 Rgb(0, 0, 0) Rgb(0, 170, 170) BOLD | 22-44 Rgb(255, 255, 255) Rgb(0, 0, 128) BOLD | 45-47 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE | 48-50 Rgb(0, 170, 170) Rgb(0, 0, 128) NONE | 51-53 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE | 54-56 Rgb(0, 170, 170) Rgb(0, 0, 128) NONE | 57-89 Rgb(85, 255, 255) Rgb(0, 0, 128) NONE

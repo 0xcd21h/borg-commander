@@ -28,7 +28,7 @@ expression: describe(&buffer)
 ╰ 9 itens ────────────────────────────────────────────╯╰ 5 itens ────────────────────────────────────────────╯
  Subir para a pasta superior
 $
-F1Ajuda   F2FicheiroF3Ver     F4Editar  F5Copiar  F6Mover   F7Criar p…F8EliminarF9Menu    F10Sair   ^OShell
+F1Ajuda   F2FicheiroF3Contar  F4Editar  F5Copiar  F6Mover   F7Criar p…F8EliminarF9Menu    F10Sair   ^OShell
 Alt-H Hosts remotos  Alt-I Contar tamanhos  Ctrl-F Pesquisar  Alt-M Atividade        ◈ Borg Commander v0.12.0
 --- styles ---
   0: 0-0 Rgb(23, 106, 126) Rgb(30, 30, 30) NONE | 1-1 Rgb(154, 154, 154) Rgb(30, 30, 30) BOLD | 2-2 Rgb(154, 154, 154) Rgb(30, 30, 30) NONE | 3-5 Rgb(62, 62, 62) Rgb(30, 30, 30) NONE | 6-13 Rgb(154, 154, 154) Rgb(30, 30, 30) NONE | 14-16 Rgb(62, 62, 62) Rgb(30, 30, 30) NONE | 17-21 Rgb(154, 154, 154) Rgb(30, 30, 30) BOLD | 22-54 Rgb(23, 106, 126) Rgb(30, 30, 30) NONE | 55-55 Rgb(58, 58, 58) Rgb(30, 30, 30) NONE | 56-57 Rgb(106, 106, 106) Rgb(30, 30, 30) NONE | 58-60 Rgb(53, 53, 53) Rgb(30, 30, 30) NONE | 61-63 Rgb(106, 106, 106) Rgb(30, 30, 30) NONE | 64-66 Rgb(53, 53, 53) Rgb(30, 30, 30) NONE | 67-70 Rgb(106, 106, 106) Rgb(30, 30, 30) NONE | 71-109 Rgb(58, 58, 58) Rgb(30, 30, 30) NONE

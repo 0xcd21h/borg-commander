@@ -713,10 +713,12 @@ summaries into a staged SQLite index with bounded page memory, then publishes it
 atomically. Root and immediate children seed a tree; generation-tagged requests
 load expanded branches from the index. Display limits do not truncate the index.
 Direct-file totals explain bytes outside child directories. `borg-core::measure`
-tracks one independent background size task with generation-tagged updates. A separate
+measures one folder at a time with generation-tagged updates. Each Alt-I or F3 count is one
+`JobKind::Sizes` job; a count of several marked folders measures them one after another under
+that job, and a count started while another runs waits in `AppState::waiting_sizes`. A separate
 worker in `borg-app::search` reuses the same scanner, streams completed folder totals
 into matching normal-panel paths, and publishes the same complete cache. Navigation
-and result searches leave it running; starting a file job cancels it before cache
+and result searches leave it running; starting a file job cancels every count before cache
 invalidation. Completion refreshes normal listings without replacing result panes. Core tree state owns
 branches and selection. Measurements are
 explicitly dated observations, never validated as fresh by directory mtimes. Job start

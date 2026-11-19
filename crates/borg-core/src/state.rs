@@ -139,6 +139,8 @@ pub struct AppState {
     /// The shell runs the command that sets up the background service, whose end gives a notice.
     pub(crate) setting_up_service: bool,
     pub sizing: Option<crate::SizeScan>,
+    /// Size counts that start once the one being measured ends, oldest first.
+    pub(crate) waiting_sizes: Vec<crate::measure::WaitingCount>,
     pub(crate) measured: crate::measure::Measured,
     pub next_size: u64,
     /// How many delete dialogs counted their files, which numbers the answers.
@@ -267,6 +269,7 @@ impl AppState {
             installing: None,
             setting_up_service: false,
             sizing: None,
+            waiting_sizes: Vec::new(),
             measured: Default::default(),
             next_size: 0,
             delete_checks: 0,
