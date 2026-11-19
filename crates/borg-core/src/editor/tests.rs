@@ -48,6 +48,22 @@ fn typing_saves_with_the_stamp_read_and_lands_clean() {
 }
 
 #[test]
+fn a_failed_save_that_kept_the_old_text_says_where_it_is() {
+    let (mut state, now) = state();
+    opened(&mut state, now, "a");
+    press(&mut state, now, KeyCode::Char('b').into());
+    press(&mut state, now, ctrl('s'));
+    let failed = SaveError::KeptOld { error: "the disk is full".into(), backup: "/work/.notes.rs.borg-kept-9".into() };
+    update(&mut state, Msg::EditorSaved(EditorSlot::Screen, Err(failed)), now);
+    let editor = state.editor.as_ref().unwrap();
+    assert_eq!(
+        editor.note.as_deref(),
+        Some("Could not save: the disk is full. The file's earlier text is in /work/.notes.rs.borg-kept-9.")
+    );
+    assert!(editor.buffer.modified(), "the text being edited stays unsaved");
+}
+
+#[test]
 fn closing_with_changes_asks_and_a_changed_file_can_be_overwritten() {
     let (mut state, now) = state();
     opened(&mut state, now, "a");

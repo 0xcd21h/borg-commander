@@ -1411,6 +1411,16 @@ When a file name already exists: `o` overwrites, `s` skips, `k` keeps both, `a` 
 `n` skips all, and Esc cancels. Copies are written to temporary files and renamed once they are
 complete.
 
+Moves and deletes stay on the filesystem of each file or folder you chose. A filesystem mounted
+inside one of those folders, such as an open vault, a disk image, or a network share, is left alone
+and counted as skipped, and the folders that hold it stay. The count in the Delete dialog leaves it
+out too. A copy does copy what such filesystems hold. If a move skips anything inside a folder you
+chose, it leaves that whole folder in place, so the files it did move are in both places. A copy or
+move stops when its target folder is no longer the folder it started writing to, as when a vault
+closes or a drive goes away while Borg asks about a file. Nothing more is written there, and a move
+keeps the files it had not finished moving. Before a move deletes its sources, Borg makes sure the
+copies have reached the disk.
+
 ### Jobs and notifications
 
 Work that takes a while runs as a job: copies, moves and deletes, unpacking and packing archives,
@@ -1657,16 +1667,19 @@ manager, and Enter types it into Borg's shell. Borg also looks for `bsdtar` in H
 ### Editor
 
 F4 opens the selected file in Borg's editor, and Shift-F4 opens it in `$VISUAL` or `$EDITOR`. The
-editor keeps the file's line endings and indentation, highlights code like the viewers do, and
-shows line numbers. Shift with the arrow keys selects text; Ctrl-C, Ctrl-X, and Ctrl-V copy, cut,
-and paste through Borg's clipboard, and text pasted from the terminal goes in exactly as it is.
-Ctrl-Z and Ctrl-Y undo and redo, and Tab and Shift-Tab indent and unindent. F2 or Ctrl-S saves
-through a temporary file, so a file is never left half written. Files that are not UTF-8 text, or
-are larger than 32 MiB, open in the viewer instead. Lines longer than 20,000 characters, such as
-minified code, are not highlighted, and only the part of a line that is on screen is drawn, so
-even a large file written on a single line edits without delay. Alt-Shift-F lays out a JSON file
-with one value per line, using the file's own indentation, in one step that Ctrl-Z undoes; JSON
-that does not parse is left as it is, and the status line says where parsing stopped.
+editor keeps the file's line endings and indentation, highlights code like the viewers do, and shows
+line numbers. Shift with the arrow keys selects text; Ctrl-C, Ctrl-X, and Ctrl-V copy, cut, and
+paste through Borg's clipboard, and text pasted from the terminal goes in exactly as it is. Ctrl-Z
+and Ctrl-Y undo and redo, and Tab and Shift-Tab indent and unindent. F2 or Ctrl-S saves through a
+temporary file, so a file is never left half written. A file with other hard links is written in
+place instead, so every link shows the new text: Borg first keeps the old text in a hidden file next
+to it and deletes that file once the new text is on the disk. If the save fails, Borg puts the old
+text back, and if that fails too, it leaves the hidden file and the status line names it. Files that
+are not UTF-8 text, or are larger than 32 MiB, open in the viewer instead. Lines longer than 20,000
+characters, such as minified code, are not highlighted, and only the part of a line that is on
+screen is drawn, so even a large file written on a single line edits without delay. Alt-Shift-F lays
+out a JSON file with one value per line, using the file's own indentation, in one step that Ctrl-Z
+undoes; JSON that does not parse is left as it is, and the status line says where parsing stopped.
 
 The editor asks its questions in dialogs over the text: Tab moves between fields and buttons,
 Enter confirms the selected one, Esc cancels, and you can click any of them. Ctrl-F or F7 finds

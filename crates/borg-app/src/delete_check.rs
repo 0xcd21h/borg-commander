@@ -6,6 +6,7 @@ use borg_core::{DeleteFound, DeleteSize, FileHolder, Msg};
 use std::{
     collections::BTreeMap,
     fs,
+    os::unix::fs::MetadataExt,
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
@@ -38,11 +39,12 @@ pub(crate) fn check(id: u64, sources: Vec<PathBuf>, messages: UnboundedSender<Ms
 }
 
 /// Adds up the files under `sources` the way a delete walks them, links counted as files of
-/// their own and never followed, until `deadline`.
+/// their own and never followed, until `deadline`. Like the delete, it stays on each source's
+/// filesystem and skips what is mounted inside it.
 fn tally(sources: &[PathBuf], deadline: Instant) -> DeleteSize {
     let mut size = DeleteSize { complete: true, ..Default::default() };
-    let mut pending = sources.to_vec();
-    while let Some(path) = pending.pop() {
+    let mut pending: Vec<(PathBuf, Option<u64>)> = sources.iter().map(|source| (source.clone(), None)).collect();
+    while let Some((path, home)) = pending.pop() {
         if Instant::now() >= deadline {
             size.complete = false;
             break;
@@ -51,6 +53,13 @@ fn tally(sources: &[PathBuf], deadline: Instant) -> DeleteSize {
             size.complete = false;
             continue;
         };
+        let mounted = match home {
+            Some(home) => meta.dev() != home,
+            None => meta.is_dir() && borg_jobs::mount_point(&path, meta.dev()),
+        };
+        if mounted {
+            continue;
+        }
         if !meta.is_dir() {
             size.files += 1;
             size.bytes += if meta.file_type().is_symlink() { 0 } else { meta.len() };
@@ -62,7 +71,7 @@ fn tally(sources: &[PathBuf], deadline: Instant) -> DeleteSize {
         };
         for child in children {
             match child {
-                Ok(child) => pending.push(child.path()),
+                Ok(child) => pending.push((child.path(), Some(meta.dev()))),
                 Err(_) => size.complete = false,
             }
         }

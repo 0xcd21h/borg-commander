@@ -850,6 +850,7 @@ version = "0.12.0"
 dependencies = [
  "borg-drives",
  "borg-i18n",
+ "rustix",
  "tempfile",
 ]
 
