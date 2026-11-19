@@ -126,7 +126,7 @@ pub(crate) fn paste(activity: &mut Activity, text: &str) {
     } else if activity.filtering {
         let room = FILTER_LIMIT.saturating_sub(activity.filter.chars().count());
         activity.filter.extend(text.chars().filter(|c| !c.is_control()).take(room));
-        activity.rebuild();
+        activity.refilter();
     }
 }
 

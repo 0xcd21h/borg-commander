@@ -3639,6 +3639,35 @@ fn activity_summary_shows_many_cores_as_a_strip() -> Result<()> {
 }
 
 #[test]
+fn activity_filter_finds_a_pid_and_clicks_type_nothing_into_it() -> Result<()> {
+    use borg_core::ActivitySort;
+    use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let mut stage = activity_stage()?;
+    stage.send(key(KeyCode::Char('/')));
+    for msg in chars("412") {
+        stage.send(msg);
+    }
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "1 of 5")?;
+    assert_eq!(stage.state.activity.process().unwrap().name, "database");
+    check("activity_filter_pid", &stage, buffer)?;
+    let shot = Snapshot::from_buffer(stage.render(stage.started)?, &stage.palette, None);
+    for label in ["Filter", "PID    CPU"] {
+        let (column, row) = shot.find(label).unwrap();
+        let click =
+            MouseEvent { column, row, kind: MouseEventKind::Down(MouseButton::Left), modifiers: KeyModifiers::NONE };
+        let msg = borg_ui::mouse_input(&stage.state, click, false, stage.started).unwrap();
+        stage.send(msg);
+        assert_eq!(stage.state.activity.filter, "412", "a click on {label} types nothing");
+    }
+    assert!(!stage.state.activity.filtering);
+    assert_eq!(stage.state.activity.sort, ActivitySort::Pid);
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "/ edit")?;
+    check("activity_filter_pid_sorted_by_click", &stage, buffer)
+}
+
+#[test]
 fn activity_narrow_layout_mouse_sort_and_selection() -> Result<()> {
     use borg_core::{ActivitySort, Pointer};
     use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};

@@ -21,6 +21,8 @@ pub(crate) const FILTER_LIMIT: usize = 128;
 pub(crate) const CHROME_ROWS: u16 = 6;
 /// With Alt, shows the file of the list's row in the pane beside it.
 const SHOW_FILE: KeyCode = KeyCode::Char('o');
+/// Starts typing in a screen's filter, as a click on the filter does.
+const FILTER_KEY: KeyCode = KeyCode::Char('/');
 /// What Linux adds to the path of a program deleted while it runs.
 const DELETED: &str = " (deleted)";
 
@@ -134,15 +136,47 @@ fn typing(state: &AppState, screen: Screen) -> bool {
     }
 }
 
+/// Whether the filter the screen shows takes typed text.
+fn filter_typed(state: &AppState, screen: Screen) -> bool {
+    match screen {
+        Screen::Activity => state.activity.filtering,
+        Screen::Docker if state.docker.disk.open => state.docker.disk.filtering,
+        Screen::Docker => state.docker.filtering,
+        Screen::Network => state.network.viewer.as_deref().map_or(state.network.filtering, |view| view.filtering),
+        Screen::Startup => state.startup_items.filtering,
+        Screen::Alerts => state.alerts.filtering,
+        Screen::Hosts => state.hosts.filtering,
+    }
+}
+
 /// Stops typing in a filter, which keeps what was typed.
 fn stop_filtering(state: &mut AppState) {
     state.activity.filtering = false;
     state.docker.filtering = false;
     state.docker.disk.filtering = false;
     state.network.filtering = false;
+    if let Some(view) = state.network.viewer.as_deref_mut() {
+        view.filtering = false;
+    }
     state.startup_items.filtering = false;
     state.alerts.filtering = false;
     state.hosts.filtering = false;
+}
+
+/// The key a click on a screen presses, which never types into its filter. While the filter is
+/// typed, a click on it presses nothing, and a click on a tab or a column's title stops typing
+/// first, keeping what was typed, as Enter does. The buttons below the list change while the
+/// filter is typed, so their keys pass as they are.
+pub(crate) fn clicked_key(state: &mut AppState, code: KeyCode) -> Option<KeyCode> {
+    let typed = open_screen(state).is_some_and(|(screen, _)| filter_typed(state, screen));
+    if !typed || !matches!(code, KeyCode::Char(_)) {
+        return Some(code);
+    }
+    if code == FILTER_KEY {
+        return None;
+    }
+    stop_filtering(state);
+    Some(code)
 }
 
 /// The keys for the panel a screen lends beside its list. Alt-O shows the row's file there,

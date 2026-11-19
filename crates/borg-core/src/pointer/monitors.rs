@@ -3,10 +3,19 @@
 
 use std::time::Instant;
 
-use crossterm::event::KeyCode;
+use crossterm::event::{KeyCode, KeyEvent};
 
 use super::Pointer;
-use crate::{ActivityPage, ActivitySort, AppState, Effect};
+use crate::{ActivityPage, ActivitySort, AppState, Effect, screens::clicked_key};
+
+/// A screen's handler of the keys its controls press.
+type RouteKey = fn(&mut AppState, &KeyEvent, Instant) -> Vec<Effect>;
+
+/// Presses the key of a control clicked on a screen, unless the click would only type it into the
+/// filter.
+fn press(state: &mut AppState, code: KeyCode, route: RouteKey, now: Instant) -> Vec<Effect> {
+    clicked_key(state, code).map_or_else(Vec::new, |code| route(state, &code.into(), now))
+}
 
 /// A click in the activity monitor: on its frame, a field, a control, a row or a column's title.
 pub(super) fn activity(state: &mut AppState, pointer: Pointer, now: Instant) -> Vec<Effect> {
@@ -23,7 +32,7 @@ pub(super) fn activity(state: &mut AppState, pointer: Pointer, now: Instant) -> 
         Pointer::ActivitySearchField(index) => search_field(state, index),
         Pointer::ActivityControl { preview, code } => {
             state.activity.preview_focused = preview;
-            crate::activity::route_key(state, &code.into(), now)
+            press(state, code, crate::activity::route_key, now)
         }
         Pointer::ActivityRow { index, open, preview } => row(state, index, open, preview, now),
         Pointer::ActivitySort(sort) => sort_by(state, sort, now),
@@ -41,7 +50,8 @@ fn search_field(state: &mut AppState, index: usize) -> Vec<Effect> {
 }
 
 /// A row of the monitor's list or of its preview, which the cursor moves to and a double click
-/// opens. Moving to another region, search hit or finding previews it after a pause.
+/// opens, also while the filter is typed. Moving to another region, search hit or finding
+/// previews it after a pause.
 fn row(state: &mut AppState, index: usize, open: bool, preview: bool, now: Instant) -> Vec<Effect> {
     let Some(side) = state.activity.side else { return Vec::new() };
     state.activity.preview_focused = preview;
@@ -62,10 +72,15 @@ fn row(state: &mut AppState, index: usize, open: bool, preview: bool, now: Insta
     {
         state.activity.schedule_preview(now);
     }
-    if open { crate::activity::route_key(state, &KeyCode::Enter.into(), now) } else { Vec::new() }
+    if !open {
+        return Vec::new();
+    }
+    state.activity.filtering = false;
+    crate::activity::route_key(state, &KeyCode::Enter.into(), now)
 }
 
-/// A column's title sorts the processes by it, as the column's key does.
+/// A column's title sorts the processes by it, as the column's key does, also while the filter is
+/// typed.
 fn sort_by(state: &mut AppState, sort: ActivitySort, now: Instant) -> Vec<Effect> {
     state.activity.preview_focused = false;
     let key = match sort {
@@ -77,7 +92,7 @@ fn sort_by(state: &mut AppState, sort: ActivitySort, now: Instant) -> Vec<Effect
         ActivitySort::Read => 'i',
         ActivitySort::Write => 'o',
     };
-    crate::activity::route_key(state, &KeyCode::Char(key).into(), now)
+    press(state, KeyCode::Char(key), crate::activity::route_key, now)
 }
 
 /// A click in the container view: on its frame, a row or a control, or the wheel over a
@@ -99,7 +114,7 @@ pub(super) fn containers(state: &mut AppState, pointer: Pointer, now: Instant) -
         }
         Pointer::DockerControl { details, code } => {
             state.docker.details_focused = details;
-            crate::docker::route_key(state, &code.into(), now)
+            press(state, code, crate::docker::route_key, now)
         }
         _ => Vec::new(),
     }
@@ -117,7 +132,7 @@ pub(super) fn startup(state: &mut AppState, pointer: Pointer, now: Instant) -> V
             Vec::new()
         }
         Pointer::StartupRow { index, open } => crate::startup_items::click(state, index, open),
-        Pointer::StartupControl(code) => crate::startup_items::route_key(state, &code.into(), now),
+        Pointer::StartupControl(code) => press(state, code, crate::startup_items::route_key, now),
         _ => Vec::new(),
     }
 }
@@ -134,7 +149,7 @@ pub(super) fn hosts(state: &mut AppState, pointer: Pointer, now: Instant) -> Vec
             Vec::new()
         }
         Pointer::HostsRow { index, open } => crate::hosts::click(state, index, open),
-        Pointer::HostsControl(code) => crate::hosts::route_key(state, &code.into(), now),
+        Pointer::HostsControl(code) => press(state, code, crate::hosts::route_key, now),
         _ => Vec::new(),
     }
 }
@@ -151,7 +166,7 @@ pub(super) fn alerts(state: &mut AppState, pointer: Pointer, now: Instant) -> Ve
             Vec::new()
         }
         Pointer::AlertsRow { index, open } => crate::watch::click(state, index, open, now),
-        Pointer::AlertsControl(code) => crate::watch::route_key(state, &code.into(), now),
+        Pointer::AlertsControl(code) => press(state, code, crate::watch::route_key, now),
         _ => Vec::new(),
     }
 }
@@ -184,7 +199,7 @@ pub(super) fn network(state: &mut AppState, pointer: Pointer, now: Instant) -> V
         }
         Pointer::NetworkControl { details, code } => {
             state.network.details_focused = details;
-            crate::network::route_key(state, &code.into(), now)
+            press(state, code, crate::network::route_key, now)
         }
         _ => Vec::new(),
     }

@@ -146,6 +146,32 @@ fn changing_process_cancels_its_inspection_and_clears_previous_memory() {
 }
 
 #[test]
+fn a_pid_typed_in_the_filter_keeps_its_process_and_takes_the_cursor_to_it() {
+    let (mut state, now) = state();
+    open(&mut state);
+    let named = |pid: u32, name: &str, ram: u64| ProcessInfo { name: name.into(), ..process(pid, 1, ram) };
+    let processes =
+        vec![named(4100, "postgres", 400), named(3415, "node", 300), named(7, "x41", 200), named(41, "launchd", 100)];
+    sample(&mut state, processes, now);
+    let shown = |state: &AppState| state.activity.rows.iter().map(|row| row.index).collect::<Vec<_>>();
+    for code in [KeyCode::Char('/'), KeyCode::Char('4'), KeyCode::Char('1')] {
+        key(&mut state, code);
+    }
+    assert_eq!(shown(&state), [2, 3], "the name with the digits and the whole PID, not 4100 or 3415");
+    assert_eq!(state.activity.selected.unwrap().pid, 41, "the cursor goes to the PID");
+    key(&mut state, KeyCode::Up);
+    key(&mut state, KeyCode::Enter);
+    assert_eq!(state.activity.selected.unwrap().pid, 7, "keeping the filter leaves the cursor where it was moved");
+    for code in [KeyCode::Char('/'), KeyCode::Char('0'), KeyCode::Char('0')] {
+        key(&mut state, code);
+    }
+    assert_eq!((shown(&state), state.activity.selected.unwrap().pid), (vec![0], 4100));
+    key(&mut state, KeyCode::Backspace);
+    key(&mut state, KeyCode::Backspace);
+    assert_eq!(state.activity.selected.unwrap().pid, 41, "deleting back to a PID finds it again");
+}
+
+#[test]
 fn the_process_filter_types_moves_keeps_and_clears() {
     let (mut state, now) = state();
     open(&mut state);
