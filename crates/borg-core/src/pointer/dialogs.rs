@@ -122,19 +122,26 @@ fn pick_search_field(state: &mut AppState, mut form: crate::SearchForm, selected
 
 /// An item of the open menu, which closes it and does what the item names, if it can be chosen.
 fn choose_menu_item(state: &mut AppState, cursor: MenuCursor, index: usize, now: Instant) -> Vec<Effect> {
-    let chosen = menus(state)
-        .get(cursor.menu)
-        .and_then(|menu| menu.item(index))
-        .filter(|item| item.enabled)
-        .map(|item| item.action);
+    let all = menus(state);
+    let chosen =
+        all.get(cursor.menu).and_then(|menu| menu.item(index)).filter(|item| item.enabled).map(|item| item.action);
     let Some(action) = chosen else { return Vec::new() };
-    state.last_menu = Some(MenuCursor { item: Some(index), ..cursor });
+    state.last_menu = crate::menu::MenuPlace::of(&all, MenuCursor { item: Some(index), ..cursor });
     state.overlay = None;
     actions::perform(state, action, now)
 }
 
-/// The wheel over a list dialog moves its choice by rows.
+/// The wheel over a list dialog moves its choice by rows, and over a menu by entries that can be
+/// chosen.
 fn scroll_list(state: &mut AppState, overlay: Overlay, delta: isize, now: Instant) -> Vec<Effect> {
+    if let Overlay::Menu(cursor) = overlay {
+        let item = menus(state).get(cursor.menu).and_then(|menu| menu.scroll(cursor.item, delta));
+        return show(state, Overlay::Menu(MenuCursor { item, ..cursor }));
+    }
+    if let Overlay::ContextMenu(mut context) = overlay {
+        context.selected = context.menu.scroll(context.selected, delta);
+        return show(state, Overlay::ContextMenu(context));
+    }
     if let Some((selected, count)) = list_position(state, &overlay) {
         let row = selected.saturating_add_signed(delta).min(count.saturating_sub(1));
         select_row(state, overlay, row, now);

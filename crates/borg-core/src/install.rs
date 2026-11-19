@@ -12,6 +12,7 @@ pub enum Tool {
     Tcpdump,
     /// libarchive's tar, which reads RAR archives.
     Bsdtar,
+    Gocryptfs,
 }
 
 impl Tool {
@@ -20,6 +21,7 @@ impl Tool {
         match self {
             Self::Tcpdump => "tcpdump",
             Self::Bsdtar => "bsdtar",
+            Self::Gocryptfs => "gocryptfs",
         }
     }
 
@@ -30,6 +32,7 @@ impl Tool {
             (Self::Bsdtar, PackageManager::Apt | PackageManager::Apk) => "libarchive-tools",
             (Self::Bsdtar, PackageManager::Pacman | PackageManager::Homebrew) => "libarchive",
             (Self::Bsdtar, PackageManager::Dnf | PackageManager::Zypper) => "bsdtar",
+            (Self::Gocryptfs, _) => "gocryptfs",
         }
     }
 
@@ -38,6 +41,7 @@ impl Tool {
         match self {
             Self::Tcpdump => tr!(capture_missing),
             Self::Bsdtar => tr!(archive_no_tool),
+            Self::Gocryptfs => tr!(vault_no_gocryptfs),
         }
     }
 
@@ -46,6 +50,7 @@ impl Tool {
         match self {
             Self::Tcpdump => tr!(install_tcpdump_done),
             Self::Bsdtar => tr!(install_bsdtar_done),
+            Self::Gocryptfs => tr!(install_gocryptfs_done),
         }
     }
 }

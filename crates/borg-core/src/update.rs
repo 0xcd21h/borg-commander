@@ -147,6 +147,20 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
             Vec::new()
         }
         Msg::ArchiveEditorOpened { slot, packed, result } => crate::archive::editor_opened(state, slot, packed, result),
+        Msg::VaultFound { side, generation, cipher, open } => {
+            crate::vault::found(state, side, generation, cipher, open)
+        }
+        Msg::VaultShown { side, generation, vault } => {
+            crate::vault::shown(state, side, generation, vault);
+            Vec::new()
+        }
+        Msg::VaultOpened { side, vault } => crate::vault::opened(state, side, vault),
+        Msg::VaultCreated { side, cipher, key, opened } => crate::vault::created(state, side, &cipher, key, opened),
+        Msg::VaultFailed { side, cipher, error } => {
+            crate::vault::failed(state, side, cipher, error);
+            Vec::new()
+        }
+        Msg::VaultClosed { root, error } => crate::vault::closed(state, &root, error),
         Msg::Sealed(file) => {
             crate::sealed::locked(state, file, false);
             Vec::new()
@@ -309,6 +323,7 @@ fn follow(state: &mut AppState, now: Instant) -> Vec<Effect> {
     effects.extend(crate::docker::sync_console(state, now));
     effects.extend(crate::results::sync_sizes(state));
     crate::busy::sync(state, now);
+    crate::menu::remember(state);
     crate::jobs::sync(state, now);
     crate::agent::surface(state, now);
     crate::update_offer::surface(state, now);

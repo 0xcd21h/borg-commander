@@ -67,6 +67,7 @@ pub struct Viewer {
     pub shown: Shown,
     pub content: Content,
     pub find: PagerFind,
+    pub sealed: bool,
     pub(crate) profiling: Profiling,
 }
 
@@ -75,8 +76,12 @@ impl Viewer {
         Self::showing(Shown::File(path), content)
     }
 
+    pub fn sealed(path: PathBuf, content: Content) -> Self {
+        Self { sealed: true, ..Self::new(path, content) }
+    }
+
     fn showing(shown: Shown, content: Content) -> Self {
-        Self { shown, content, find: PagerFind::default(), profiling: Profiling::Unread }
+        Self { shown, content, find: PagerFind::default(), sealed: false, profiling: Profiling::Unread }
     }
 
     /// The entropy along the source, once it was read.
@@ -258,7 +263,8 @@ fn land(state: &mut AppState) -> Vec<Effect> {
 
 fn close(state: &mut AppState) {
     state.opening = None;
-    if let Some(Viewer { shown: Shown::File(path), content: Content::Text(mut pager), .. }) = state.viewer.take()
+    if let Some(Viewer { shown: Shown::File(path), content: Content::Text(mut pager), sealed: false, .. }) =
+        state.viewer.take()
         && state.aside == Some(Aside::QuickView)
         && crate::aside::hovered_path(state).as_ref() == Some(&path)
     {

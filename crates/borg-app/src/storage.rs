@@ -5,7 +5,10 @@
 use std::{
     collections::HashSet,
     fs, io,
-    os::unix::{fs::FileTypeExt, net::UnixStream},
+    os::unix::{
+        fs::{FileTypeExt, MetadataExt},
+        net::UnixStream,
+    },
     path::{Path, PathBuf},
     process::ExitCode,
     sync::{Arc, Mutex},
@@ -37,6 +40,7 @@ const CLEAN: &str = "clean";
 const USAGE: &str = "usage: borg storage [clean]";
 const SIZE_COLUMN: usize = 8;
 const HOME_MARK: &str = "~";
+const HOLDS_MOUNT: &str = "holds a mount point";
 
 /// The folders that list the index files the settings ask for, read when the rules run.
 pub type Roots = Arc<dyn Fn() -> Vec<PathBuf> + Send + Sync>;
@@ -203,7 +207,36 @@ pub fn clean(leftovers: &[Leftover], now: SystemTime) -> Cleanup {
 }
 
 fn remove(path: &Path) -> io::Result<()> {
-    if fs::symlink_metadata(path)?.is_dir() { fs::remove_dir_all(path) } else { fs::remove_file(path) }
+    let meta = fs::symlink_metadata(path)?;
+    if !meta.is_dir() {
+        return fs::remove_file(path);
+    }
+    if holds_mount(path, meta.dev()) {
+        return Err(io::Error::other(HOLDS_MOUNT));
+    }
+    fs::remove_dir_all(path)
+}
+
+fn holds_mount(dir: &Path, device: u64) -> bool {
+    fs::read_dir(dir).into_iter().flatten().flatten().any(|entry| match entry.metadata() {
+        Ok(meta) if meta.dev() != device => true,
+        Ok(meta) if meta.is_dir() => holds_mount(&entry.path(), device),
+        Ok(_) => false,
+        Err(error) => error.kind() != io::ErrorKind::NotFound,
+    })
+}
+
+fn local_entries(dir: &Path, device: u64) -> impl Iterator<Item = (fs::DirEntry, fs::Metadata)> {
+    fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|entry| entry.metadata().ok().map(|meta| (entry, meta)))
+        .filter(move |(_, meta)| meta.dev() == device)
+}
+
+fn device(path: &Path) -> Option<u64> {
+    fs::symlink_metadata(path).ok().map(|meta| meta.dev())
 }
 
 fn runs(pid: u32) -> bool {
@@ -245,20 +278,18 @@ fn tally(path: &Path, meta: &fs::Metadata) -> Tally {
     if !meta.is_dir() {
         return own;
     }
-    fs::read_dir(path).into_iter().flatten().flatten().fold(own, |total, entry| match entry.metadata() {
-        Ok(meta) => total.add(Tally { items: 1, ..Tally::default() }).add(tally(&entry.path(), &meta)),
-        Err(_) => total,
+    local_entries(path, meta.dev()).fold(own, |total, (entry, meta)| {
+        total.add(Tally { items: 1, ..Tally::default() }).add(tally(&entry.path(), &meta))
     })
 }
 
 fn tally_except(path: &Path, skipped: Option<&Path>) -> Tally {
-    fs::read_dir(path).into_iter().flatten().flatten().filter(|entry| Some(entry.path().as_path()) != skipped).fold(
-        Tally::default(),
-        |total, entry| match entry.metadata() {
-            Ok(meta) => total.add(Tally { items: 1, ..Tally::default() }).add(tally(&entry.path(), &meta)),
-            Err(_) => total,
-        },
-    )
+    let Some(device) = device(path) else { return Tally::default() };
+    local_entries(path, device)
+        .filter(|(entry, _)| Some(entry.path().as_path()) != skipped)
+        .fold(Tally::default(), |total, (entry, meta)| {
+            total.add(Tally { items: 1, ..Tally::default() }).add(tally(&entry.path(), &meta))
+        })
 }
 
 fn sum(paths: &[PathBuf]) -> Tally {
@@ -271,13 +302,10 @@ fn sum(paths: &[PathBuf]) -> Tally {
 /// The entries of `dir` for the rules, `depth` levels down. A name that is not text is never
 /// one of Borg's.
 fn walk(dir: &Path, depth: usize, now: SystemTime) -> Vec<Found> {
-    fs::read_dir(dir)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter_map(|entry| {
+    let Some(device) = device(dir) else { return Vec::new() };
+    local_entries(dir, device)
+        .filter_map(|(entry, meta)| {
             let name = entry.file_name().into_string().ok()?;
-            let meta = entry.metadata().ok()?;
             Some(found(&entry.path(), name, &meta, depth.saturating_sub(1), now))
         })
         .collect()

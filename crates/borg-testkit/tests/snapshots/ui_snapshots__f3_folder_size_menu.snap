@@ -2,7 +2,7 @@
 source: crates/borg-testkit/tests/ui_snapshots.rs
 expression: describe(&buffer)
 ---
-    Left    File    Command    Remote    Options    Right    Git    Docker    Search
+    Left    File    Command    Remote    Options    Right    Git    Docker    Search    Encryption
 │ ↑ ..    ╭────────────────────────────╮         UP              ││▐↑ ..                                           UP             ▌│
 │ / docs  │  Count size             F3 │        DIR Jun  1  2024 ││ / journal                                     DIR Jan 10 09:30 │
 │▐/ src   │  Edit                   F4 │       ≥43M Jan 10 09:30▌││ · auth.log                                    86K Jun  1  2024 │

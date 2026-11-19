@@ -12,7 +12,7 @@ use borg_core::{InstallOffer, Tool};
 use borg_i18n::tr;
 use ratatui::{
     buffer::Buffer,
-    layout::Rect,
+    layout::{Position, Rect},
     text::Line,
     widgets::{Block, Clear, Paragraph, Widget},
 };
@@ -25,13 +25,15 @@ const BORDER: u16 = 2;
 const TOP_ROWS: u16 = 1;
 const GAP_ROWS: u16 = 1;
 /// How far the command sits in from the edge of its row.
-const COMMAND_INSET: u16 = 1;
+pub(crate) const COMMAND_INSET: u16 = 1;
+const BORDER_SIDE: u16 = BORDER / 2;
 
 fn question(offer: &InstallOffer) -> String {
     let manager = offer.installer.manager.name();
     match offer.tool {
         Tool::Tcpdump => tr!(install_tcpdump_question, manager = manager),
         Tool::Bsdtar => tr!(install_bsdtar_question, manager = manager),
+        Tool::Gocryptfs => tr!(install_gocryptfs_question, manager = manager),
     }
 }
 
@@ -50,6 +52,7 @@ fn note(tool: Tool) -> &'static str {
     match tool {
         Tool::Tcpdump => tr!(install_tcpdump_note),
         Tool::Bsdtar => tr!(install_bsdtar_note),
+        Tool::Gocryptfs => tr!(install_gocryptfs_note),
     }
 }
 
@@ -87,11 +90,21 @@ fn text_width(screen: Rect) -> u16 {
 pub(crate) fn layout(screen: Rect, parts: impl FnOnce(u16) -> Vec<Part>) -> (Rect, Vec<Part>) {
     let width = text_width(screen);
     let parts = parts(width);
+    let rect = centered(screen, width.saturating_add(BORDER + SIDE_PADDING * 2), height(&parts).min(screen.height));
+    (rect, parts)
+}
+
+/// The rows an offer of `parts` takes, its border included.
+pub(crate) fn height(parts: &[Part]) -> u16 {
     let gaps = GAP_ROWS * u16::try_from(parts.len().saturating_sub(1)).unwrap_or(u16::MAX);
     let rows = parts.iter().map(Part::rows).fold(0, u16::saturating_add);
-    let height = rows.saturating_add(BORDER + TOP_ROWS + gaps);
-    let rect = centered(screen, width.saturating_add(BORDER + SIDE_PADDING * 2), height.min(screen.height));
-    (rect, parts)
+    rows.saturating_add(BORDER + TOP_ROWS + gaps)
+}
+
+/// Where the text of a command in an offer's last row starts.
+pub(crate) fn last_command_start(rect: Rect) -> Position {
+    let x = rect.x.saturating_add(BORDER_SIDE + SIDE_PADDING + COMMAND_INSET);
+    Position::new(x, rect.bottom().saturating_sub(BORDER_SIDE + 1))
 }
 
 pub(crate) fn rect(offer: &InstallOffer, screen: Rect) -> Rect {

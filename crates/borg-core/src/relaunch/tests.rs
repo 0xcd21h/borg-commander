@@ -37,3 +37,19 @@ fn a_session_with_a_running_job_says_so_and_moves_once_the_job_is_done() {
     state.jobs.clear();
     assert!(update(&mut state, Msg::Tick, now).contains(&Effect::Relaunch));
 }
+
+#[test]
+fn a_recovery_key_on_screen_holds_the_move_until_it_is_closed() {
+    let (mut state, now) = setup();
+    let key = crate::Password::new("0a1b2c3d-4e5f6a7b");
+    let cipher = PathBuf::from("/home/Papers");
+    let vault =
+        crate::VaultMount { cipher: cipher.clone(), root: "/run/user/1000/borg-commander/vaults/Papers".into() };
+    update(&mut state, Msg::VaultCreated { side: Side::Left, cipher, key, opened: Ok(vault) }, now);
+    assert!(!relaunch(&mut state, now).contains(&Effect::Relaunch));
+    assert_eq!(state.notice.as_deref(), Some(borg_i18n::tr!(relaunch_waits_vault_key, version = "9.9.9").as_str()));
+    for typed in "4e5f6a7b".chars() {
+        update(&mut state, Msg::Key(crossterm::event::KeyCode::Char(typed).into()), now);
+    }
+    assert!(update(&mut state, Msg::Key(crossterm::event::KeyCode::Enter.into()), now).contains(&Effect::Relaunch));
+}

@@ -158,9 +158,9 @@ fn overlay_mouse(state: &AppState, mouse: &Mouse, screen: Rect) -> Option<Option
 fn context_menu_mouse(context: &borg_core::ContextMenu, mouse: &Mouse, screen: Rect) -> Option<Pointer> {
     let right = mouse.event.kind == MouseEventKind::Down(MouseButton::Right);
     let rect = menu_view::context_rect(context, screen);
-    let entries = menu_view::entries_area(rect);
-    if mouse.click && entries.contains(mouse.point) {
-        return Some(Pointer::MenuItem(usize::from(mouse.point.y - entries.y)));
+    if let Some(index) = menu_view::entry_at(&context.menu, context.selected, rect, mouse.point).filter(|_| mouse.click)
+    {
+        return Some(Pointer::MenuItem(index));
     }
     ((mouse.click || right) && !rect.contains(mouse.point)).then_some(Pointer::DismissMenu)
 }
@@ -228,12 +228,9 @@ fn menu_mouse(state: &AppState, mouse: &Mouse, layout: &borg_core::Layout) -> Op
     let point = mouse.point;
     let all = menus(state);
     let bar = layout.menu.or_else(|| open.map(|_| Rect { height: 1, ..layout.screen }));
-    if mouse.click && bar.is_some_and(|bar| bar.contains(point)) {
-        let positions = menu_view::title_positions(&all);
-        let index = positions
-            .iter()
-            .zip(&all)
-            .position(|(&x, menu)| point.x >= x && point.x < x + menu.title.width() as u16 + 4);
+    if let Some(bar) = bar.filter(|bar| mouse.click && bar.contains(point)) {
+        let shift = menu_view::bar_shift(&all, open.map(|cursor| cursor.menu), bar.width);
+        let index = menu_view::title_at(&all, point.x - bar.x, shift);
         return Some(Some(Msg::Pointer(Pointer::Menu(index.unwrap_or(0)))));
     }
     let cursor = open?;
@@ -242,13 +239,11 @@ fn menu_mouse(state: &AppState, mouse: &Mouse, layout: &borg_core::Layout) -> Op
     }
     let dropdown = || {
         let menu = all.get(cursor.menu)?;
-        let x = menu_view::title_positions(&all)[cursor.menu];
+        let x = menu_view::dropdown_left(&all, cursor.menu, bar?.width);
         let rect = menu_view::dropdown_rect(menu, x, bar?.bottom(), layout.screen);
-        let inner = menu_view::entries_area(rect);
-        if inner.contains(point) {
-            Some(Pointer::MenuItem(usize::from(point.y - inner.y)))
-        } else {
-            (!rect.contains(point)).then_some(Pointer::DismissMenu)
+        match menu_view::entry_at(menu, cursor.item, rect, point) {
+            Some(index) => Some(Pointer::MenuItem(index)),
+            None => (!rect.contains(point)).then_some(Pointer::DismissMenu),
         }
     };
     Some(dropdown().map(Msg::Pointer))

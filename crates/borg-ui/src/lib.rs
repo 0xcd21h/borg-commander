@@ -50,6 +50,7 @@ mod term_view;
 mod theme;
 mod toast_view;
 mod update_view;
+mod vault_view;
 mod viewer_view;
 
 pub use draw::{Pixels, Scene, draw, draw_into, draw_with_cursor};

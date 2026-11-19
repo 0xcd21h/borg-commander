@@ -131,6 +131,9 @@ pub(super) const CONSOLE_LINES: usize = 20;
 
 /// What the user sees: where they are and what the panels hold, in words an agent can use
 /// (panels as locations, which every tool takes as they are), then the screen itself as text.
+const SECRET_WITHHELD: &str =
+    "\nThe screen shows a vault's recovery key or a decrypted file, which Borg does not pass to agents.\n";
+
 pub fn screen(state: &AppState, frame: &[String], console: &ConsoleText) -> String {
     let console_shown = state.effective_view() == View::Shell;
     let looking = if state.viewer.is_some() {
@@ -216,7 +219,9 @@ pub fn screen(state: &AppState, frame: &[String], console: &ConsoleText) -> Stri
         }
         out.join("\n")
     };
-    if !frame.is_empty() {
+    if state.secret_on_screen() {
+        text.push_str(SECRET_WITHHELD);
+    } else if !frame.is_empty() {
         let _ = write!(text, "\nThe screen as the user sees it, as text:\n{}\n", shown(frame));
     }
     if !console_shown {

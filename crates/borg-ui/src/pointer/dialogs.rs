@@ -114,6 +114,7 @@ pub(super) fn dialog_mouse(state: &AppState, mouse: &Mouse, layout: &Layout, now
             border_key(mouse, rect, hint, true)
         }
         Overlay::Install(offer) => border_key(mouse, crate::install_view::rect(offer, screen), tr!(install_keys), true),
+        Overlay::VaultKey(key) => border_key(mouse, crate::vault_view::rect(key, screen), tr!(vault_key_keys), true),
         Overlay::Service(offer) => {
             border_key(mouse, crate::service_view::rect(offer, screen), crate::service_view::keys(offer), true)
         }
@@ -145,6 +146,8 @@ fn scrolls(overlay: &Overlay) -> bool {
         | Overlay::ProcessControl(_)
         | Overlay::EntropyScan(_)
         | Overlay::Storage(_)
+        | Overlay::Menu(_)
+        | Overlay::ContextMenu(_)
         | Overlay::TimeMachine => true,
         Overlay::Exclusions(editor) => editor.editing.is_none(),
         _ => false,
