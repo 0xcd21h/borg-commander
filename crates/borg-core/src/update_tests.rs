@@ -4148,6 +4148,18 @@ fn a_key_not_echoed_yet_keeps_the_line_typed_at_an_empty_prompt() {
 }
 
 #[test]
+fn an_alt_key_the_shell_takes_without_output_leaves_tab_to_the_panels() {
+    let (mut state, now) = setup();
+    update(&mut state, Msg::ShellOutput(idle_prompt()), now);
+    let effects = press(&mut state, now, KeyEvent::new(KeyCode::Char('f'), KeyModifiers::ALT));
+    assert_eq!(writes(&effects), "\x1bf");
+    update(&mut state, Msg::Observe(idle_prompt()), now);
+    let effects = press(&mut state, now, key(KeyCode::Tab));
+    assert_eq!(writes(&effects), "");
+    assert_eq!(state.active, Side::Right);
+}
+
+#[test]
 fn remote_mode_updates_do_not_claim_that_pending_input_was_echoed() {
     let (mut state, now) = setup();
     update(

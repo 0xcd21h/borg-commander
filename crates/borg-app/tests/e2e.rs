@@ -550,6 +550,27 @@ fn the_folder_picker_shows_in_zsh_started_without_the_system_zshrc() -> Result<(
 }
 
 #[test]
+fn tab_switches_panels_after_zsh_reports_a_finished_job_above_its_prompt() -> Result<()> {
+    if Shell::Zsh.locate().is_none() {
+        return Ok(());
+    }
+    let fixture = fixture()?;
+    fs::write(fixture.home().join(".zshrc"), "PROMPT='$ %1~ '\nRPROMPT=''\nPROMPT_EOL_MARK=''\nsetopt NOTIFY\n")?;
+    let mut app = start_with(&fixture, "zsh-job-notice", Shell::Zsh)?;
+    let borders = |s: &Snapshot| (s.style_at(0, 0).fg, s.style_at(s.cols() / 2, 0).fg);
+    let (active, inactive) = borders(&app.settle()?);
+    app.send(keys::ctrl('o'))?;
+    app.wait_until("the shell view", |s| !panels_ready(s))?;
+    app.send("sleep 1 &")?.send(keys::enter())?;
+    app.wait_text("+ done")?;
+    app.send(keys::ctrl('o'))?;
+    app.wait_until("the panels with an empty command line", |s| panels_ready(s) && prompt(s).trim() == "$ work")?;
+    app.send(keys::tab())?;
+    app.wait_until("right panel active", |s| borders(s) == (inactive, active))?;
+    Ok(())
+}
+
+#[test]
 fn bash_and_fish_follow_panel_folders_without_leaving_cd_commands_on_screen() -> Result<()> {
     for (shell, _) in Shell::available().into_iter().filter(|(shell, _)| *shell != Shell::Zsh) {
         let fixture = fixture()?;
