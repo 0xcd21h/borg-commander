@@ -73,6 +73,12 @@ pub enum SaveError {
     /// The file on disk is no longer the one the editor read.
     Changed,
     Failed(String),
+    /// The save failed after it changed the file and putting the old text back failed too,
+    /// so that text stays in `backup`.
+    KeptOld {
+        error: String,
+        backup: PathBuf,
+    },
 }
 
 /// A dialog over the editor. Its fields and then its buttons share one focus, counted from 0.
@@ -503,6 +509,9 @@ pub(crate) fn saved(
             editor.prompt = Some(EditorPrompt::Changed { focus: 0 });
         }
         Err(SaveError::Failed(error)) => editor.note = Some(tr!(editor_save_failed, error = error)),
+        Err(SaveError::KeptOld { error, backup }) => {
+            editor.note = Some(tr!(editor_save_failed_kept, error = error, path = backup.display().to_string()));
+        }
     }
     Vec::new()
 }
