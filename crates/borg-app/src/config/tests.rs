@@ -22,6 +22,17 @@ fn freezing_stays_off_until_it_is_turned_on() {
 }
 
 #[test]
+fn hidden_files_show_until_they_are_turned_off() {
+    let without_the_key: Config = toml::from_str("theme = \"aurora\"\n").unwrap();
+    assert!(without_the_key.preferences().show_hidden);
+    assert!(Config::default().preferences().show_hidden);
+    let turned_off: Config = toml::from_str("show-hidden = false\n").unwrap();
+    assert!(!turned_off.preferences().show_hidden);
+    let saved = toml::to_string(&turned_off.capture(None, &turned_off.preferences(), &[])).unwrap();
+    assert!(saved.contains("show-hidden = false"));
+}
+
+#[test]
 fn captured_preferences_round_trip() {
     let prefs = Preferences { menu_bar: true, after_command: AfterCommand::ReturnToPanels, ..Preferences::default() };
     let original = Config { screensaver_after: Some(42), ..Config::default() };

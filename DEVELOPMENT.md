@@ -994,7 +994,7 @@ Rules of thumb:
 - Never sleep. Wait for what you expect to see (`wait_text`, `wait_until`, `wait_gone`).
 - `settle()` waits for the screen to stop changing. Avoid it while something animates
   forever (the About screen, a screensaver); wait for a condition instead.
-- Fixtures disable update checks. Use `fixture.configure("...")` to add settings.
+- Fixtures turn off update checks and hidden files. Use `fixture.configure("...")` to add settings.
 - `BORG_TEST_TIMEOUT_SECS` raises the wait timeout on slow machines (CI uses 30).
 
 ### On CI
