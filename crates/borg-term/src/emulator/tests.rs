@@ -173,3 +173,78 @@ fn explicit_newlines_survive_command_recall() {
     assert_eq!(emulator.command_rows(), 1);
     assert_eq!(emulator.command_line().text, "");
 }
+
+const MARKED_PROMPT: &[u8] = b"\x1b]133;A\x07$ \x1b]133;B\x07";
+const JOB_NOTICE: &[u8] = b"\r\n[1]  + done       sleep 1\r\n";
+
+#[test]
+fn a_prompt_redrawn_below_a_job_notice_is_still_empty() {
+    let mut emulator = Emulator::new(GridSize { cols: 40, rows: 6 }, 100);
+    emulator.feed(MARKED_PROMPT);
+    emulator.feed(JOB_NOTICE);
+    emulator.feed(b"$ ");
+    assert_eq!(emulator.prompt_state(), PromptState::Empty);
+    assert_eq!(emulator.command_line().text, "");
+}
+
+#[test]
+fn text_typed_before_a_job_notice_is_read_from_the_redrawn_prompt() {
+    let mut emulator = Emulator::new(GridSize { cols: 40, rows: 6 }, 100);
+    emulator.feed(MARKED_PROMPT);
+    emulator.feed(b"ls");
+    emulator.feed(JOB_NOTICE);
+    emulator.feed(b"$ ls");
+    assert_eq!(emulator.prompt_state(), PromptState::Typed);
+    assert_eq!(emulator.command_line().text, "ls");
+    emulator.feed(b"\x08\x08\x1b[K");
+    assert_eq!(emulator.prompt_state(), PromptState::Empty);
+}
+
+#[test]
+fn a_prompt_redrawn_after_a_resize_is_found_again() {
+    let mut emulator = Emulator::new(GridSize { cols: 40, rows: 6 }, 100);
+    emulator.feed(b"output\r\n");
+    emulator.feed(MARKED_PROMPT);
+    emulator.feed(b"a");
+    emulator.resize(GridSize { cols: 60, rows: 8 });
+    emulator.feed(b"\r\x1b[J$ a");
+    assert_eq!(emulator.prompt_state(), PromptState::Typed);
+    emulator.feed(b"\x08 \x08");
+    assert_eq!(emulator.prompt_state(), PromptState::Empty);
+}
+
+#[test]
+fn a_prompt_redrawn_on_a_cleared_screen_is_still_empty() {
+    let mut emulator = Emulator::new(GridSize { cols: 40, rows: 6 }, 100);
+    emulator.feed(b"one\r\ntwo\r\nthree\r\n");
+    emulator.feed(MARKED_PROMPT);
+    emulator.feed(b"\x1b[H\x1b[2J$ ");
+    assert_eq!(emulator.prompt_state(), PromptState::Empty);
+}
+
+#[test]
+fn text_wrapped_after_a_redrawn_prompt_is_read_from_its_start() {
+    let mut emulator = Emulator::new(GridSize { cols: 12, rows: 6 }, 100);
+    emulator.feed(MARKED_PROMPT);
+    emulator.feed(JOB_NOTICE);
+    emulator.feed(b"$ echo a long line");
+    assert_eq!(emulator.command_line().text, "echo a long line");
+}
+
+#[test]
+fn a_command_printing_the_prompt_is_not_taken_for_one() {
+    let mut emulator = Emulator::new(GridSize { cols: 40, rows: 6 }, 100);
+    emulator.feed(MARKED_PROMPT);
+    emulator.feed(b"cat prompt\r\n\x1b]133;C\x07");
+    emulator.feed(b"$ ");
+    assert_eq!(emulator.prompt_state(), PromptState::Unknown);
+}
+
+#[test]
+fn a_prompt_ending_in_blanks_is_not_found_on_blank_rows() {
+    let mut emulator = Emulator::new(GridSize { cols: 40, rows: 6 }, 100);
+    emulator.feed(b"\x1b]133;A\x07~/a\r\n  \x1b]133;B\x07");
+    emulator.feed(JOB_NOTICE);
+    emulator.feed(b"  ");
+    assert_eq!(emulator.prompt_state(), PromptState::Typed);
+}

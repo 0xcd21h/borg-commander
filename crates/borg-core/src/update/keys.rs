@@ -333,7 +333,9 @@ pub(super) fn forward(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec
             }
         }
         KeyCode::Char('c' | 'u') if key.modifiers == KeyModifiers::CONTROL => state.shell.clear_line(),
-        KeyCode::Char(_) if !key.modifiers.contains(KeyModifiers::CONTROL) => state.shell.mark_typed(),
+        KeyCode::Char(_) if !key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) => {
+            state.shell.mark_typed()
+        }
         _ => {}
     }
     effects

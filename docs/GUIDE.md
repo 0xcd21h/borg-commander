@@ -500,6 +500,13 @@ reach your clipboard. On the command line Ctrl-V belongs to the shell, so paste 
 terminal's paste shortcut. The File menu offers both copy actions for keyboards without an
 Insert key. Copies too large for the terminal to pass on stay in Borg.
 
+F9 opens the menu bar where you left it: the same menu, on the entry you chose or stopped at, or on
+the nearest one when that entry cannot be chosen right now. Left and Right move between the menus,
+Up, Down, Home and End move through a menu, Enter chooses, and Esc closes. When the titles are wider
+than the screen, the bar moves to show the open menu's title, and ◀ or ▶ marks more menus past an
+end. A menu taller than the screen scrolls as you move through it, with ▲ or ▼ in its border where
+more entries are hidden.
+
 If your terminal keeps the F-keys for itself, press **Esc, then a digit** within 1.5 seconds:
 Esc 1 to Esc 9 act as F1 to F9, and Esc 0 as F10. For example, Esc 9 opens the menus and Esc 5 copies.
 While Borg waits for the digit, the function key row shows which digit to press. If something is
@@ -519,7 +526,7 @@ language and to the first letter of each button in Borg's language, such as S fo
 
 Click a row to move the cursor to it, double-click to open it, and right-click it to open its
 context menu. Click the menu bar or the shortcut bar to use them. The mouse wheel scrolls through
-the panel.
+the panel, or through a menu while one is open.
 
 Dialogs work with the mouse too. Click a row in a list to choose it; in the theme and language
 pickers, Remote hosts and Remote access, a second click confirms it. The wheel scrolls lists such
@@ -1718,7 +1725,7 @@ whose files usually end in `.age`, and Paranoia Text Encryption, a format for en
 F4 or Alt-E on such a file opens the **Encrypted file** dialog, which asks for the password and
 hides what you type. Borg decrypts the file in memory and never writes the text to disk. A wrong
 password asks again, and Esc leaves the file closed. The quick view names the format and does not
-ask.
+ask. While the text is on the screen, agents that look at Borg's screen get a note instead.
 
 The viewer shows the text as the file's name without `.age` would show, so `notes.md.age` reads as
 Markdown. In the editor, F2 or Ctrl-S encrypts the text again before writing the file, with the same
@@ -1732,6 +1739,48 @@ Borg decrypts up to 256 KiB of text, and the editor saves no more than that. A f
 says so, and a very large one opens as it is, showing its encrypted bytes. An age file whose work
 factor needs more memory than half of what is free does not open; Borg reads work factors up to 22,
 which need 4 GiB. A file encrypted for an age key says that a password cannot open it.
+
+### Vaults
+
+A vault keeps a folder of sensitive files, such as medical or financial papers, encrypted on disk
+and opens it only while you need it. Borg drives [gocryptfs](https://github.com/rfjakob/gocryptfs)
+for this. The vault's folder holds one encrypted file for each file inside, so it syncs and backs up
+like any other folder, and gocryptfs opens it on Linux and macOS alike.
+
+**Create vault…** in the Encryption menu asks for the new vault's name and then for its password
+twice, in fields that hide what you type. Borg makes the vault in the active panel's folder, opens
+it, and shows its **Recovery key**: eight groups of hex digits that open the vault if you forget the
+password. Before it shows the key, Borg opens the new vault with it once to make sure the key works.
+Borg shows the key only this once: write it down, then type its last group and press Enter to close
+it. While the key shows, agents that look at Borg's screen get a note instead. Borg creates vaults
+only in this computer's folders.
+
+Enter on a vault, a folder with `gocryptfs.conf` in it, opens the **Vault** dialog, which asks for
+the password and hides what you type. A wrong password asks again, and Esc leaves the vault closed.
+An open vault shows its files from its top, and the panel's title names the vault with ▦. Every
+program can use those files while the vault is open: open a spreadsheet in its app, copy a picture
+out, or run commands on them in the shell. `..` at the top of the vault returns to the folder that
+holds it and leaves the vault open, so Enter on it goes straight back in.
+
+**Close vault** in the Encryption menu closes the vault the active panel shows, and every panel
+inside it returns to the folder that holds it. While a program still has a file open in the vault,
+the vault stays open and Borg says so. An open vault closes itself after 15 minutes without use,
+even after Borg quits. Set `vault-idle-minutes` in the config to change the time, or to `0` to keep
+vaults open until you close them.
+
+Borg shows each open vault from a folder in its runtime folder (see [Borg's files](#borgs-files)),
+which only you can enter. A vault protects its files while it is closed. While it is open, every
+program that runs as you can read them. To open a vault with its recovery key instead of the
+password, run `gocryptfs -masterkey=stdin` with the vault's folder and an empty folder to show it
+in, and type the key.
+
+Vaults need gocryptfs and FUSE. Creating a vault needs gocryptfs 2.5 or newer, the first version
+that keeps the recovery key Borg gives it; older versions, such as the one in Debian 12, still open
+vaults. When gocryptfs is missing on Linux, Enter on a vault offers to install it, and the
+**Install gocryptfs** dialog works like the one for tcpdump in [Capturing traffic](#capturing-traffic).
+Inside a container, a vault also needs `/dev/fuse` from the host. On a Mac, vaults need
+[macFUSE](https://github.com/macfuse/macfuse) and gocryptfs, which you install as their pages
+describe.
 
 ## Configuration
 
@@ -1764,6 +1813,7 @@ return-to-panels = true    # return after commands launched from the panels
 restore-terminal = false    # bring back the shell scrollback on the next start
 screensaver = true          # one of five animations, picked at random
 screensaver-after = 300     # seconds of idle time
+vault-idle-minutes = 15     # close an unused vault after this long; 0 keeps it open
 job-notifications = true    # notes in the corner when a job starts, ends or asks
 update-check = true         # offer a new release once a day
 start-service = true        # start the background service when Borg opens
@@ -1843,12 +1893,12 @@ Panel folders, cursor positions, the split, listing modes, and sorting are saved
 folder, `~/.local/state/borg-commander`, or in the folder set by `$XDG_STATE_HOME` or
 `$BORG_STATE_DIR`.
 
-While it runs, Borg keeps its shell integration scripts and files copied out of containers in its
-runtime folder, `$XDG_RUNTIME_DIR/borg-commander`, or `borg-commander-<uid>` in the temporary
-folder. Only you can open this folder; if one already exists that someone else created, or that
-other users can enter, Borg skips it and uses a new name. Its `TTL` file starts with the time
-until which the folder is in use: every running borg pushes that time a day ahead each hour, so
-once it has passed, the folder can be deleted.
+While it runs, Borg keeps its shell integration scripts, files copied out of containers and the
+folders that show open vaults in its runtime folder, `$XDG_RUNTIME_DIR/borg-commander`, or
+`borg-commander-<uid>` in the temporary folder. Only you can open this folder; if one already exists
+that someone else created, or that other users can enter, Borg skips it and uses a new name. Its
+`TTL` file starts with the time until which the folder is in use: every running borg pushes that
+time a day ahead each hour, so once it has passed, the folder can be deleted.
 
 **F9 → Options → Borg's files…** shows every place Borg keeps files, how much each one holds, and
 where it is:
@@ -1872,7 +1922,8 @@ how long it stays. Enter opens the place's folder in the active panel. Esc close
 
 Borg cleans up after itself 30 seconds after it starts and then every hour. It only removes
 names it makes itself, and never anything that changed in the last 10 minutes, so a Borg that is
-still starting up keeps what it made. This is what goes:
+still starting up keeps what it made. Its sizes and cleanups stay out of every folder another file
+system is mounted on, such as an open vault. This is what goes:
 
 - Folders of other Borg versions in the runtime folder, once no Borg runs from them, and either
   no Borg was running when this one started or nothing in them changed for 3 days.

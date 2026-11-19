@@ -79,6 +79,7 @@ pub struct Emulator {
     scanner: OscScanner,
     replies: Receiver<String>,
     input_start: Option<Point>,
+    prompt_end: Option<PromptEnd>,
     /// Where the shell's current prompt began.
     prompt_start: Option<Point>,
     /// Output held back while a command Borg typed runs, until the shell's next prompt.
@@ -88,6 +89,11 @@ pub struct Emulator {
 struct Concealed {
     prompt: Point,
     bytes: Vec<u8>,
+}
+
+struct PromptEnd {
+    text: Vec<char>,
+    wrapped: bool,
 }
 
 impl Emulator {
@@ -100,6 +106,7 @@ impl Emulator {
             scanner: OscScanner::default(),
             replies,
             input_start: None,
+            prompt_end: None,
             prompt_start: None,
             concealed: None,
         }
@@ -137,6 +144,7 @@ impl Emulator {
             self.track(signal);
         }
         self.advance(&bytes[consumed..]);
+        self.find_redrawn_input();
         marks.into_iter().map(|(_, signal)| signal).collect()
     }
 
@@ -151,6 +159,7 @@ impl Emulator {
         if let Some(concealed) = self.concealed.take() {
             self.advance(&concealed.bytes);
         }
+        self.find_redrawn_input();
     }
 
     pub fn scroll(&mut self, scroll: Scroll) {
@@ -282,19 +291,62 @@ impl Emulator {
     }
 
     fn track(&mut self, signal: &ShellSignal) {
+        let cursor = self.term.grid().cursor.point;
         if signal == &ShellSignal::PromptStart {
-            self.prompt_start = Some(self.term.grid().cursor.point);
+            self.prompt_start = Some(cursor);
         }
-        self.input_start = match signal {
-            ShellSignal::InputStart => Some(self.term.grid().cursor.point),
-            ShellSignal::PromptStart | ShellSignal::CommandStart | ShellSignal::CommandEnd { .. } => None,
-            ShellSignal::Cwd { .. } | ShellSignal::SilentCd | ShellSignal::ExitRequested { .. } => self.input_start,
-        };
+        match signal {
+            ShellSignal::InputStart => {
+                self.input_start = Some(cursor);
+                self.prompt_end = self.prompt_end_at(cursor);
+            }
+            ShellSignal::PromptStart | ShellSignal::CommandStart | ShellSignal::CommandEnd { .. } => {
+                self.input_start = None;
+                self.prompt_end = None;
+            }
+            ShellSignal::Cwd { .. } | ShellSignal::SilentCd | ShellSignal::ExitRequested { .. } => {}
+        }
+    }
+
+    fn prompt_end_at(&self, start: Point) -> Option<PromptEnd> {
+        let text = self.row_text(start.line, start.column.0);
+        let visible = text.iter().any(|&c| c != ' ');
+        visible.then(|| PromptEnd { text, wrapped: self.continues_wrapped(start.line) })
+    }
+
+    fn find_redrawn_input(&mut self) {
+        if let Some(start) = self.redrawn_input_start() {
+            self.input_start = Some(start);
+        }
+    }
+
+    fn redrawn_input_start(&self) -> Option<Point> {
+        let end = self.prompt_end.as_ref()?;
+        let cursor = self.term.grid().cursor.point;
+        let width = end.text.len();
+        let rows = std::iter::successors(Some(cursor.line), |&line| self.continues_wrapped(line).then(|| line - 1));
+        rows.filter(|&line| line < cursor.line || cursor.column.0 >= width)
+            .find(|&line| self.continues_wrapped(line) == end.wrapped && self.row_text(line, width) == end.text)
+            .map(|line| Point::new(line, Column(width)))
+    }
+
+    fn row_text(&self, line: Line, width: usize) -> Vec<char> {
+        let grid = self.term.grid();
+        (0..width.min(grid.columns())).map(|column| shown(&grid[Point::new(line, Column(column))])).collect()
+    }
+
+    fn continues_wrapped(&self, line: Line) -> bool {
+        let grid = self.term.grid();
+        line > grid.topmost_line() && grid[Point::new(line - 1, grid.last_column())].flags.contains(Flags::WRAPLINE)
     }
 }
 
 const BLANK: char = '\0';
 const SUGGESTION_INDEX: u8 = 8;
+
+fn shown(cell: &Cell) -> char {
+    if cell.c == BLANK { ' ' } else { cell.c }
+}
 
 fn suggested(cell: &Cell) -> bool {
     cell.flags.contains(Flags::DIM)

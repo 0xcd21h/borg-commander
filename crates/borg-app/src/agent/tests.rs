@@ -470,3 +470,20 @@ fn a_call_passed_on_from_another_window_still_counts_as_another_computers() {
     let local = serde_json::from_value::<Call>(json!({ "tool": "read" })).unwrap().external().unwrap();
     assert_eq!(local.origin, None, "a call that claims nothing is this machine's own");
 }
+
+#[test]
+fn the_screen_is_kept_from_agents_while_a_recovery_key_shows() {
+    use borg_core::{AppState, Appearance, Overlay, Password, Settings, Startup, ThemeChoice, VaultKey};
+    let themes = vec![ThemeChoice { id: "midnight".into(), name: "Midnight".into() }];
+    let now = std::time::Instant::now();
+    let startup = Startup::at("/work".into());
+    let (mut state, _) = AppState::new(startup, 80, 24, Settings::default(), Appearance::new(themes, 0), now);
+    let frame = vec!["0a1b2c3d-4e5f6a7b-".to_owned()];
+    let console = ConsoleText { lines: Vec::new(), typed: String::new() };
+    assert!(answers::screen(&state, &frame, &console).contains("0a1b2c3d"));
+    let key = VaultKey::new("Papers".into(), Password::new("0a1b2c3d-4e5f6a7b"));
+    state.overlay = Some(Overlay::VaultKey(Box::new(key)));
+    let answer = answers::screen(&state, &frame, &console);
+    assert!(!answer.contains("0a1b2c3d"), "{answer}");
+    assert!(answer.contains("recovery key or a decrypted file"), "{answer}");
+}

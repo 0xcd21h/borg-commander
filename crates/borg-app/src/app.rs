@@ -143,6 +143,7 @@ pub struct App {
     memory_readers: std::collections::HashSet<(Option<String>, borg_core::ProcessKey)>,
     saved_captures: agent_calls::SavedCaptures,
     runtime_dir: PathBuf,
+    vaults: crate::vaults::Vaults,
     mirror_connect: Option<futures::future::BoxFuture<'static, Result<crate::mirror::Connection>>>,
     mirror_ready: Option<crate::mirror::Connection>,
     cloud_suppressed: bool,

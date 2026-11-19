@@ -38,15 +38,9 @@ pub(super) fn open_menu(state: &mut AppState, menu: usize) -> Vec<Effect> {
     show(state, Overlay::Menu(MenuCursor { menu, item }))
 }
 
-/// F9: opens the menu last used, at its item when that can still be chosen, or the menu over
-/// the active panel.
+/// F9: opens the menu where it was left, or the menu over the active panel the first time.
 pub(super) fn open_menu_bar(state: &mut AppState, side: Side) -> Vec<Effect> {
-    let all = menus(state);
-    let resumed = state.last_menu.and_then(|last| {
-        let menu = all.get(last.menu)?;
-        let usable = |index: &usize| menu.item(*index).is_some_and(|item| item.enabled);
-        Some(MenuCursor { item: last.item.filter(usable).or_else(|| menu.first_enabled()), ..last })
-    });
+    let resumed = state.last_menu.as_ref().and_then(|place| place.resume(&menus(state)));
     match resumed {
         Some(cursor) => show(state, Overlay::Menu(cursor)),
         None => open_menu(state, if side == Side::Left { 0 } else { RIGHT_MENU }),
