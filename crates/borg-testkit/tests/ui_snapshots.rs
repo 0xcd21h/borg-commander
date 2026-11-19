@@ -28,6 +28,8 @@ const ENV_SCREENSHOTS: &str = "BORG_SCREENSHOTS";
 const SCREENSHOT_DIR: &str = "ui";
 const HOME: &str = "/home/me";
 const QUIET: Preferences = Preferences::DEFAULT;
+/// For tests that reach a file by its place in the listing, which `.env` would move.
+const NO_HIDDEN: Preferences = Preferences { show_hidden: false, ..QUIET };
 const RELEASES: usize = 40;
 /// Alerts in a new log beside one Borg kept aside.
 const KEPT_ASIDE_ALERTS: usize = 2;
@@ -96,7 +98,11 @@ fn staged(motion: Motion, preferences: Preferences, left: Vec<Entry>, clock: &st
 }
 
 fn stage(size: GridSize, motion: Motion) -> Result<Stage> {
-    let settings = Settings { motion, preferences: QUIET, ..Settings::default() };
+    stage_with(size, motion, QUIET)
+}
+
+fn stage_with(size: GridSize, motion: Motion, preferences: Preferences) -> Result<Stage> {
+    let settings = Settings { motion, preferences, ..Settings::default() };
     let mut stage = Stage::new(
         [PathBuf::from("/home/me/projects/borg"), PathBuf::from("/var/log")],
         [project(), logs()],
@@ -274,7 +280,7 @@ fn the_menu_bar_moves_to_show_a_menu_past_its_end_and_takes_clicks_where_its_tit
 #[test]
 fn context_menu_opens_where_a_right_click_lands_and_a_click_chooses_an_entry() -> Result<()> {
     use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
-    let mut stage = stage(SIZE, Motion::STILL)?;
+    let mut stage = stage_with(SIZE, Motion::STILL, NO_HIDDEN)?;
     let at = |kind, column, row| MouseEvent { kind, column, row, modifiers: KeyModifiers::NONE };
     let right = at(MouseEventKind::Down(MouseButton::Right), 8, 6);
     let msg = borg_ui::mouse_input(&stage.state, right, false, stage.started);
@@ -294,7 +300,7 @@ fn context_menu_opens_where_a_right_click_lands_and_a_click_chooses_an_entry() -
 
 #[test]
 fn copy_and_delete_dialogs() -> Result<()> {
-    let mut stage = stage(SIZE, Motion::STILL)?;
+    let mut stage = stage_with(SIZE, Motion::STILL, NO_HIDDEN)?;
     stage.send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::Down));
     stage.send(key(KeyCode::F(5)));
     let copy = stage.render(stage.started)?;
@@ -1255,7 +1261,7 @@ fn running_copy(stage: &mut Stage) -> Result<u64> {
 
 #[test]
 fn copy_job_progress_and_conflict() -> Result<()> {
-    let mut stage = stage(SIZE, Motion::STILL)?;
+    let mut stage = stage_with(SIZE, Motion::STILL, NO_HIDDEN)?;
     let id = running_copy(&mut stage)?;
     let later = stage.started + Duration::from_secs(20);
     let buffer = stage.render(later)?;
@@ -1363,7 +1369,7 @@ fn busy_jobs(stage: &mut Stage) -> Result<()> {
 
 #[test]
 fn the_jobs_panel_folds_and_unfolds_every_kind_of_job() -> Result<()> {
-    let mut stage = stage(GridSize { cols: 120, rows: 30 }, Motion::STILL)?;
+    let mut stage = stage_with(GridSize { cols: 120, rows: 30 }, Motion::STILL, NO_HIDDEN)?;
     busy_jobs(&mut stage)?;
     let later = stage.started + Duration::from_secs(20);
     borg_core::update(&mut stage.state, Msg::Key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::ALT)), later);
@@ -1392,7 +1398,7 @@ fn the_jobs_panel_folds_and_unfolds_every_kind_of_job() -> Result<()> {
 
 #[test]
 fn toasts_stack_in_the_corner_and_a_finished_one_offers_its_result() -> Result<()> {
-    let mut stage = stage(GridSize { cols: 120, rows: 30 }, Motion::STILL)?;
+    let mut stage = stage_with(GridSize { cols: 120, rows: 30 }, Motion::STILL, NO_HIDDEN)?;
     busy_jobs(&mut stage)?;
     let buffer = stage.render(stage.started + Duration::from_secs(2))?;
     ensure_text(&buffer, "✓ Found 3 items")?;
@@ -1450,7 +1456,7 @@ fn stage_with_one_copy() -> Result<Stage> {
 }
 
 fn stage_with_one_copy_at(size: GridSize) -> Result<Stage> {
-    let mut stage = stage(size, Motion::STILL)?;
+    let mut stage = stage_with(size, Motion::STILL, NO_HIDDEN)?;
     let id = running_copy(&mut stage)?;
     let done = borg_jobs::Outcome::Done { done: borg_jobs::Totals { files: 1, bytes: 310 }, skipped: 0 };
     stage.send(Msg::Job { id, event: borg_jobs::Event::Finished(done) });
@@ -6482,7 +6488,7 @@ fn a_cd_to_a_typed_folder_lists_its_subfolders_first() -> Result<()> {
 
 #[test]
 fn a_path_in_any_command_lists_its_subfolders_to_complete() -> Result<()> {
-    let mut stage = stage(SIZE, Motion::STILL)?;
+    let mut stage = stage_with(SIZE, Motion::STILL, NO_HIDDEN)?;
     stage.state.folders = folders();
     stage.shell(b"cp notes.txt /Volumes/");
     stage.send(subfolders("/Volumes", &["Macintosh HD", "Backup", "Photos", ".Trashes"]));
@@ -6490,6 +6496,7 @@ fn a_path_in_any_command_lists_its_subfolders_to_complete() -> Result<()> {
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "Tab/Enter Complete")?;
     ensure_text(&buffer, "/Volumes/Backup")?;
+    ensure_no_text(&buffer, ".Trashes")?;
     check("path_picker", &stage, buffer)
 }
 
