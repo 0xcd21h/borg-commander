@@ -491,6 +491,13 @@ reach your clipboard. On the command line Ctrl-V belongs to the shell, so paste 
 terminal's paste shortcut. The File menu offers both copy actions for keyboards without an
 Insert key. Copies too large for the terminal to pass on stay in Borg.
 
+F9 opens the menu bar where you left it: the same menu, on the entry you chose or stopped at, or on
+the nearest one when that entry cannot be chosen right now. Left and Right move between the menus,
+Up, Down, Home and End move through a menu, Enter chooses, and Esc closes. When the titles are wider
+than the screen, the bar moves to show the open menu's title, and ◀ or ▶ marks more menus past an
+end. A menu taller than the screen scrolls as you move through it, with ▲ or ▼ in its border where
+more entries are hidden.
+
 If your terminal keeps the F-keys for itself, press **Esc, then a digit** within 1.5 seconds:
 Esc 1 to Esc 9 act as F1 to F9, and Esc 0 as F10. For example, Esc 9 opens the menus and Esc 5 copies.
 While Borg waits for the digit, the function key row shows which digit to press. If something is
@@ -510,7 +517,7 @@ language and to the first letter of each button in Borg's language, such as S fo
 
 Click a row to move the cursor to it, double-click to open it, and right-click it to open its
 context menu. Click the menu bar or the shortcut bar to use them. The mouse wheel scrolls through
-the panel.
+the panel, or through a menu while one is open.
 
 Dialogs work with the mouse too. Click a row in a list to choose it; in the theme and language
 pickers, Remote hosts and Remote access, a second click confirms it. The wheel scrolls lists such
@@ -1718,7 +1725,7 @@ and opens it only while you need it. Borg drives [gocryptfs](https://github.com/
 for this. The vault's folder holds one encrypted file for each file inside, so it syncs and backs up
 like any other folder, and gocryptfs opens it on Linux and macOS alike.
 
-**Create vault…** in the File menu (F2) asks for the new vault's name and then for its password
+**Create vault…** in the Encryption menu asks for the new vault's name and then for its password
 twice, in fields that hide what you type. Borg makes the vault in the active panel's folder, opens
 it, and shows its **Recovery key**: eight groups of hex digits that open the vault if you forget the
 password. Before it shows the key, Borg opens the new vault with it once to make sure the key works.
@@ -1733,11 +1740,11 @@ program can use those files while the vault is open: open a spreadsheet in its a
 out, or run commands on them in the shell. `..` at the top of the vault returns to the folder that
 holds it and leaves the vault open, so Enter on it goes straight back in.
 
-**Close vault** in the File menu closes the vault the active panel shows, and every panel inside it
-returns to the folder that holds it. While a program still has a file open in the vault, the vault
-stays open and Borg says so. An open vault closes itself after 15 minutes without use, even after
-Borg quits. Set `vault-idle-minutes` in the config to change the time, or to `0` to keep vaults open
-until you close them.
+**Close vault** in the Encryption menu closes the vault the active panel shows, and every panel
+inside it returns to the folder that holds it. While a program still has a file open in the vault,
+the vault stays open and Borg says so. An open vault closes itself after 15 minutes without use,
+even after Borg quits. Set `vault-idle-minutes` in the config to change the time, or to `0` to keep
+vaults open until you close them.
 
 Borg shows each open vault from a folder in its runtime folder (see [Borg's files](#borgs-files)),
 which only you can enter. A vault protects its files while it is closed. While it is open, every

@@ -344,7 +344,7 @@ fn paint_overlay(
             (crate::discovery_view::exclusions(editor, state, theme, screen, buf), None, Unfold::FromCenter)
         }
         Overlay::Menu(cursor) => {
-            let x = menu_view::title_positions(&all).get(cursor.menu).copied().unwrap_or_default();
+            let x = menu_view::dropdown_left(&all, cursor.menu, bar.map_or(screen.width, |b| b.width));
             let top = bar.map_or(screen.y, |b| b.bottom());
             let rect = all
                 .get(cursor.menu)

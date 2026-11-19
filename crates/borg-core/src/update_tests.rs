@@ -1028,7 +1028,7 @@ fn menu_bar_navigates_and_runs_actions() {
 
     press(&mut state, now, key(KeyCode::F(9)));
     press(&mut state, now, key(KeyCode::Left));
-    assert!(matches!(state.overlay, Some(Overlay::Menu(cursor)) if menus(&state)[cursor.menu].title == "Search"));
+    assert!(matches!(state.overlay, Some(Overlay::Menu(cursor)) if menus(&state)[cursor.menu].title == "Encryption"));
     press(&mut state, now, key(KeyCode::Esc));
     assert!(state.overlay.is_none());
 }
@@ -2737,6 +2737,21 @@ fn the_menu_on_a_contents_result_copies_its_path_with_the_line_the_search_found(
     assert!(context_labels(&state).contains(&"Reveal original"));
     let effects = choose_context(&mut state, now, "Copy path and line");
     assert_eq!(copied(&effects), Some("/home/log:12"));
+}
+
+#[test]
+fn the_wheel_moves_through_a_context_menu() {
+    use crate::Pointer;
+    let (mut state, now) = setup_with(vec![file("notes.txt")]);
+    press(&mut state, now, key(KeyCode::Down));
+    press(&mut state, now, shift(KeyCode::F(10)));
+    let Some(Overlay::ContextMenu(context)) = &state.overlay else { panic!("a context menu") };
+    let first = context.selected;
+    let next = context.menu.scroll(first, 1);
+    assert_ne!(first, next);
+    update(&mut state, Msg::Pointer(Pointer::DialogScroll(1)), now);
+    let Some(Overlay::ContextMenu(context)) = &state.overlay else { panic!("a context menu") };
+    assert_eq!(context.selected, next);
 }
 
 #[test]

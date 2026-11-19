@@ -323,6 +323,7 @@ fn follow(state: &mut AppState, now: Instant) -> Vec<Effect> {
     effects.extend(crate::docker::sync_console(state, now));
     effects.extend(crate::results::sync_sizes(state));
     crate::busy::sync(state, now);
+    crate::menu::remember(state);
     crate::jobs::sync(state, now);
     crate::agent::surface(state, now);
     crate::update_offer::surface(state, now);

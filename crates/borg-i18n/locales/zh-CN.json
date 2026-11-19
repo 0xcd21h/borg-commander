@@ -2084,6 +2084,7 @@
   "install_gocryptfs_done": "gocryptfs 已安装。在保险库上按 Enter 即可打开。",
   "vault_create": "新建保险库…",
   "vault_close": "关闭保险库",
+  "encryption_menu_title": "加密",
   "vault_create_title": "新建保险库",
   "vault_name_label": "此文件夹中新保险库的名称",
   "vault_new_password_label": "保险库 {name} 的密码",

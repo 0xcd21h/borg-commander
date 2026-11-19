@@ -12,10 +12,12 @@ const BORG: &str = env!("CARGO_BIN_EXE_borg");
 const READY: &str = "4 items";
 const PROMPT_FROM_BOTTOM: u16 = 3;
 const MENU_TITLES: &str = "Left    File    Command    Remote    Options    Right";
-const MENU_NAMES: [&str; 9] = ["Left", "File", "Command", "Remote", "Options", "Right", "Git", "Docker", "Search"];
+const MENU_NAMES: [&str; 10] =
+    ["Left", "File", "Command", "Remote", "Options", "Right", "Git", "Docker", "Search", "Encryption"];
 const LEFT_MENU: usize = 0;
 const FILE_MENU: usize = 1;
 const OPTIONS_MENU: usize = 4;
+const ENCRYPTION_MENU: usize = 9;
 const FIRST_KEY: &str = "F1He";
 const SPLASH_SUBTITLE: &str = "c o m m a n d e r";
 const UNLOCK: &str = "borg";
@@ -152,8 +154,10 @@ fn choose(app: &mut Session, index: usize, item: &str) -> Result<()> {
     open_menu(app, index, item)?;
     for _ in 0..MAX_ITEMS {
         let snapshot = app.settle()?;
-        let (x, y) = snapshot.find(item).ok_or_else(|| anyhow::anyhow!("menu item {item:?} missing"))?;
-        if snapshot.style_at(x, y).bg != snapshot.style_at(x.saturating_sub(BORDER_OFFSET), y).bg {
+        let chosen = snapshot.find(item).is_some_and(|(x, y)| {
+            snapshot.style_at(x, y).bg != snapshot.style_at(x.saturating_sub(BORDER_OFFSET), y).bg
+        });
+        if chosen {
             app.send(keys::enter())?;
             return Ok(());
         }
@@ -5664,7 +5668,7 @@ fn a_vault_opens_with_its_password_stays_open_outside_and_closes_from_the_file_m
     let again = app.wait_text(VAULT_FILE)?;
     ensure!(!again.contains(VAULT_ASKS), "an open vault needs no password");
 
-    choose(&mut app, FILE_MENU, "Close vault")?;
+    choose(&mut app, ENCRYPTION_MENU, "Close vault")?;
     app.wait_text("The vault Papers is closed.")?;
     app.wait_gone(VAULT_FILE)?;
     ensure!(gocryptfs_mounts()? == 0, "closing unmounts the vault");
@@ -5680,7 +5684,7 @@ fn a_vault_created_in_borg_opens_with_the_recovery_key_it_showed() -> Result<()>
     fixture.file("notes.txt", "hello\n")?;
     let mut app = Session::builder(BORG, &fixture).label("vault-create").spawn()?;
     app.wait_text("1 item")?;
-    choose(&mut app, FILE_MENU, "Create vault…")?;
+    choose(&mut app, ENCRYPTION_MENU, "Create vault…")?;
     app.wait_text("Name of the new vault in this folder")?;
     app.send("Papers")?.send(keys::enter())?;
     app.wait_text(VAULT_ASKS)?;
@@ -5701,7 +5705,7 @@ fn a_vault_created_in_borg_opens_with_the_recovery_key_it_showed() -> Result<()>
     let inside = app.wait_gone("Recovery key")?;
     ensure!(inside.contains(VAULT_BADGE), "the new vault is open\n{}", inside.text());
 
-    choose(&mut app, FILE_MENU, "Close vault")?;
+    choose(&mut app, ENCRYPTION_MENU, "Close vault")?;
     app.wait_text("The vault Papers is closed.")?;
     ensure!(gocryptfs_mounts()? == 0, "closing unmounts the vault");
 

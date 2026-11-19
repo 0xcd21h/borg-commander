@@ -141,13 +141,14 @@ fn on_menu(state: &mut AppState, cursor: MenuCursor, key: &KeyEvent, now: Instan
         MenuCursor { menu: index, item: all.get(index).and_then(crate::Menu::first_enabled) }
     };
     let step = |delta: isize| MenuCursor { item: all[cursor.menu].step(cursor.item, delta), ..cursor };
-    state.last_menu = Some(cursor);
 
     let next = match key.code {
         KeyCode::Left => Some(switch(PREVIOUS)),
         KeyCode::Right => Some(switch(NEXT)),
         KeyCode::Up => Some(step(PREVIOUS)),
         KeyCode::Down => Some(step(NEXT)),
+        KeyCode::Home => Some(MenuCursor { item: all[cursor.menu].first_enabled(), ..cursor }),
+        KeyCode::End => Some(MenuCursor { item: all[cursor.menu].step(None, PREVIOUS), ..cursor }),
         KeyCode::Enter => {
             state.overlay = None;
             let action = cursor.item.and_then(|item| all[cursor.menu].item(item)).map(|item| item.action);

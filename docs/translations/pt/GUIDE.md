@@ -542,6 +542,13 @@ pertence à shell, por isso cole aí com o atalho de colar do terminal. O menu F
 duas ações de cópia para teclados sem tecla Insert. As cópias demasiado grandes para o terminal
 transmitir ficam no Borg.
 
+F9 abre a barra de menus onde a deixou: no mesmo menu, na entrada que escolheu ou onde parou, ou na
+mais próxima quando essa entrada não pode ser escolhida no momento. Left e Right passam de um menu
+para outro, Up, Down, Home e End percorrem um menu, Enter escolhe e Esc fecha. Quando os títulos não
+cabem no ecrã, a barra desloca-se para mostrar o título do menu aberto, e ◀ ou ▶ indica que há mais
+menus para lá dessa ponta. Um menu mais alto do que o ecrã desloca-se à medida que o percorre, com ▲
+ou ▼ no contorno onde há entradas escondidas.
+
 Se o terminal reservar as teclas F para si, prima **Esc e depois um algarismo** no espaço de 1,5
 segundos: Esc 1 a Esc 9 equivalem a F1 a F9, e Esc 0 a F10. Por exemplo, Esc 9 abre os menus e Esc 5
 copia. Enquanto o Borg espera pelo algarismo, a linha das teclas de função mostra qual premir. Se
@@ -563,7 +570,7 @@ Borg, como S para Sim e N para Não em português.
 
 Clique numa linha para lhe mover o cursor, faça duplo clique para a abrir e clique com o botão
 direito para abrir o respetivo menu de contexto. Clique na barra de menus ou na barra de atalhos
-para as usar. A roda do rato percorre o painel.
+para as usar. A roda do rato percorre o painel, ou o menu aberto quando há um.
 
 As caixas de diálogo também funcionam com o rato. Clique numa linha de uma lista para a escolher;
 nos seletores de tema e de idioma, em Hosts remotos e em Acesso remoto, um segundo clique
@@ -1870,13 +1877,13 @@ para isso. A pasta do cofre contém um ficheiro cifrado por cada ficheiro lá de
 sincroniza-se e entra nas cópias de segurança como qualquer outra pasta, e o gocryptfs abre-a tanto
 no Linux como no macOS.
 
-**Criar cofre…** no menu Ficheiro (F2) pede o nome do novo cofre e depois a palavra-passe duas
-vezes, em campos que escondem o que escreve. O Borg cria o cofre na pasta do painel ativo, abre-o e
-mostra a **Chave de recuperação**: oito grupos de dígitos hexadecimais que abrem o cofre se se
-esquecer da palavra-passe. Antes de mostrar a chave, o Borg abre o novo cofre com ela uma vez para
-confirmar que funciona. O Borg mostra a chave só esta vez: aponte-a, depois escreva o último grupo e
-prima Enter para a fechar. Enquanto a chave está no ecrã, os agentes que olham para o ecrã do Borg
-recebem um aviso em vez dela. O Borg cria cofres apenas nas pastas deste computador.
+**Criar cofre…** no menu Cifragem pede o nome do novo cofre e depois a palavra-passe duas vezes, em
+campos que escondem o que escreve. O Borg cria o cofre na pasta do painel ativo, abre-o e mostra a
+**Chave de recuperação**: oito grupos de dígitos hexadecimais que abrem o cofre se se esquecer da
+palavra-passe. Antes de mostrar a chave, o Borg abre o novo cofre com ela uma vez para confirmar que
+funciona. O Borg mostra a chave só esta vez: aponte-a, depois escreva o último grupo e prima Enter
+para a fechar. Enquanto a chave está no ecrã, os agentes que olham para o ecrã do Borg recebem um
+aviso em vez dela. O Borg cria cofres apenas nas pastas deste computador.
 
 Enter num cofre, uma pasta com `gocryptfs.conf` lá dentro, abre a caixa de diálogo **Cofre**, que
 pede a palavra-passe e esconde o que escreve. Uma palavra-passe errada volta a perguntar, e Esc deixa
@@ -1886,7 +1893,7 @@ uma folha de cálculo na respetiva aplicação, copiar uma imagem para fora ou e
 eles na shell. `..` no topo do cofre volta à pasta que o contém e deixa o cofre aberto, por isso
 Enter nele volta a entrar diretamente.
 
-**Fechar cofre** no menu Ficheiro fecha o cofre que o painel ativo mostra, e cada painel que está lá
+**Fechar cofre** no menu Cifragem fecha o cofre que o painel ativo mostra, e cada painel que está lá
 dentro volta à pasta que o contém. Enquanto um programa tiver um ficheiro aberto no cofre, o cofre
 continua aberto e o Borg indica-o. Um cofre aberto fecha-se sozinho após 15 minutos sem uso, mesmo
 depois de o Borg terminar. Defina `vault-idle-minutes` na configuração para mudar esse tempo, ou `0`

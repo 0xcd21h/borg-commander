@@ -1,5 +1,8 @@
-use crate::{Action, AfterCommand, AppState, ListingMode, Side, SortKey};
+use crate::{Action, AfterCommand, AppState, ListingMode, MenuCursor, Overlay, Side, SortKey};
 use borg_i18n::tr;
+
+#[cfg(test)]
+mod tests;
 
 pub const FILE_MENU: usize = 1;
 pub const RIGHT_MENU: usize = 5;
@@ -39,13 +42,80 @@ impl<A> Menu<A> {
         self.step(None, 1)
     }
 
+    /// The entry `delta` entries that can be chosen away from `from`, or the last one that way,
+    /// without going round past either end.
+    pub fn scroll(&self, from: Option<usize>, delta: isize) -> Option<usize> {
+        let Some(from) = from else { return self.first_enabled() };
+        let steps = delta.unsigned_abs();
+        let next = if delta < 0 {
+            (0..from).rev().filter(|&index| self.usable(index)).take(steps).last()
+        } else {
+            (from + 1..self.entries.len()).filter(|&index| self.usable(index)).take(steps).last()
+        };
+        Some(next.unwrap_or(from))
+    }
+
+    /// The entry nearest `index` that can be chosen, the later one when two are as near.
+    pub fn nearest(&self, index: usize) -> Option<usize> {
+        let index = index.min(self.entries.len().saturating_sub(1));
+        (0..self.entries.len())
+            .flat_map(|distance| [index.checked_add(distance), index.checked_sub(distance)])
+            .flatten()
+            .find(|&at| self.usable(at))
+    }
+
+    fn usable(&self, index: usize) -> bool {
+        self.item(index).is_some_and(|item| item.enabled)
+    }
+
     pub fn step(&self, from: Option<usize>, delta: isize) -> Option<usize> {
         let len = isize::try_from(self.entries.len()).ok()?;
         let start = from.map_or(if delta > 0 { -1 } else { len }, |i| isize::try_from(i).unwrap_or(len));
         (1..=len)
             .map(|offset| (start + offset * delta).rem_euclid(len))
             .filter_map(|i| usize::try_from(i).ok())
-            .find(|&i| self.item(i).is_some_and(|item| item.enabled))
+            .find(|&i| self.usable(i))
+    }
+}
+
+/// Where the menu bar was left: the menu by its title and the entry by what it does, which find
+/// them again when menus or entries come and go, with their places for when they are not found.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct MenuPlace {
+    cursor: MenuCursor,
+    title: String,
+    action: Option<Action>,
+}
+
+impl MenuPlace {
+    pub(crate) fn of(menus: &[Menu], cursor: MenuCursor) -> Option<Self> {
+        let menu = menus.get(cursor.menu)?;
+        let action = cursor.item.and_then(|item| menu.item(item)).map(|item| item.action);
+        Some(Self { cursor, title: menu.title.clone(), action })
+    }
+
+    /// The same menu at the entry that does the same, or at the entry nearest the old place when
+    /// that one cannot be chosen now.
+    pub(crate) fn resume(&self, menus: &[Menu]) -> Option<MenuCursor> {
+        let index = menus.iter().position(|menu| menu.title == self.title).unwrap_or(self.cursor.menu);
+        let menu = menus.get(index)?;
+        let same = self.action.and_then(|action| {
+            (0..menu.entries.len())
+                .find(|&at| menu.usable(at) && menu.item(at).is_some_and(|item| item.action == action))
+        });
+        let item = same.or_else(|| self.cursor.item.and_then(|at| menu.nearest(at))).or_else(|| menu.first_enabled());
+        Some(MenuCursor { menu: index, item })
+    }
+}
+
+/// Keeps where the open menu of the menu bar is, so F9 opens there next time.
+pub(crate) fn remember(state: &mut AppState) {
+    let Some(Overlay::Menu(cursor)) = state.overlay else { return };
+    if state.last_menu.as_ref().is_some_and(|place| place.cursor == cursor) {
+        return;
+    }
+    if let Some(place) = MenuPlace::of(&menus(state), cursor) {
+        state.last_menu = Some(place);
     }
 }
 
@@ -96,7 +166,20 @@ fn localized_menus(state: &AppState) -> Vec<Menu> {
         menus.push(docker_menu(state));
     }
     menus.push(results_menu(state));
+    menus.push(encryption_menu(state));
     menus
+}
+
+fn encryption_menu(state: &AppState) -> Menu {
+    let panel = state.active_panel();
+    let listed = state.docked[state.active.index()].is_none();
+    Menu {
+        title: tr!(encryption_menu_title).into(),
+        entries: vec![
+            when(item(tr!(vault_create), Action::CreateVault), listed && !panel.is_results() && !panel.foreign()),
+            when(item(tr!(vault_close), Action::CloseVault), panel.vault.is_some()),
+        ],
+    }
 }
 
 fn docker_menu(state: &AppState) -> Menu {
@@ -215,9 +298,6 @@ fn file_menu(state: &AppState) -> Menu {
             when(item(tr!(menu_compress), Action::Compress), has_selection && !panel.is_results()),
             when(item(tr!(extract_here), Action::ExtractHere), archive && !panel.is_results()),
             when(item(tr!(extract_to_other_panel), Action::ExtractToOther), archive && !panel.is_results()),
-            MenuEntry::Separator,
-            when(item(tr!(vault_create), Action::CreateVault), listed && !panel.is_results() && !panel.foreign()),
-            when(item(tr!(vault_close), Action::CloseVault), panel.vault.is_some()),
             MenuEntry::Separator,
             item(tr!(quit), Action::Quit),
         ],

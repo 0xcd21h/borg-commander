@@ -2168,6 +2168,7 @@ catalog! {
     install_gocryptfs_done => "gocryptfs is installed. Press Enter on the vault to open it.",
     vault_create => "Create vault…",
     vault_close => "Close vault",
+    encryption_menu_title => "Encryption",
     vault_create_title => "Create vault",
     vault_name_label => "Name of the new vault in this folder",
     vault_new_password_label => "Password for the vault {name}",

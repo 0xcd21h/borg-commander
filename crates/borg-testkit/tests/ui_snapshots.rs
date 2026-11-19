@@ -223,6 +223,54 @@ fn file_menu_open() -> Result<()> {
     check("file_menu", &stage, buffer)
 }
 
+/// The row of the screen that shows `needle`, and the column it starts at.
+fn place_of(buffer: &Buffer, needle: &str) -> Result<(u16, u16)> {
+    let text = describe(buffer);
+    let (row, line) = text.lines().enumerate().find(|(_, line)| line.contains(needle)).context("the text on screen")?;
+    let column = line[..line.find(needle).unwrap_or_default()].chars().count();
+    Ok((u16::try_from(row)?, u16::try_from(column)?))
+}
+
+fn click(column: u16, row: u16) -> crossterm::event::MouseEvent {
+    use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column, row, modifiers: KeyModifiers::NONE }
+}
+
+/// Where the menu titled `title` is on the menu bar.
+fn menu_index(stage: &Stage, title: &str) -> Result<usize> {
+    borg_core::menus(&stage.state).iter().position(|menu| menu.title == title).context("the menu")
+}
+
+#[test]
+fn a_menu_taller_than_the_screen_scrolls_and_a_click_takes_the_entry_shown() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    stage.send(key(KeyCode::F(2))).send(key(KeyCode::End));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Quit")?;
+    ensure_no_text(&buffer, "  View ")?;
+    check("file_menu_scrolled", &stage, buffer.clone())?;
+    let (row, column) = place_of(&buffer, "Quit")?;
+    let quit = borg_core::menus(&stage.state)[menu_index(&stage, "File")?].entries.len() - 1;
+    let msg = borg_ui::mouse_input(&stage.state, click(column, row), false, stage.started);
+    anyhow::ensure!(matches!(msg, Some(Msg::Pointer(borg_core::Pointer::MenuItem(index))) if index == quit), "{msg:?}");
+    Ok(())
+}
+
+#[test]
+fn the_menu_bar_moves_to_show_a_menu_past_its_end_and_takes_clicks_where_its_titles_show() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    stage.send(key(KeyCode::F(9))).send(key(KeyCode::Left));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Encryption")?;
+    ensure_text(&buffer, "Create vault…")?;
+    check("encryption_menu", &stage, buffer.clone())?;
+    let (row, column) = place_of(&buffer, "Search")?;
+    let msg = borg_ui::mouse_input(&stage.state, click(column, row), false, stage.started);
+    let search = menu_index(&stage, "Search")?;
+    anyhow::ensure!(matches!(msg, Some(Msg::Pointer(borg_core::Pointer::Menu(index))) if index == search), "{msg:?}");
+    Ok(())
+}
+
 #[test]
 fn context_menu_opens_where_a_right_click_lands_and_a_click_chooses_an_entry() -> Result<()> {
     use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};

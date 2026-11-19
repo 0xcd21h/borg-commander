@@ -2084,6 +2084,7 @@
   "install_gocryptfs_done": "gocryptfs установлен. Нажмите Enter на хранилище, чтобы открыть его.",
   "vault_create": "Создать хранилище…",
   "vault_close": "Закрыть хранилище",
+  "encryption_menu_title": "Шифрование",
   "vault_create_title": "Создание хранилища",
   "vault_name_label": "Имя нового хранилища в этой папке",
   "vault_new_password_label": "Пароль хранилища {name}",

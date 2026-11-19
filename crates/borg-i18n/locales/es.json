@@ -2084,6 +2084,7 @@
   "install_gocryptfs_done": "gocryptfs está instalado. Pulsa Enter sobre la bóveda para abrirla.",
   "vault_create": "Crear bóveda…",
   "vault_close": "Cerrar bóveda",
+  "encryption_menu_title": "Cifrado",
   "vault_create_title": "Crear bóveda",
   "vault_name_label": "Nombre de la nueva bóveda en esta carpeta",
   "vault_new_password_label": "Contraseña de la bóveda {name}",

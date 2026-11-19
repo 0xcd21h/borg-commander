@@ -172,7 +172,7 @@ pub struct AppState {
     pub(crate) awaited: Option<(u64, PathBuf)>,
     /// What the Find in folder dialog held when it closed, for the next time it opens.
     pub(crate) search_draft: Option<crate::SearchForm>,
-    pub(crate) last_menu: Option<MenuCursor>,
+    pub(crate) last_menu: Option<crate::menu::MenuPlace>,
     pub(crate) escaped: Option<Instant>,
     pub peeked: Option<Peeked>,
     pub preview_find: crate::PagerFind,

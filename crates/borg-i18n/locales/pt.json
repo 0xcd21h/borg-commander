@@ -2084,6 +2084,7 @@
   "install_gocryptfs_done": "O gocryptfs está instalado. Prima Enter no cofre para o abrir.",
   "vault_create": "Criar cofre…",
   "vault_close": "Fechar cofre",
+  "encryption_menu_title": "Cifragem",
   "vault_create_title": "Criar cofre",
   "vault_name_label": "Nome do novo cofre nesta pasta",
   "vault_new_password_label": "Palavra-passe do cofre {name}",

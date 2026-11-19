@@ -538,6 +538,13 @@ shell, así que pega ahí con el atajo de pegar de tu terminal. El menú Archivo
 acciones de copia para teclados sin tecla Insert. Lo que es demasiado grande para que el terminal
 lo transmita se queda en Borg.
 
+F9 abre la barra de menús donde la dejaste: en el mismo menú, en la entrada que elegiste o en la que
+te detuviste, o en la más cercana si esa entrada no se puede elegir en ese momento. Left y Right
+pasan de un menú a otro, Up, Down, Home y End recorren un menú, Enter elige y Esc cierra. Cuando los
+títulos no caben en la pantalla, la barra se desplaza para mostrar el título del menú abierto, y ◀ o
+▶ indica que hay más menús más allá de ese extremo. Un menú más alto que la pantalla se desplaza a
+medida que lo recorres, con ▲ o ▼ en el borde donde hay entradas ocultas.
+
 Si tu terminal se reserva las teclas F, pulsa **Esc y luego un dígito** en menos de 1,5 segundos:
 Esc 1 a Esc 9 equivalen a F1 a F9, y Esc 0 a F10. Por ejemplo, Esc 9 abre los menús y Esc 5 copia.
 Mientras Borg espera el dígito, la fila de teclas de función indica qué dígito pulsar. Si hay algo
@@ -556,9 +563,9 @@ primera letra de cada botón en el idioma de Borg, como S para Sí en español.
 
 ## Ratón y consola
 
-Haz clic en una fila para llevar el cursor a ella, doble clic para abrirla y clic derecho para
-abrir su menú contextual. Haz clic en la barra de menús o en la barra de atajos para usarlas. La
-rueda del ratón desplaza el panel.
+Haz clic en una fila para llevar el cursor a ella, doble clic para abrirla y clic derecho para abrir
+su menú contextual. Haz clic en la barra de menús o en la barra de atajos para usarlas. La rueda del
+ratón desplaza el panel, o el menú abierto cuando hay uno.
 
 Los diálogos también funcionan con el ratón. Haz clic en una fila de una lista para elegirla; en
 los selectores de tema e idioma, en Hosts remotos y en Acceso remoto, un segundo clic la confirma.
@@ -1876,14 +1883,14 @@ para ello. La carpeta de la bóveda contiene un archivo cifrado por cada archivo
 sincroniza y se respalda como cualquier otra carpeta, y gocryptfs la abre igual en Linux que en
 macOS.
 
-**Crear bóveda…** en el menú Archivo (F2) pide el nombre de la nueva bóveda y después su contraseña
-dos veces, en campos que ocultan lo que escribes. Borg crea la bóveda en la carpeta del panel
-activo, la abre y muestra su **Clave de recuperación**: ocho grupos de dígitos hexadecimales que
-abren la bóveda si olvidas la contraseña. Antes de mostrar la clave, Borg abre la nueva bóveda con
-ella una vez para comprobar que funciona. Borg muestra la clave solo esta vez: anótala, luego
-escribe su último grupo y pulsa Enter para cerrarla. Mientras se muestra la clave, los agentes que
-miran la pantalla de Borg reciben un aviso en su lugar. Borg crea bóvedas solo en las carpetas de
-esta computadora.
+**Crear bóveda…** en el menú Cifrado pide el nombre de la nueva bóveda y después su contraseña dos
+veces, en campos que ocultan lo que escribes. Borg crea la bóveda en la carpeta del panel activo, la
+abre y muestra su **Clave de recuperación**: ocho grupos de dígitos hexadecimales que abren la
+bóveda si olvidas la contraseña. Antes de mostrar la clave, Borg abre la nueva bóveda con ella una
+vez para comprobar que funciona. Borg muestra la clave solo esta vez: anótala, luego escribe su
+último grupo y pulsa Enter para cerrarla. Mientras se muestra la clave, los agentes que miran la
+pantalla de Borg reciben un aviso en su lugar. Borg crea bóvedas solo en las carpetas de esta
+computadora.
 
 Enter sobre una bóveda, una carpeta que contiene `gocryptfs.conf`, abre el diálogo **Bóveda**, que
 pide la contraseña y oculta lo que escribes. Una contraseña incorrecta vuelve a preguntar, y Esc deja
@@ -1893,7 +1900,7 @@ una hoja de cálculo en su aplicación, copiar una imagen fuera o ejecutar coman
 shell. `..` en la raíz de la bóveda vuelve a la carpeta que la contiene y deja la bóveda abierta, así
 que Enter sobre ella vuelve a entrar directamente.
 
-**Cerrar bóveda** en el menú Archivo cierra la bóveda que muestra el panel activo, y cada panel que
+**Cerrar bóveda** en el menú Cifrado cierra la bóveda que muestra el panel activo, y cada panel que
 está dentro vuelve a la carpeta que la contiene. Mientras un programa tenga un archivo abierto en la
 bóveda, esta sigue abierta y Borg lo indica. Una bóveda abierta se cierra sola tras 15 minutos sin
 uso, incluso después de cerrar Borg. Pon `vault-idle-minutes` en la configuración para cambiar ese

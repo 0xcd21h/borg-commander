@@ -146,6 +146,8 @@ fn scrolls(overlay: &Overlay) -> bool {
         | Overlay::ProcessControl(_)
         | Overlay::EntropyScan(_)
         | Overlay::Storage(_)
+        | Overlay::Menu(_)
+        | Overlay::ContextMenu(_)
         | Overlay::TimeMachine => true,
         Overlay::Exclusions(editor) => editor.editing.is_none(),
         _ => false,
