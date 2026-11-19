@@ -667,6 +667,36 @@ echo "got=$(printf '%s' "$key" | od -An -tu1 | tr -d ' ')"
 }
 
 #[test]
+fn ctrl_o_stays_with_borg_while_a_program_leaves_echo_on() -> Result<()> {
+    const STARTUP: &str = "startup.sh";
+    const SCRIPT: &str = r#"stty -icanon
+echo still-starting
+while key=$(dd bs=1 count=1 2>/dev/null); [ "$key" != q ]; do
+  echo "got=$(printf '%s' "$key" | od -An -tu1 | tr -d ' ')"
+done
+stty sane
+echo started
+"#;
+    const CTRL_O_CODE: &str = "got=15";
+
+    let fixture = fixture()?;
+    let script = fixture.home().join(STARTUP);
+    fs::write(&script, SCRIPT)?;
+    let mut app = start(&fixture, "echoing-program")?;
+
+    app.send(format!("sh '{}'", script.display()))?.send(keys::enter())?;
+    app.wait_until("program running", |s| s.contains("still-starting") && !s.contains(READY))?;
+    app.send(keys::ctrl('o'))?;
+    app.wait_until("panels back while the program runs", |s| s.contains(READY))?;
+    app.send(keys::ctrl('o'))?;
+    let console = app.wait_until("console again", |s| s.contains("still-starting") && !s.contains(READY))?;
+    ensure!(!console.contains(CTRL_O_CODE), "the program got Ctrl-O\n{}", console.text());
+    app.send("q")?;
+    app.wait_text("started")?;
+    Ok(())
+}
+
+#[test]
 fn hidden_files_toggle() -> Result<()> {
     let fixture = fixture()?;
     let mut app = start(&fixture, "hidden")?;

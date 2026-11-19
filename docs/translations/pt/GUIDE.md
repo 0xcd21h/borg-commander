@@ -598,6 +598,11 @@ por iniciativa própria, ela continua aberta depois dos comandos e de Ctrl-C. "R
 painéis após o comando" aplica-se apenas aos comandos executados a partir dos painéis. No prompt
 da shell, Option-Left e Option-Right (Alt no Linux) avançam palavra a palavra.
 
+Os programas de ecrã inteiro e os que leem cada tecla por si, como `vim`, `top` e `ssh`, recebem
+todas as teclas enquanto correm, incluindo Ctrl-O. Ctrl-O continua a funcionar enquanto a shell
+arranca, mesmo quando um script de arranque, como o prompt instantâneo do Powerlevel10k, altera a
+forma como o terminal lê as teclas.
+
 Na consola, a roda do rato percorre a saída para trás sem mexer no comando que está a escrever.
 Shift-PgUp e Shift-PgDn percorrem uma página de cada vez, Shift-Home salta para a saída mais antiga e
 Shift-End volta ao prompt ativo, tal como começar a escrever. Para copiar a saída visível,
