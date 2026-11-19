@@ -4149,6 +4149,33 @@ fn background_sizes_stay_in_normal_panels_with_progress_and_stop_action() -> Res
     Ok(())
 }
 
+#[test]
+fn f3_on_a_folder_counts_its_size_and_the_key_bar_and_file_menu_say_so() -> Result<()> {
+    let mut stage = stage(GridSize { cols: 132, rows: 28 }, Motion::STILL)?;
+    for _ in 0..2 {
+        stage.send(Msg::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)));
+    }
+    assert_eq!(stage.state.active_panel().hovered_entry().map(|entry| entry.name.as_str()), Some("src"));
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::F(3), KeyModifiers::NONE)));
+    let id = stage.state.sizing.as_ref().context("F3 starts a size count")?.id;
+    stage.send(Msg::SizeProgress { id, progress: borg_core::SearchProgress { visited: 812, ..Default::default() } });
+    let mut growing = entry("src", EntryKind::Dir, 45200000, RECENT, false);
+    growing.source = Some("/home/me/projects/borg/src".into());
+    growing.usage = Some(borg_vfs::FolderUsage { files: 410, folders: 24, partial: true, ..Default::default() });
+    stage.send(Msg::Sized { id, entries: vec![growing] });
+    let buffer = stage.render(stage.started + Duration::from_secs(2))?;
+    ensure_text(&buffer, "F3Count")?;
+    ensure_text(&buffer, "≥43M")?;
+    ensure_text(&buffer, "Sizes · 812 scanned")?;
+    check("f3_folder_size", &stage, buffer)?;
+
+    let index = borg_core::menus(&stage.state).iter().position(|menu| menu.title == "File").unwrap();
+    stage.send(Msg::Pointer(borg_core::Pointer::Menu(index)));
+    let buffer = stage.render(stage.started + Duration::from_secs(2))?;
+    ensure_text(&buffer, "Count size")?;
+    check("f3_folder_size_menu", &stage, buffer)
+}
+
 fn container(
     id: &str,
     project: Option<&str>,

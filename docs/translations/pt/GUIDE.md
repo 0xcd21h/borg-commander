@@ -433,9 +433,21 @@ incluindo ficheiros ocultos, e preenche o total de cada pasta à medida que term
 navegar ou usar a consola enquanto a análise decorre. As pastas que ainda estão a ser medidas
 mostram um total crescente assinalado com `≥`, e os totais mantêm-se quando sai de uma pasta e volta
 a ela. O rodapé do painel mostra o progresso, e a contagem corre como uma tarefa em Alt-J. Prima
-**Alt-I** de novo, ou clique no rodapé, para parar a análise e manter os totais medidos até esse
-momento. Iniciar uma tarefa de cópia, movimentação ou eliminação para uma análise de tamanhos em
-curso. As análises concluídas partilham a cache com a árvore de tamanhos e com Totais de pastas.
+**Alt-I** de novo, ou clique no rodapé, para parar todas as contagens em curso e manter os totais
+medidos até esse momento. Iniciar uma tarefa de cópia, movimentação ou eliminação para as contagens
+de tamanhos em curso. As análises concluídas partilham a cache com a árvore de tamanhos e com Totais
+de pastas.
+
+Prima **F3** numa pasta para contar apenas essa pasta, como noutros gestores de ficheiros de dois
+painéis. A linha da pasta mostra o total a crescer e depois o total final. Nessa altura, o menu
+Ficheiro chama à ação **Contar tamanho** e a barra de atalhos mostra **Contar**. Com pastas
+marcadas, F3 em qualquer pasta conta as pastas marcadas, uma após outra, numa única tarefa, e deixa
+de fora os ficheiros marcados. F3 em `..` conta a pasta que o painel mostra, tal como Alt-I. Cada F3
+inicia uma tarefa em Alt-J, e uma contagem iniciada enquanto outra decorre fica à espera dela. F3
+numa pasta que uma contagem já mede, como uma pasta dentro da que está a ser contada, não inicia
+nada e indica qual é a contagem que a abrange. Se cancelar uma contagem em Alt-J, começa a seguinte
+que está à espera. F3 num ficheiro continua a abrir o visualizador, e as ligações simbólicas para
+pastas não são contadas.
 
 ### Análises de tamanho guardadas
 
@@ -509,7 +521,7 @@ instantes.
 | Alt-E | Editar o ficheiro selecionado neste painel, em vez dos seus ficheiros, ou no outro painel ao lado dos resultados |
 | F1 | Sobre |
 | F2 | Menu Ficheiro |
-| F3 | Ver (texto ou imagem) |
+| F3 | Ver (texto ou imagem); numa pasta ou em `..`, contar o tamanho em segundo plano |
 | F4 / Shift-F4 | Editar no editor do Borg / em `$VISUAL` ou `$EDITOR` |
 | F5 / F6 | Copiar / mover para o outro painel |
 | F7 | Criar uma pasta |
@@ -1525,7 +1537,7 @@ quando estão completas.
 
 O trabalho que demora corre como uma tarefa: cópias, movimentações e eliminações, descompactar e
 compactar arquivos, **Substituir nos ficheiros…**, cada pesquisa que preenche um painel de
-resultados (Ctrl-F, Alt-D, Alt-Shift-D e Alt-S), os tamanhos de pastas contados com Alt-I, a análise
+resultados (Ctrl-F, Alt-D, Alt-Shift-D e Alt-S), os tamanhos de pastas contados com Alt-I ou F3, a análise
 de entropia em Alt-M, a primeira construção do índice de pesquisa de uma pasta e as análises de
 portas. Alt-J abre o painel de tarefas por cima do painel direito. Lista primeiro as tarefas em
 curso, a mais antiga no topo, e depois as terminadas, a mais recente primeiro. Num terminal com

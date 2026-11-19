@@ -15,6 +15,7 @@ use crate::{
 };
 
 mod jobs;
+mod sizes;
 
 const COLS: u16 = 80;
 const ROWS: u16 = 24;
@@ -2704,11 +2705,11 @@ fn a_menu_whose_item_moved_away_while_it_was_open_does_nothing() {
 }
 
 #[test]
-fn a_folder_cannot_be_viewed_from_the_menu_and_esc_closes_it() {
+fn a_folder_cannot_be_edited_from_the_menu_and_esc_closes_it() {
     let (mut state, now) = setup_with(vec![dir("me")]);
     press(&mut state, now, key(KeyCode::Down));
     press(&mut state, now, shift(KeyCode::F(10)));
-    let effects = choose_context(&mut state, now, "View");
+    let effects = choose_context(&mut state, now, "Edit");
     assert!(effects.is_empty());
     assert!(matches!(state.overlay, Some(Overlay::ContextMenu(_))), "a disabled entry keeps the menu open");
     press(&mut state, now, key(KeyCode::Esc));
@@ -2759,8 +2760,8 @@ fn mouse_menus_respect_disabled_items_and_modal_dialogs() {
     use crate::Pointer;
     let (mut state, now) = setup();
     update(&mut state, Msg::Pointer(Pointer::Menu(1)), now);
-    update(&mut state, Msg::Pointer(Pointer::MenuItem(0)), now);
-    assert!(matches!(state.overlay, Some(Overlay::Menu(_))), "View is disabled on the parent row");
+    update(&mut state, Msg::Pointer(Pointer::MenuItem(1)), now);
+    assert!(matches!(state.overlay, Some(Overlay::Menu(_))), "Edit is disabled on the parent row");
     update(&mut state, Msg::Pointer(Pointer::MenuItem(6)), now);
     assert!(matches!(state.overlay, Some(Overlay::Prompt(_))), "Make directory opens its prompt");
     update(&mut state, Msg::Pointer(Pointer::Action(Action::Quit)), now);
