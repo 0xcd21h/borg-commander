@@ -60,6 +60,13 @@ pub enum Msg {
         id: u64,
         result: Result<crate::AlertsReply, String>,
     },
+    /// The paired hosts the hosts screen shows, listed before each round of asking them.
+    HostsListed(Result<Vec<crate::PairedHost>, String>),
+    /// What a paired host answered the hosts screen.
+    HostAnswered {
+        identity: String,
+        answer: crate::HostHeard,
+    },
     /// The alert log changed under Borg: the watcher wrote one, or another Borg read them.
     AlertsChanged(Box<crate::AlertLog>),
     /// Names for addresses the network screen asked about; `None` where there is none.
@@ -289,6 +296,16 @@ pub enum Msg {
         packed: crate::PackedFile,
         result: Result<crate::EditorFile, crate::OpenError>,
     },
+    Sealed(crate::SealedFile),
+    UnsealFailed {
+        file: crate::SealedFile,
+        error: crate::UnsealError,
+    },
+    SealedEditorOpened {
+        slot: crate::EditorSlot,
+        file: crate::EditorFile,
+        seal: borg_crypt::sealed::Seal,
+    },
     /// The save of the editor in a slot landed, with the file's new stamp, or did not.
     EditorSaved(crate::EditorSlot, Result<crate::FileStamp, crate::SaveError>),
     /// What the search `id` through the viewer's or the quick view's text found, or why it
@@ -461,6 +478,10 @@ pub enum Effect {
     OpenCapture(PathBuf),
     /// Starts or stops streaming container stats.
     DockerWatch(bool),
+    /// Starts or stops asking every paired host for its figures, every few seconds.
+    WatchHosts(bool),
+    /// Asks every paired host again at once.
+    RefreshHosts,
     DockerShell(crate::ShellRequest),
     /// The command line and Ctrl-O console now belong to this shell.
     UseConsole(crate::Console),
@@ -608,6 +629,11 @@ pub enum Effect {
         expected: crate::FileStamp,
         force: bool,
         slot: crate::EditorSlot,
+        seal: Option<borg_crypt::sealed::Seal>,
+    },
+    Unseal {
+        file: crate::SealedFile,
+        password: crate::Password,
     },
     RemoteView {
         machine: String,

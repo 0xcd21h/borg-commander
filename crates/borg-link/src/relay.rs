@@ -78,6 +78,18 @@ async fn open(url: &str) -> Result<Socket> {
     Ok(socket)
 }
 
+/// The relay says the server is not connected to it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Offline;
+
+impl std::fmt::Display for Offline {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(closed(Some(CloseCode::from(OFFLINE))))
+    }
+}
+
+impl std::error::Error for Offline {}
+
 /// Why the relay closed a socket, in words for the user.
 fn closed(code: Option<CloseCode>) -> &'static str {
     match code.map(u16::from) {
@@ -187,6 +199,7 @@ pub async fn dial(relay: &Relay, server: &PublicKey) -> Result<Socket> {
     // The relay says the server is ready to answer, or closes with the reason it is not.
     match socket.next().await {
         Some(Ok(Message::Text(text))) if text.as_str() == READY => Ok(socket),
+        Some(Ok(Message::Close(Some(frame)))) if u16::from(frame.code) == OFFLINE => Err(Offline.into()),
         Some(Ok(Message::Close(frame))) => bail!(closed(frame.map(|frame| frame.code))),
         _ => bail!("the relay closed the connection"),
     }

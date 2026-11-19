@@ -11,6 +11,7 @@ pub enum Action {
     Network,
     StartupItems,
     Alerts,
+    HostsOverview,
     ToggleSystemPlugin,
     ToggleProcessWatch,
     ToggleProcessFreeze,

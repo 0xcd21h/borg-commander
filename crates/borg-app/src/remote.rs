@@ -116,17 +116,51 @@ fn refused(text: &str) -> anyhow::Error {
     }
 }
 
+/// A host's sessions as the remote hosts list shows them.
+pub(crate) fn session_choices(
+    server: &link::Server,
+    info: &borg_core::RemoteHostInfo,
+    sessions: Vec<HostSession>,
+) -> Vec<borg_core::RemoteChoice> {
+    sessions
+        .into_iter()
+        .map(|session| borg_core::RemoteChoice {
+            identity: server.key.clone(),
+            machine: server.name.clone(),
+            session: Some(session.id),
+            name: session.name,
+            info: borg_core::RemoteHostInfo {
+                service: info.service.map(|service| service && !session.terminal),
+                ..info.clone()
+            },
+            ..Default::default()
+        })
+        .collect()
+}
+
+/// What a host says about itself, and its figures when the caller asked for them and its Borg
+/// sends them.
 #[derive(Deserialize)]
-struct HostInfo {
+pub(crate) struct HostInfo {
     version: String,
     os: String,
     arch: String,
     service: bool,
-    sessions: Vec<HostSession>,
+    pub(crate) sessions: Vec<HostSession>,
+    #[serde(default, rename = "overview")]
+    pub(crate) figures: Option<borg_core::HostFigures>,
+}
+
+impl HostInfo {
+    pub(crate) fn fill(&self, info: &mut borg_core::RemoteHostInfo) {
+        info.version = Some(self.version.clone());
+        info.platform = Some(format!("{} / {}", self.os, self.arch));
+        info.service = Some(self.service);
+    }
 }
 
 #[derive(Deserialize)]
-struct HostSession {
+pub(crate) struct HostSession {
     id: String,
     name: String,
     /// The host's background service coordinates it, and it runs in a terminal there.
@@ -137,15 +171,13 @@ struct HostSession {
 async fn host_catalog(state: &std::path::Path, server: link::Server) -> Vec<borg_core::RemoteChoice> {
     let mut info = borg_core::RemoteHostInfo { relay: server.relay.clone(), ..Default::default() };
     let result = tokio::time::timeout(std::time::Duration::from_secs(5), async {
-        let mut remote = link::Remote::open(state, &server).await?;
+        let mut remote = link::Remote::open_monitor(state, &server).await?;
         let start = std::time::Instant::now();
         let reply = remote.call(&Call::new("host_info", json!({}))).await?;
         info.latency_ms = Some(start.elapsed().as_millis().min(u64::MAX as u128) as u64);
         if reply.ok {
             let host: HostInfo = serde_json::from_str(&reply.text)?;
-            info.version = Some(host.version);
-            info.platform = Some(format!("{} / {}", host.os, host.arch));
-            info.service = Some(host.service);
+            host.fill(&mut info);
             Ok::<_, anyhow::Error>(host.sessions)
         } else {
             // Older hosts remain usable, but do not infer their version from the relay.
@@ -165,20 +197,7 @@ async fn host_catalog(state: &std::path::Path, server: link::Server) -> Vec<borg
     })
     .await;
     match result {
-        Ok(Ok(sessions)) if !sessions.is_empty() => sessions
-            .into_iter()
-            .map(|session| borg_core::RemoteChoice {
-                identity: server.key.clone(),
-                machine: server.name.clone(),
-                session: Some(session.id),
-                name: session.name,
-                info: borg_core::RemoteHostInfo {
-                    service: info.service.map(|service| service && !session.terminal),
-                    ..info.clone()
-                },
-                ..Default::default()
-            })
-            .collect(),
+        Ok(Ok(sessions)) if !sessions.is_empty() => session_choices(&server, &info, sessions),
         other => {
             let name = match other {
                 Ok(Ok(_)) => "No sessions".into(),

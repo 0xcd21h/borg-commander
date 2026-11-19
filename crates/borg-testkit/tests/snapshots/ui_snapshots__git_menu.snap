@@ -22,7 +22,7 @@ expression: describe(&buffer)
 ╰ 10 items · Git main ──────────────────────╯╰ 5 items ──────────────────────────────────╯
  Up to the parent directory
 $
-F1Help  F2File  F3View  F4Edit  F5Copy  F6Move  F7Mkdir F8DeleteF9Menu  F10Quit ^OShell
+F1Help  F2File  F3Count F4Edit  F5Copy  F6Move  F7Mkdir F8DeleteF9Menu  F10Quit ^OShell
 Alt-H Remote hosts  Alt-I Count sizes  Ctrl-F Search             ◈ Borg Commander v0.12.0
 --- styles ---
   0: 0-58 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE | 59-65 Rgb(255, 255, 255) Rgb(0, 95, 135) BOLD | 66-89 Rgb(0, 0, 0) Rgb(17, 168, 205) NONE

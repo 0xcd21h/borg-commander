@@ -122,6 +122,23 @@ pub(super) fn startup(state: &mut AppState, pointer: Pointer, now: Instant) -> V
     }
 }
 
+/// A click in the hosts screen: on its frame, a card or a row, or a control.
+pub(super) fn hosts(state: &mut AppState, pointer: Pointer, now: Instant) -> Vec<Effect> {
+    match pointer {
+        Pointer::HostsExpand(expand) => {
+            state.hosts.expanded = expand;
+            Vec::new()
+        }
+        Pointer::HostsHide => {
+            crate::hosts::close(state);
+            Vec::new()
+        }
+        Pointer::HostsRow { index, open } => crate::hosts::click(state, index, open),
+        Pointer::HostsControl(code) => crate::hosts::route_key(state, &code.into(), now),
+        _ => Vec::new(),
+    }
+}
+
 /// A click in the Alerts page: on its frame, a row or a control.
 pub(super) fn alerts(state: &mut AppState, pointer: Pointer, now: Instant) -> Vec<Effect> {
     match pointer {

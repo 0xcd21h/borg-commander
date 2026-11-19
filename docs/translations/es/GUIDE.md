@@ -217,9 +217,9 @@ segunda pregunta indica el texto y los archivos, y empieza en **No**. Pulsa Y pa
 no guarda una copia del texto anterior. Los interruptores de la búsqueda se aplican, así que una
 búsqueda de palabras completas reemplaza palabras completas, y con una expresión regular `$1`
 devuelve el primer grupo. Borg escribe cada archivo como guarda su editor, así que los permisos y
-los enlaces se mantienen. Omite los archivos que no son texto, que pasan de 32 MiB o que cambiaron
-mientras la tarea se ejecutaba. La tarea aparece en Alt-J, y los resultados se actualizan cuando
-termina.
+los enlaces se mantienen. Omite los archivos cifrados y los que no son texto, que pasan de 32 MiB o
+que cambiaron mientras la tarea se ejecutaba. La tarea aparece en Alt-J, y los resultados se
+actualizan cuando termina.
 
 ### Analizar archivos con reglas
 
@@ -428,10 +428,21 @@ actual, incluidos los archivos ocultos, y completa el total de cada carpeta cuan
 Mientras tanto, puedes seguir navegando o usar la consola. Las carpetas que aún se están midiendo
 muestran un total creciente marcado con `≥`, y los totales se conservan si sales de una carpeta y
 vuelves. El pie del panel muestra el progreso, y el recuento se ejecuta como una tarea en Alt-J.
-Pulsa **Alt-I** de nuevo, o haz clic en el pie, para detener el análisis y conservar los totales
-medidos hasta ese momento. Al iniciar una tarea de copia, movimiento o eliminación se detiene el
-análisis de tamaños en curso. Los análisis terminados comparten su caché con el árbol de tamaños y
-con Totales de carpeta.
+Pulsa **Alt-I** de nuevo, o haz clic en el pie, para detener todos los recuentos en curso y
+conservar los totales medidos hasta ese momento. Al iniciar una tarea de copia, movimiento o
+eliminación se detienen los recuentos de tamaños en curso. Los análisis terminados comparten su
+caché con el árbol de tamaños y con Totales de carpeta.
+
+Pulsa **F3** sobre una carpeta para contar solo esa carpeta, como en otros gestores de archivos de
+dos paneles. Su fila muestra el total mientras crece y después el definitivo. Mientras tanto, el
+menú Archivo llama a la acción **Contar tamaño** y la barra de atajos muestra **Contar**. Con
+carpetas marcadas, F3 sobre cualquier carpeta cuenta las carpetas marcadas una tras otra en una sola
+tarea y deja fuera los archivos marcados. F3 sobre `..` cuenta la carpeta que muestra el panel,
+igual que Alt-I. Cada F3 inicia una tarea en Alt-J, y un recuento que inicies mientras otro está en
+marcha espera a que termine. F3 sobre una carpeta que ya mide un recuento, como una carpeta dentro
+de la que se está contando, no inicia nada e indica qué recuento la cubre. Si cancelas un recuento
+en Alt-J, empieza el siguiente en espera. F3 sobre un archivo sigue abriendo el visor, y los enlaces
+simbólicos a carpetas no se cuentan.
 
 ### Análisis de tamaño guardados
 
@@ -505,7 +516,7 @@ momento.
 | Alt-E | Editar el archivo seleccionado en este panel, en lugar de sus archivos, o en el otro panel junto a los resultados |
 | F1 | Acerca de |
 | F2 | Menú Archivo |
-| F3 | Ver (texto o imagen) |
+| F3 | Ver (texto o imagen); sobre una carpeta o `..`, contar su tamaño en segundo plano |
 | F4 / Shift-F4 | Editar en el editor de Borg / en `$VISUAL` o `$EDITOR` |
 | F5 / F6 | Copiar / mover al otro panel |
 | F7 | Crear una carpeta |
@@ -1178,8 +1189,9 @@ emparejadas, vuelve a emparejar y revisa esos servidores.
 Con espacios de trabajo con nombre, `borg sessions list` muestra sus ID y nombres,
 `borg sessions create NAME` añade uno y `borg --session NAME` lo abre. Por MCP, el agente puede
 llamar a `list_sessions`, `list_remote_sessions` y `use_session` para elegir con qué sesión trabaja
-esa conexión. Una sola llamada a una herramienta también puede pasar un ID de `session` para
-dirigirse a otra sesión solo esa vez. La sesión elegida solo se aplica a esa conexión MCP.
+esa conexión, y a `hosts` para ver cómo está cada host emparejado. Una sola llamada a una
+herramienta también puede pasar un ID de `session` para dirigirse a otra sesión solo esa vez. La
+sesión elegida solo se aplica a esa conexión MCP.
 
 Con más de una sesión, o cuando la única que hay está abierta en otro terminal, `borg` empieza por
 la ventana **Sesiones de Borg**. Sus primeras líneas explican qué es una sesión, y la lista muestra
@@ -1290,8 +1302,8 @@ En el Borg local, pulsa **Alt-H**, haz clic en **Hosts remotos** en la barra de 
 **F9 → Remoto → Explorar hosts y sesiones…** para ver las máquinas emparejadas y sus sesiones con
 nombre. Enter abre los archivos de la sesión seleccionada en el panel desde el que abriste el
 selector, y sustituye lo que mostraba ese panel. Pulsa **M** para reflejar la pantalla de la sesión,
-**U** para actualizar el host (consulta [Actualizar con sesiones abiertas](#updating-with-sessions-open))
-y **R** para actualizar la lista.
+**U** para actualizar el host (consulta [Actualizar con sesiones abiertas](#updating-with-sessions-open)),
+**R** para actualizar la lista y **O** para abrir la [vista general de hosts](#hosts-overview).
 
 **Tab** alterna entre **Hosts** (computadoras a las que este Borg puede llegar) y **Clientes**
 (computadoras que pueden llegar a este Borg). Clientes enumera las computadoras emparejadas con este
@@ -1303,7 +1315,7 @@ mantiene el servicio en segundo plano. El emparejamiento funciona en un solo sen
 autorizado no se convierte automáticamente en un host cuyos archivos pueda explorar este Borg.
 Cuando el propietario de la conexión no puede informar del estado de la conexión, los clientes
 emparejados siguen apareciendo, con **Estado de conexión no disponible**. Un mismo Borg puede ser
-host y cliente a la vez. El menú Remoto también ofrece **Reflejar host montado**, **Compartir este
+host y cliente a la vez. El menú Remoto también ofrece **Vista general de hosts**, **Reflejar host montado**, **Compartir este
 Borg como host…**, **Registro remoto…** y **Servicio en segundo plano…**.
 
 El selector muestra la versión de Borg de cada host. Al seleccionar una sesión se muestran su
@@ -1339,6 +1351,60 @@ sesión predeterminada (Default) no se puede eliminar. Una sesión independiente
 aloja la conexión no puede eliminarse a sí misma; ciérrala primero en el host y ejecuta Borg en otra
 sesión. Si la eliminación falla, la sesión sigue en la lista para que puedas intentarlo de nuevo.
 Una sesión en marcha se detiene primero, y el servicio no la vuelve a iniciar.
+
+### Vista general de hosts
+
+Elige **F9 → Remoto → Vista general de hosts**, o pulsa **O** en el selector de hosts remotos, para
+ver todos los hosts emparejados a la vez. Cada host tiene una tarjeta con barras para la CPU, la RAM
+y el sistema de archivos más lleno, la carga junto a la CPU y, debajo, el vigilante de procesos y
+cuánto tiempo lleva encendido el host, con cuántos de sus contenedores están en marcha. Mientras
+está abierta, la página vuelve a consultar todos los hosts cada 5 segundos, y deja de hacerlo cuando
+la cierras.
+
+Una tarjeta pasa al color de aviso cuando la carga supera el número de núcleos, cuando la RAM o el
+sistema de archivos más lleno llega al 90%, cuando un contenedor se reinicia una y otra vez o falla
+su comprobación de salud, o cuando el vigilante tiene avisos sin leer. Pasa al color de alerta con
+el doble de esa carga, con un 95% de RAM o de disco, con menos de 1 GiB libre en el disco, con
+alertas sin leer, o cuando el vigilante ha congelado un proceso. ● marca un host que responde y ◌ uno
+cuya respuesta Borg aún espera. ◐ marca un host que ha dejado de responder: su tarjeta conserva las
+últimas cifras, indica cuánto tiempo lleva callado el host y muestra la antigüedad de las cifras en
+su borde inferior a partir de los 15 segundos. Un host con un Borg más antiguo muestra ↑ después de
+su versión. Un Borg demasiado antiguo para enviar cifras lo indica en su tarjeta; pulsa **U** para
+actualizarlo.
+
+Los hosts que el relay da por desconectados salen de las tarjetas y se agrupan en una línea abajo,
+cada uno con la hora a la que respondió por última vez. Borg guarda esas horas en `hosts-seen.json`
+en la carpeta de estado, que solo tú puedes leer.
+
+Las flechas mueven entre tarjetas. **Enter** abre los archivos del host seleccionado en un panel,
+**M** refleja su sesión, **U** lo actualiza y **F2** lo renombra. En un host con varias sesiones,
+Enter y M muestran primero el selector solo con las sesiones de ese host. **R** vuelve a consultar
+todos los hosts al momento, **/** filtra por nombre, versión de Borg o sistema, y **V** cambia a una
+tabla con una fila por host, incluidos los desconectados. Un panel demasiado estrecho o bajo para una
+tarjeta también muestra la tabla. **Alt-W** da a la página la mitad del ancho y muestra los detalles
+del host seleccionado junto a las tarjetas: su sistema, el relay, el tiempo de ida y vuelta, las
+sesiones, cuándo respondió por última vez y cada cifra en palabras.
+
+Las cifras viajan por borg cloud como cualquier otra llamada, cifradas de extremo a extremo. Son
+números y recuentos: los totales de la máquina para CPU, carga, memoria y swap, el tamaño y el
+espacio libre de un sistema de archivos con su punto de montaje, los recuentos sin leer del
+vigilante y el número de contenedores. Ningún proceso, nombre de archivo ni texto de alerta sale del
+host por esta vía, así que el host responde sin preguntar, incluso con "preguntar antes de que otra
+computadora lea" activado. La página, la lista de hosts remotos en **Alt-H** y la herramienta
+`hosts` para agentes leen cada host por una conexión que solo puede preguntar cómo está el host. El
+host no la cuenta entre los clientes conectados y anota en su registro remoto qué computadora lee,
+como mucho una vez por hora para cada computadora. Un host con un Borg anterior a estas conexiones
+las rechaza, así que Borg lo lee por una sesión normal, y ese host muestra al lector entre sus
+clientes conectados.
+
+Un agente conectado mediante `borg mcp` lee la misma página con la herramienta `hosts`. Lista todos
+los hosts emparejados en el orden de la página: si responde, su versión de Borg y su sistema, sus
+cifras, lo que pone su tarjeta en el color de aviso o de alerta, y su ID de destino. `use_session` y
+el argumento `session` de cualquier otra herramienta aceptan ese ID, así que el agente puede pasar
+de `hosts` directamente a trabajar en un host. `filter` acota los hosts con las mismas palabras que
+**/** en la página. La respuesta llega como texto, con las mismas cifras como datos para los agentes
+que leen contenido estructurado. La herramienta llega a todos los hosts a través del borg de tu
+computadora, así que `borg mcp remote NAME`, que llega a un solo host, no la incluye.
 
 ### Reflejar una sesión
 
@@ -1468,7 +1534,7 @@ y se renombran cuando están completas.
 El trabajo que lleva tiempo se ejecuta como una tarea: copias, movimientos y eliminaciones, la
 descompresión y la compresión de archivos comprimidos, **Reemplazar en archivos…**, cada búsqueda
 que llena un panel de resultados (Ctrl-F, Alt-D, Alt-Shift-D y Alt-S), los tamaños de carpeta
-contados con Alt-I, el análisis de entropía en Alt-M, la primera creación del índice de búsqueda de
+contados con Alt-I o F3, el análisis de entropía en Alt-M, la primera creación del índice de búsqueda de
 una carpeta y los escaneos de puertos. Alt-J abre el panel de tareas sobre el panel derecho. Muestra
 primero las tareas en curso, la más antigua arriba, y luego las terminadas, la más reciente primero.
 En un terminal de menos de 100 columnas ocupa los dos paneles.
@@ -1788,6 +1854,29 @@ recuperan las búsquedas recientes. Esc cierra la barra; después, `n` y `N` en 
 vista rápida, o F3 y Shift-F3 en el editor, recorren las coincidencias. En un archivo grande, el
 visor y la vista rápida buscan en segundo plano, muestran hasta dónde han llegado y se detienen al
 pulsar Esc. Borg cuenta las coincidencias en archivos de hasta 64 MiB, hasta 10.000 de ellas.
+
+### Archivos cifrados
+
+Borg abre archivos de texto cifrados con contraseña en dos formatos:
+[age](https://age-encryption.org), cuyos archivos suelen terminar en `.age`, y Paranoia Text
+Encryption, un formato para notas cifradas. F3, F4 o Alt-E sobre uno de estos archivos abre el
+diálogo **Archivo cifrado**, que pide la contraseña y oculta lo que escribes. Borg descifra el
+archivo en memoria y nunca escribe el texto en el disco. Una contraseña incorrecta vuelve a
+preguntar, y Esc deja el archivo cerrado. La vista rápida indica el formato y no pregunta.
+
+El visor muestra el texto como lo mostraría el nombre del archivo sin `.age`, así que `notes.md.age`
+se lee como Markdown. En el editor, F2 o Ctrl-S vuelve a cifrar el texto antes de escribir el
+archivo, con la misma contraseña y el mismo formato, y la línea de estado dice **Guardado, cifrado
+con age**. Un archivo age escrito como líneas de texto, lo que age llama armored, se mantiene así.
+Borg olvida la contraseña en cuanto descifra el archivo, y conserva la clave necesaria para guardar
+solo mientras el editor tiene el archivo abierto. Borg llena de ceros cada bloque de memoria que
+libera, así que la contraseña y el texto no quedan en memoria cuando Borg termina con ellos.
+
+Borg descifra hasta 256 KiB de texto, y el editor no guarda más que eso. Un archivo que contiene más
+lo indica, y uno muy grande se abre tal cual, con sus bytes cifrados. Un archivo age cuyo factor de
+trabajo necesita más de la mitad de la memoria libre no se abre; Borg lee factores de trabajo de
+hasta 22, que necesitan 4 GiB. Un archivo cifrado para una clave age indica que una contraseña no
+puede abrirlo.
 
 ## Configuración
 

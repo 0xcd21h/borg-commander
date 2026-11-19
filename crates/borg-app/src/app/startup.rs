@@ -57,6 +57,7 @@ impl App {
         let docker = crate::docker::Docker::new(messages.clone(), launch.runtime_dir.join(borg_core::DOCKER_SCRATCH));
         let network = crate::network::Network::new(messages.clone(), launch.runtime_dir.clone());
         let startup_items = crate::startup_items::StartupItems::new(messages.clone());
+        let hosts = crate::host_watch::HostWatch::new(messages.clone());
         let mut alerts = crate::watch::Alerts::new(messages.clone());
         if state.settings.preferences.process_watch {
             alerts.follow_log();
@@ -115,6 +116,7 @@ impl App {
             network,
             startup_items,
             alerts,
+            hosts,
             storage,
             shells: crate::docker::Shells::new(),
             console: borg_core::Console::Host,

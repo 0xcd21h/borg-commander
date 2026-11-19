@@ -46,6 +46,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         Action::Network => crate::network::toggle(state),
         Action::StartupItems => crate::startup_items::toggle(state),
         Action::Alerts => crate::watch::toggle(state),
+        Action::HostsOverview => crate::hosts::toggle(state),
         Action::ToggleSystemPlugin => settings::flip(state, |prefs| &mut prefs.system_plugin),
         Action::ToggleProcessWatch => settings::toggle_process_watch(state),
         Action::ToggleProcessFreeze => settings::flip(state, |prefs| &mut prefs.process_freeze),

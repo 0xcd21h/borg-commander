@@ -32,7 +32,7 @@ expression: describe(&buffer)
 ╰ 10 items ──────────────────────────────────────╯╰ 5 items ───────────────────────────────────────╯
  Up to the parent directory
 $
-F1Help   F2File   F3View   F4Edit   F5Copy   F6Move   F7Mkdir  F8Delete F9Menu   F10Quit  ^OShell
+F1Help   F2File   F3Count  F4Edit   F5Copy   F6Move   F7Mkdir  F8Delete F9Menu   F10Quit  ^OShell
 Alt-H Remote hosts  Alt-I Count sizes  Ctrl-F Search  Alt-M Activity       ◈ Borg Commander v0.12.0
 --- styles ---
   0: 0-0 Rgb(161, 180, 199) Rgb(247, 245, 239) NONE | 1-1 Rgb(135, 133, 129) Rgb(247, 245, 239) BOLD | 2-2 Rgb(135, 133, 129) Rgb(247, 245, 239) NONE | 3-5 Rgb(222, 218, 209) Rgb(247, 245, 239) NONE | 6-13 Rgb(135, 133, 129) Rgb(247, 245, 239) NONE | 14-16 Rgb(222, 218, 209) Rgb(247, 245, 239) NONE | 17-21 Rgb(135, 133, 129) Rgb(247, 245, 239) BOLD | 22-49 Rgb(161, 180, 199) Rgb(247, 245, 239) NONE | 50-50 Rgb(228, 225, 216) Rgb(247, 245, 239) NONE | 51-52 Rgb(202, 199, 191) Rgb(247, 245, 239) NONE | 53-55 Rgb(228, 225, 216) Rgb(247, 245, 239) NONE | 56-58 Rgb(202, 199, 191) Rgb(247, 245, 239) NONE | 59-61 Rgb(228, 225, 216) Rgb(247, 245, 239) NONE | 62-65 Rgb(202, 199, 191) Rgb(247, 245, 239) NONE | 66-99 Rgb(228, 225, 216) Rgb(247, 245, 239) NONE

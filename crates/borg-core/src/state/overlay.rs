@@ -68,6 +68,7 @@ pub enum PromptPurpose {
         side: crate::Side,
     },
     ComputerKeyPassword,
+    FilePassword(Box<crate::SealedFile>),
 }
 
 impl PromptPurpose {
@@ -82,7 +83,7 @@ impl PromptPurpose {
 
     /// Whether the field hides what is typed.
     pub fn masked(&self) -> bool {
-        matches!(self, Self::ArchivePassword { .. } | Self::ComputerKeyPassword)
+        matches!(self, Self::ArchivePassword { .. } | Self::ComputerKeyPassword | Self::FilePassword(_))
     }
 
     pub(crate) fn toggle_option(&mut self) {

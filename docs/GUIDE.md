@@ -196,8 +196,8 @@ Enter; leave the field empty to remove the text. A second question names the tex
 starts on **No**. Press Y to change them. Borg keeps no copy of the old text. The search's switches
 apply, so a whole-word search replaces whole words, and with a regular expression `$1` puts back the
 first group. Borg writes each file the way its editor saves, so permissions and links stay. It skips
-files that are not text, are larger than 32 MiB, or changed while the job ran. The job shows in
-Alt-J, and the results refresh when it ends.
+encrypted files and files that are not text, are larger than 32 MiB, or changed while the job ran.
+The job shows in Alt-J, and the results refresh when it ends.
 
 ### Scanning files with rules
 
@@ -388,9 +388,18 @@ To measure sizes while keeping ordinary file panels open, press **Alt-I** or cho
 hidden files, and fills in each folder's total as it finishes. You can keep browsing or use the
 console while it runs. Folders still being measured show a growing total marked `≥`, and totals
 stay when you leave a folder and come back. The panel footer shows progress, and the count runs as
-a job in Alt-J. Press **Alt-I** again, or click the footer, to stop the scan and keep the totals
-measured so far. Starting a copy, move, or delete job stops a size scan in progress. Finished scans
-share their cache with the size tree and Folder totals.
+a job in Alt-J. Press **Alt-I** again, or click the footer, to stop every count under way and keep
+the totals measured so far. Starting a copy, move, or delete job stops the size counts in progress.
+Finished scans share their cache with the size tree and Folder totals.
+
+Press **F3** on a folder to count that folder alone, as in other two-panel commanders. Its row
+shows the growing total and then the final one, and the File menu names the action **Count size**
+while the shortcut bar reads **Count**. With folders marked, F3 on any folder counts the marked ones one
+after another in a single job and leaves marked files out. F3 on `..` counts the folder the panel
+shows, as Alt-I does. Each press starts a job in Alt-J, and a count you start while another runs
+waits for it. F3 on a folder that a count already measures, such as one inside the folder being
+counted, starts nothing and says which count covers it. Cancel a count in Alt-J and the next one
+waiting starts. F3 on a file still opens the viewer, and links to folders are not counted.
 
 ### Saved size scans
 
@@ -460,7 +469,7 @@ click both rows. Notices replace the second row for a moment.
 | Alt-E | Edit the selected file in this panel, in place of its files, or in the other panel beside results |
 | F1 | About |
 | F2 | File menu |
-| F3 | View (text or picture) |
+| F3 | View (text or picture); on a folder or `..`, count its size in the background |
 | F4 / Shift-F4 | Edit in Borg's editor / in `$VISUAL` or `$EDITOR` |
 | F5 / F6 | Copy / move to the other panel |
 | F7 | Create a folder |
@@ -1079,11 +1088,11 @@ servers.
 
 ### Named sessions and the background service
 
-With named workspaces, `borg sessions list` shows their IDs and names,
-`borg sessions create NAME` adds one, and `borg --session NAME` opens it. Over MCP, the agent can
-call `list_sessions`, `list_remote_sessions`, and `use_session` to choose which session that
-connection works with. A single tool call can also pass a `session` ID to target another session
-just once. The chosen session applies only to that MCP connection.
+With named workspaces, `borg sessions list` shows their IDs and names, `borg sessions create NAME`
+adds one, and `borg --session NAME` opens it. Over MCP, the agent can call `list_sessions`,
+`list_remote_sessions`, and `use_session` to choose which session that connection works with, and
+`hosts` to see how every paired host is doing. A single tool call can also pass a `session` ID to
+target another session just once. The chosen session applies only to that MCP connection.
 
 With more than one session, or when the only one is open in another terminal, `borg` starts with the
 **Borg sessions** window. Its first lines say what a session is, and the list shows each session
@@ -1190,7 +1199,8 @@ In local Borg, press **Alt-H**, click **Remote hosts** in the shortcut bar, or c
 **F9 → Remote → Browse hosts and sessions…** to see paired machines and their named sessions.
 Enter opens the selected session's files in the panel you opened the picker from, replacing what
 that panel showed. Press **M** to mirror the session's screen, **U** to update the host (see
-[Updating with sessions open](#updating-with-sessions-open)), and **R** to refresh the list.
+[Updating with sessions open](#updating-with-sessions-open)), **R** to refresh the list, and **O**
+to open the [hosts overview](#hosts-overview).
 
 **Tab** switches between **Hosts** (computers this Borg can reach) and **Clients** (computers
 that can reach this Borg). Clients lists the computers paired with this Borg, their public-key
@@ -1201,8 +1211,8 @@ including in a session whose connections are held by the background service. Pai
 one direction only: an allowed client does not automatically become a host whose files this Borg
 can browse. When the connection owner cannot report connection status, paired clients are still
 listed, with **Connection status unavailable**. The same Borg can be a host and a client at once.
-The Remote menu also offers **Mirror mounted host**, **Share this Borg as host…**,
-**Remote log…**, and **Background service…**.
+The Remote menu also offers **Hosts overview**, **Mirror mounted host**, **Share this Borg as
+host…**, **Remote log…**, and **Background service…**.
 
 The picker shows each host's Borg version. Selecting a session shows its OS and architecture,
 whether it runs as a background service or in a terminal, request latency, and relay address.
@@ -1232,6 +1242,55 @@ history; files and folders on the host are kept. The Default session cannot be r
 standalone session that is currently hosting the connection cannot remove itself; first close it
 on the host and run Borg in another session. If removal fails, the session stays listed so you
 can try again. A running session is stopped first, and the service does not start it again.
+
+### Hosts overview
+
+Choose **F9 → Remote → Hosts overview**, or press **O** in the remote hosts picker, to see every
+paired host at once. Each host gets a card with bars for its CPU, its RAM and its fullest
+filesystem, the load beside the CPU, then the process watcher and how long the host has been up,
+with how many of its containers run. The page asks every host again every 5 seconds while it is
+open, and stops when you close it.
+
+A card turns to the warning color when the load passes the number of cores, when the RAM or the
+fullest filesystem is 90% full, when a container keeps restarting or fails its health check, or
+when the watcher has warnings nobody read. It turns to the alert color at twice the cores' load, at
+95% RAM or disk, with less than 1 GiB left on the disk, with unread alerts, or once the watcher
+froze a process. ● marks a host that answers and ◌ one Borg still waits for. ◐ marks a host that
+stopped answering: its card keeps the last figures, says how long the host has been quiet, and
+shows their age on its bottom border once they are 15 seconds old. A host running an older Borg
+shows ↑ after its version. A Borg too old to send figures says so on its card; press **U** to update
+it.
+
+Hosts the relay reports as offline leave the cards and line up at the bottom, each with the time
+it last answered. Borg keeps those times in `hosts-seen.json` in the state folder, readable only by
+you.
+
+The arrows move between cards. **Enter** opens the selected host's files in a panel, **M** mirrors
+its session, **U** updates it, and **F2** renames it. For a host with several sessions, Enter and M
+first show the picker with only that host's sessions. **R** asks every host again now, **/**
+filters by name, Borg version or system, and **V** switches to a table with a row for each host,
+offline ones included. A pane too narrow or too short for a card shows the table as well.
+**Alt-W** gives the page half the width and shows the selected host's details beside the cards:
+its system, relay, round trip, sessions, when it last answered, and each figure in words.
+
+The figures travel through borg cloud like any other call, encrypted end to end. They are numbers
+and counts: the machine's totals for CPU, load, memory and swap, the size and free space of one
+filesystem with its mount point, the watcher's unread counts, and the number of containers. No
+process, file name or alert text leaves the host this way, so the host answers without asking, even
+with "ask before another computer reads" turned on. The page, the remote hosts list on **Alt-H** and
+the `hosts` tool for agents read each host over a connection that can only ask how the host is
+doing. The host leaves it out of its connected clients and notes in its remote log which computer
+reads, at most once an hour for each computer. A host on a Borg from before these connections
+refuses them, so Borg reads it over a regular session, and that host lists the reader among its
+connected clients.
+
+An agent connected through `borg mcp` reads the same page with the `hosts` tool. It lists every
+paired host in the page's order: whether it answers, its Borg version and system, its figures, what
+turns its card to the warning or alert color, and its target ID. `use_session` and the `session`
+argument of every other tool take that ID, so the agent can go from `hosts` straight to working on a
+host. `filter` narrows the hosts with the same words as **/** on the page. The answer comes as text,
+with the same figures as data for agents that read structured content. The tool reaches every host
+through the borg on your computer, so `borg mcp remote NAME`, which reaches one host, leaves it out.
 
 ### Mirroring a session
 
@@ -1349,7 +1408,7 @@ complete.
 
 Work that takes a while runs as a job: copies, moves and deletes, unpacking and packing archives,
 **Replace in files…**, every search that fills a results panel (Ctrl-F, Alt-D, Alt-Shift-D and
-Alt-S), folder sizes counted with Alt-I, the entropy scan in Alt-M, the first build of a folder's
+Alt-S), folder sizes counted with Alt-I or F3, the entropy scan in Alt-M, the first build of a folder's
 search index, and port scans. Alt-J opens the jobs panel over the right panel. It lists the running
 jobs first, oldest at the top, then the finished ones, newest first. On a terminal narrower than 100
 columns it spans both panels.
@@ -1638,6 +1697,28 @@ Ctrl-N bring back recent queries. Esc closes the bar; after that, `n` and `N` in
 quick view, or F3 and Shift-F3 in the editor, step through the matches. In a large file, the viewer
 and the quick view search in the background, show how far they have got, and stop when you press
 Esc. Borg counts matches in files up to 64 MiB, up to 10,000 of them.
+
+### Encrypted files
+
+Borg opens text files encrypted with a password in two formats: [age](https://age-encryption.org),
+whose files usually end in `.age`, and Paranoia Text Encryption, a format for encrypted notes. F3,
+F4 or Alt-E on such a file opens the **Encrypted file** dialog, which asks for the password and
+hides what you type. Borg decrypts the file in memory and never writes the text to disk. A wrong
+password asks again, and Esc leaves the file closed. The quick view names the format and does not
+ask.
+
+The viewer shows the text as the file's name without `.age` would show, so `notes.md.age` reads as
+Markdown. In the editor, F2 or Ctrl-S encrypts the text again before writing the file, with the same
+password and format, and the status line says **Saved, encrypted with age**. An age file written as
+text lines, which age calls armored, stays that way. Borg forgets the password once the file is
+decrypted, and keeps the key it needs for saving only while the editor has the file open. Borg fills
+every block of memory it frees with zeros, so the password and the text do not stay behind in memory
+once Borg is done with them.
+
+Borg decrypts up to 256 KiB of text, and the editor saves no more than that. A file that holds more
+says so, and a very large one opens as it is, showing its encrypted bytes. An age file whose work
+factor needs more memory than half of what is free does not open; Borg reads work factors up to 22,
+which need 4 GiB. A file encrypted for an age key says that a password cannot open it.
 
 ## Configuration
 

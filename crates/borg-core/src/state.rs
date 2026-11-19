@@ -98,6 +98,7 @@ pub struct AppState {
     /// Port scans that run, ended or are remembered.
     pub port_scans: crate::PortScans,
     pub startup_items: crate::StartupItems,
+    pub hosts: crate::Hosts,
     pub alerts: crate::Alerts,
     pub agent: crate::Agent,
     pub backup: crate::Backup,
@@ -138,6 +139,8 @@ pub struct AppState {
     /// The shell runs the command that sets up the background service, whose end gives a notice.
     pub(crate) setting_up_service: bool,
     pub sizing: Option<crate::SizeScan>,
+    /// Size counts that start once the one being measured ends, oldest first.
+    pub(crate) waiting_sizes: Vec<crate::measure::WaitingCount>,
     pub(crate) measured: crate::measure::Measured,
     pub next_size: u64,
     /// How many delete dialogs counted their files, which numbers the answers.
@@ -231,6 +234,7 @@ impl AppState {
             docker: crate::Docker::default(),
             network: crate::Network::default(),
             startup_items: crate::StartupItems::default(),
+            hosts: crate::Hosts::default(),
             alerts: crate::Alerts::default(),
             agent: crate::Agent::default(),
             backup: crate::Backup::default(),
@@ -265,6 +269,7 @@ impl AppState {
             installing: None,
             setting_up_service: false,
             sizing: None,
+            waiting_sizes: Vec::new(),
             measured: Default::default(),
             next_size: 0,
             delete_checks: 0,
@@ -346,6 +351,7 @@ impl AppState {
             || self.network.is_open()
             || self.startup_items.is_open()
             || self.alerts.is_open()
+            || self.hosts.is_open()
     }
 
     pub fn question_shows(&self) -> bool {
