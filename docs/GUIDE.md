@@ -84,10 +84,11 @@ Themes use fixed colors, so a customized terminal palette does not change how th
 Terminals without true color get the nearest colors from the 256-color palette.
 
 Every file has an icon. Borg uses the richer Nerd Font icons automatically in terminals that
-carry them built in (Ghostty, kitty and WezTerm) and, on your own computer, in terminals that
-borrow missing glyphs from other installed fonts (Konsole, Alacritty, foot, and GNOME Terminal and
-other VTE terminals) once a Nerd Font such as Borg Mono is installed. Other terminals get portable
-symbols by default: `/` for folders, `@` for links, and `*` for executables. Set `icon-style = "nerd"` to use rich icons in another terminal with a suitable font,
+carry them built in (Ghostty, kitty and WezTerm). When Borg runs locally on Linux, it also uses
+them in terminals that borrow missing glyphs from other installed fonts (Konsole, Alacritty, foot,
+and GNOME Terminal and other VTE terminals) once a Nerd Font such as Borg Mono is installed.
+Other terminals get portable symbols by default: `/` for folders, `@` for links, and `*` for
+executables. Set `icon-style = "nerd"` to use rich icons in another terminal with a suitable font,
 or `icon-style = "portable"` to always use the portable symbols. The default, `"auto"`, adapts to
 the terminal and does not save what it detects as your font preference.
 

@@ -17,6 +17,8 @@ const BUNDLED_MARKERS: [&str; 2] = ["KITTY_WINDOW_ID", "WEZTERM_PANE"];
 const FALLBACK_TERMS: [&str; 3] = ["alacritty", "foot", "foot-extra"];
 const FALLBACK_MARKERS: [&str; 3] = ["ALACRITTY_WINDOW_ID", "KONSOLE_VERSION", "VTE_VERSION"];
 
+/// Terminals on macOS borrow glyphs through Core Text, so fontconfig's answer does not apply there.
+const FONTCONFIG_PICKS_FALLBACK: bool = cfg!(not(target_os = "macos"));
 const FONT_LIST: &str = "fc-list";
 const FONT_LIST_QUIET: &str = "--quiet";
 const FONT_LIST_TIMEOUT: Duration = Duration::from_secs(1);
@@ -33,12 +35,15 @@ pub fn drawable(var: impl Fn(&str) -> Option<String>, installed: impl FnOnce() -
     if is(&BUNDLED_PROGRAMS, &BUNDLED_TERMS, &BUNDLED_MARKERS) {
         return true;
     }
-    // Over SSH the terminal draws with the client's fonts, not the ones installed here.
     let remote = ENV_SSH.iter().any(|name| var(name).is_some());
     !remote && is(&[], &FALLBACK_TERMS, &FALLBACK_MARKERS) && installed()
 }
 
 pub fn installed(glyphs: &[&str]) -> bool {
+    FONTCONFIG_PICKS_FALLBACK && listed(glyphs)
+}
+
+fn listed(glyphs: &[&str]) -> bool {
     let codepoints: Vec<String> =
         glyphs.iter().flat_map(|glyph| glyph.chars()).map(|c| format!("{:x}", u32::from(c))).collect();
     let Ok(mut list) = Command::new(FONT_LIST)
@@ -123,5 +128,11 @@ mod tests {
     #[test]
     fn a_missing_glyph_means_no_font() {
         assert!(!installed(&["\u{10fff0}"]));
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn fonts_on_macos_never_count() {
+        assert!(!installed(&borg_ui::ESSENTIAL_ICONS));
     }
 }

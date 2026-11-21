@@ -89,14 +89,14 @@ Nos terminais sem cor verdadeira (true color), são usadas as cores mais próxim
 cores.
 
 Todos os ficheiros têm um ícone. O Borg usa automaticamente os ícones mais ricos da Nerd Font nos
-terminais que os trazem incorporados (Ghostty, kitty e WezTerm) e, no seu próprio computador, nos
-terminais que vão buscar os glifos em falta a outros tipos de letra instalados (Konsole,
-Alacritty, foot, e GNOME Terminal e outros terminais VTE) quando há uma Nerd Font instalada, como
-o Borg Mono. Nos restantes terminais, usa por omissão símbolos portáveis: `/` para pastas, `@`
-para ligações e `*` para executáveis. Defina `icon-style = "nerd"` para usar os ícones ricos noutro
-terminal com um tipo de letra adequado, ou `icon-style = "portable"` para usar sempre os símbolos
-portáveis. O valor por omissão, `"auto"`, adapta-se ao terminal e não guarda o que deteta como
-preferência de tipo de letra.
+terminais que os trazem incorporados (Ghostty, kitty e WezTerm). Quando o Borg corre localmente em
+Linux, também os usa nos terminais que vão buscar os glifos em falta a outros tipos de letra
+instalados (Konsole, Alacritty, foot, e GNOME Terminal e outros terminais VTE) quando há uma Nerd
+Font instalada, como o Borg Mono. Nos restantes terminais, usa por omissão símbolos portáveis: `/`
+para pastas, `@` para ligações e `*` para executáveis. Defina `icon-style = "nerd"` para usar os
+ícones ricos noutro terminal com um tipo de letra adequado, ou `icon-style = "portable"` para usar
+sempre os símbolos portáveis. O valor por omissão, `"auto"`, adapta-se ao terminal e não guarda o
+que deteta como preferência de tipo de letra.
 
 Os arquivos de cada versão incluem o **Borg Mono**, um tipo de letra monoespaçado com os ícones
 da Nerd Font. Instale os estilos normal e negrito a partir de `fonts/`, selecione o Borg Mono nas
