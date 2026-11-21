@@ -13,6 +13,7 @@ const FILE_LINK: &str = "\u{f481}";
 const EXECUTABLE: &str = "\u{f489}";
 const SPECIAL: &str = "\u{f128}";
 const EXTENSION_SEPARATOR: char = '.';
+pub const ESSENTIAL: [&str; 7] = [PARENT, FOLDER, FOLDER_LINK, FILE, FILE_LINK, EXECUTABLE, SPECIAL];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Icon {
