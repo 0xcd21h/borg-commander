@@ -5,7 +5,11 @@ use super::{
     SnapshotRow, ZERO_ROWS,
 };
 use crate::Effect;
+use borg_view::HexLayout;
 use std::{path::PathBuf, time::Instant};
+
+/// The most bytes a row of the capture shows as text.
+const TEXT_COLUMNS: usize = 64;
 
 impl Activity {
     pub(super) fn request(&mut self, request: ActivityRequest) -> Vec<Effect> {
@@ -47,8 +51,9 @@ impl Activity {
         match page {
             ActivityPage::Processes => self.cursor,
             ActivityPage::Search => self.search_cursor,
-            ActivityPage::Integrity => self.finding_cursor,
+            ActivityPage::Findings => self.finding_cursor,
             ActivityPage::Files => self.file_cursor,
+            ActivityPage::Entropy => self.entropy.as_ref().map_or(0, |scan| scan.cursor),
             _ => self.region_cursor,
         }
     }
@@ -107,7 +112,7 @@ impl Activity {
         let (region, seek) = if self.list == ActivityPage::Search {
             let hit = self.search_report.as_ref()?.hits.get(self.search_cursor)?;
             around(hit.address, &hit.region)
-        } else if self.list == ActivityPage::Integrity {
+        } else if self.list == ActivityPage::Findings {
             let finding = self.selected_finding()?;
             around(finding.address?, finding.region.as_ref()?)
         } else {
@@ -124,13 +129,13 @@ impl Activity {
     pub fn shown_region(&self) -> Option<&MemoryRegion> {
         match self.list {
             ActivityPage::Search => self.search_report.as_ref()?.hits.get(self.search_cursor).map(|hit| &hit.region),
-            ActivityPage::Integrity => self.selected_finding()?.region.as_ref(),
+            ActivityPage::Findings => self.selected_finding()?.region.as_ref(),
             _ => self.selected_region(),
         }
     }
 
     pub fn selected_finding(&self) -> Option<&Finding> {
-        self.integrity.as_ref()?.findings.get(self.finding_cursor)
+        self.findings.as_ref()?.findings().get(self.finding_cursor)
     }
 
     /// The bytes the preview marks: the selected match, or the selected finding's evidence.
@@ -140,7 +145,7 @@ impl Activity {
                 let hit = self.search_report.as_ref()?.hits.get(self.search_cursor)?;
                 (hit.address, hit.length)
             }
-            ActivityPage::Integrity => {
+            ActivityPage::Findings => {
                 let finding = self.selected_finding()?;
                 (finding.address?, finding.length)
             }
@@ -228,8 +233,33 @@ impl Activity {
     }
 
     pub fn snapshot_columns(&self, width: usize) -> usize {
-        let room = width.saturating_sub(18).max(1);
-        if self.text { room.min(64) } else { [16, 8, 4, 2, 1].into_iter().find(|n| n * 4 <= room).unwrap_or(1) }
+        let layout = self.snapshot_layout(width);
+        if self.text { width.saturating_sub(layout.offset_width()).clamp(1, TEXT_COLUMNS) } else { layout.columns }
+    }
+
+    /// How the capture's rows lay out in `width` cells, their offsets long enough for the
+    /// region the capture lies in.
+    pub fn snapshot_layout(&self, width: usize) -> HexLayout {
+        let span = self
+            .snapshot_home()
+            .map_or(self.snapshot.as_ref().map_or(0, |s| s.bytes.len() as u64), MemoryRegion::mapped);
+        HexLayout::fitting(width, span)
+    }
+
+    /// The address the offsets of the capture's rows count from: the start of the shown region
+    /// when the capture lies in it, or else the capture's own.
+    pub fn snapshot_origin(&self) -> u64 {
+        self.snapshot_home()
+            .map(|region| region.start)
+            .or(self.snapshot.as_ref().map(|s| s.address))
+            .unwrap_or_default()
+    }
+
+    /// The shown region, when the whole capture lies in it.
+    fn snapshot_home(&self) -> Option<&MemoryRegion> {
+        let snapshot = self.snapshot.as_ref()?;
+        let end = snapshot.address.checked_add(snapshot.bytes.len() as u64)?;
+        self.shown_region().filter(|region| region.start <= snapshot.address && end <= region.end)
     }
 
     pub fn move_by(&mut self, delta: isize, page_rows: usize, width: usize) {
@@ -251,9 +281,15 @@ impl Activity {
             ActivityPage::Files => {
                 self.file_cursor = self.file_cursor.saturating_add_signed(delta).min(self.files.len().saturating_sub(1))
             }
-            ActivityPage::Integrity => {
-                let findings = self.integrity.as_ref().map_or(0, |report| report.findings.len());
+            ActivityPage::Findings => {
+                let findings = self.findings.as_ref().map_or(0, |report| report.findings().len());
                 self.finding_cursor = self.finding_cursor.saturating_add_signed(delta).min(findings.saturating_sub(1))
+            }
+            ActivityPage::Entropy => {
+                if let Some(scan) = self.entropy.as_mut() {
+                    let last = scan.report.hits.len().saturating_sub(1);
+                    scan.cursor = scan.cursor.saturating_add_signed(delta).min(last);
+                }
             }
             ActivityPage::Snapshot => {
                 let end = self.snapshot_rows(self.snapshot_columns(width)).len().saturating_sub(page_rows.max(1));

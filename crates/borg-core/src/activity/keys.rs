@@ -2,12 +2,13 @@
 //! focus, the preview, Esc and Enter, and the lists' own keys. The keys of the page with the
 //! focus are in `pages`, and the memory search form's in `form`.
 
+use crate::screens::FILTER_LIMIT;
 use std::time::Instant;
 
 use borg_i18n::tr;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use super::{Activity, ActivityPage, ActivityRequest, RegionRow, RowKey, check_integrity};
+use super::{Activity, ActivityPage, ActivityRequest, RegionRow, RowKey, check_integrity, scan_with_rules};
 use crate::{Action, AppState, Effect, keymap::SPLIT_STEP};
 
 mod form;
@@ -43,16 +44,34 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
     if matches!(code, KeyCode::Char('k' | 'K'))
         && !modifiers.contains(KeyModifiers::CONTROL)
         && !state.activity.filtering
-        && state.activity.list == ActivityPage::Processes
+        && about_one_process(state.activity.list)
     {
         return super::open_control(state);
+    }
+    if matches!(code, KeyCode::Char('e' | 'E'))
+        && !modifiers.contains(KeyModifiers::CONTROL)
+        && !state.activity.filtering
+        && state.activity.list == ActivityPage::Processes
+    {
+        return super::open_entropy(state);
     }
     if let Some(action) = panels_action(key) {
         return crate::actions::perform(state, action, now);
     }
+    if state.activity.list == ActivityPage::Entropy
+        && let Some(effects) = super::entropy::list_key(state, key)
+    {
+        return effects;
+    }
     if code == KeyCode::Char('m') && modifiers == KeyModifiers::ALT {
         state.activity.side = None;
         return Vec::new();
+    }
+    if code == KeyCode::Char('u') && modifiers == KeyModifiers::ALT {
+        return crate::actions::perform(state, Action::StartupItems, now);
+    }
+    if code == KeyCode::Char('l') && modifiers == KeyModifiers::ALT {
+        return crate::actions::perform(state, Action::Alerts, now);
     }
     if code == KeyCode::Char('n') && modifiers == KeyModifiers::ALT {
         return match state.activity.process().map(|process| process.key.pid) {
@@ -69,7 +88,6 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
         if code == KeyCode::F(3) {
             return crate::viewer::open(state, path);
         }
-        // The focused preview scrolls; the keys that act on the process keep working.
         if state.activity.preview_focused && scrolls_preview(code) {
             scroll_preview(&mut state.activity, code);
             return Vec::new();
@@ -85,13 +103,30 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
     }
 }
 
+/// Lists that show the selected process or what belongs to it, where K signals that process: the
+/// processes themselves and the process window's memory map, open files, memory search and
+/// findings.
+fn about_one_process(page: ActivityPage) -> bool {
+    matches!(
+        page,
+        ActivityPage::Processes
+            | ActivityPage::Regions
+            | ActivityPage::Snapshot
+            | ActivityPage::Files
+            | ActivityPage::FileDetails
+            | ActivityPage::Search
+            | ActivityPage::Findings
+    )
+}
+
 /// Pastes into the memory search form's query, or into the processes' filter while it is typed.
 pub(crate) fn paste(activity: &mut Activity, text: &str) {
     if let Some(form) = activity.search_form.as_mut() {
         form::paste(form, text);
     } else if activity.filtering {
-        activity.filter.extend(text.chars().take(128));
-        activity.rebuild();
+        let room = FILTER_LIMIT.saturating_sub(activity.filter.chars().count());
+        activity.filter.extend(text.chars().filter(|c| !c.is_control()).take(room));
+        activity.refilter();
     }
 }
 
@@ -144,7 +179,7 @@ fn find_in_memory(state: &mut AppState) -> Vec<Effect> {
         return Vec::new();
     }
     activity.preview_focused = true;
-    if !matches!(activity.list, ActivityPage::Search | ActivityPage::Integrity) {
+    if !matches!(activity.list, ActivityPage::Search | ActivityPage::Findings) {
         activity.results_origin = activity.list;
     }
     if activity.page == ActivityPage::Processes {
@@ -176,8 +211,8 @@ fn scroll_preview(activity: &mut Activity, code: KeyCode) {
 }
 
 /// Esc takes the focus back from the preview, or else steps back a page. On the processes it
-/// stops and clears a filter before it closes the monitor, or goes back to the network screen
-/// the monitor was opened from.
+/// clears the filter being typed, or else closes the monitor, which keeps its filter for the
+/// next time it opens, or goes back to the network screen the monitor was opened from.
 fn escape(state: &mut AppState, now: Instant) -> Vec<Effect> {
     let activity = &mut state.activity;
     activity.error = None;
@@ -186,7 +221,7 @@ fn escape(state: &mut AppState, now: Instant) -> Vec<Effect> {
         activity.preview_focused = false;
     } else if activity.list != ActivityPage::Processes {
         step_back(activity, now);
-    } else if activity.filtering || !activity.filter.is_empty() {
+    } else if activity.filtering {
         activity.filtering = false;
         activity.filter.clear();
         activity.rebuild();
@@ -200,18 +235,26 @@ fn escape(state: &mut AppState, now: Instant) -> Vec<Effect> {
 }
 
 /// Goes back from a search's hits or a check's findings to the list they began in, and from
-/// the regions or the open files to the processes.
+/// the regions or the open files to the processes, or to the entropy scan's hits they were
+/// opened from.
 fn step_back(activity: &mut Activity, now: Instant) {
     forget_request(activity);
     activity.preview_due = None;
     activity.search_progress = None;
-    activity.list = if matches!(activity.list, ActivityPage::Search | ActivityPage::Integrity) {
+    activity.list = if matches!(activity.list, ActivityPage::Search | ActivityPage::Findings) {
         activity.results_origin
+    } else if activity.from_entropy && matches!(activity.list, ActivityPage::Regions | ActivityPage::Files) {
+        activity.from_entropy = false;
+        activity.map = false;
+        ActivityPage::Entropy
     } else {
         ActivityPage::Processes
     };
-    activity.page =
-        if activity.list == ActivityPage::Processes { ActivityPage::Memory } else { ActivityPage::Snapshot };
+    activity.page = match activity.list {
+        ActivityPage::Processes => ActivityPage::Memory,
+        ActivityPage::Entropy => ActivityPage::EntropyDetails,
+        _ => ActivityPage::Snapshot,
+    };
     if activity.list == ActivityPage::Regions {
         activity.schedule_preview(now);
     }
@@ -224,6 +267,9 @@ fn enter(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
     let activity = &mut state.activity;
     if activity.list == ActivityPage::Processes {
         return enter_map(activity);
+    }
+    if activity.list == ActivityPage::Entropy {
+        return super::entropy::open_hit(activity);
     }
     if activity.list == ActivityPage::Regions
         && (activity.selected_group().is_some() || activity.selected_file().is_some())
@@ -242,17 +288,21 @@ fn enter(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
     Vec::new()
 }
 
-/// The keys of the regions, a search's hits and a check's findings: checking the process, the
-/// next copy of a hit, the page map, grouping the regions and opening their groups, and
-/// capturing the focused snapshot again.
+/// The keys of the lists: checking the process or scanning it with rules, the next copy of a
+/// hit, the page map, grouping the regions and opening their groups, folding the process tree,
+/// and capturing the focused snapshot again.
 fn list_key(activity: &mut Activity, key: &KeyEvent, now: Instant) -> Option<Vec<Effect>> {
     let plain = key.modifiers.is_empty();
     let regions = activity.list == ActivityPage::Regions;
-    let findings = matches!(activity.list, ActivityPage::Regions | ActivityPage::Search | ActivityPage::Integrity);
+    let findings = matches!(activity.list, ActivityPage::Regions | ActivityPage::Search | ActivityPage::Findings);
     match key.code {
         KeyCode::Char('i') if plain && findings => {
             let process = activity.selected?;
             Some(check_integrity(activity, process))
+        }
+        KeyCode::Char('y') if plain && findings => {
+            let process = activity.selected?;
+            Some(scan_with_rules(activity, process))
         }
         KeyCode::Char('c') if plain && activity.list == ActivityPage::Search && activity.next_copy() => {
             activity.schedule_preview(now);
@@ -269,6 +319,15 @@ fn list_key(activity: &mut Activity, key: &KeyEvent, now: Instant) -> Option<Vec
         }
         KeyCode::Left | KeyCode::Right if regions && !activity.preview_focused => {
             toggle(activity, key.code == KeyCode::Right, now);
+            Some(Vec::new())
+        }
+        KeyCode::Left | KeyCode::Right
+            if plain
+                && activity.list == ActivityPage::Processes
+                && !activity.preview_focused
+                && !activity.filtering =>
+        {
+            activity.fold(key.code == KeyCode::Right);
             Some(Vec::new())
         }
         KeyCode::Char('r' | 'R') if activity.preview_focused && activity.page == ActivityPage::Snapshot => {
@@ -303,7 +362,7 @@ fn in_focused_page(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Ef
         }
         activity.preview_focused = true;
     }
-    if matches!(context, ActivityPage::Regions | ActivityPage::Search | ActivityPage::Integrity)
+    if matches!(context, ActivityPage::Regions | ActivityPage::Search | ActivityPage::Findings)
         && cursor != activity.list_cursor(context)
     {
         activity.schedule_preview(now);
@@ -365,6 +424,7 @@ fn enter_map(activity: &mut Activity) -> Vec<Effect> {
     activity.previous = None;
     activity.offset = 0;
     activity.from_search = false;
+    activity.from_entropy = false;
     activity.retry = None;
     activity.request(ActivityRequest::Regions { process, admin: false })
 }

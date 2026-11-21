@@ -5,15 +5,15 @@
 use std::{collections::HashMap, path::Path, path::PathBuf, sync::Arc, time::Instant};
 
 use anyhow::{Context, Result};
-use borg_core::{AppState, Effect, Msg, Side, update};
+use borg_core::{AppState, Dialect, Effect, Msg, ShellVariables, Side, shell_variables, update};
 use borg_gfx::Graphics;
 use borg_i18n::tr;
-use borg_term::{Emulator, GridSize, Pty, PtyEvent, shell_command};
+use borg_term::{Emulator, GridSize, Pty, PtyEvent, ShellKind, shell_command};
 use borg_vfs::Local;
 use ratatui::layout::Size;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
-use super::{App, DOCKER_SCRATCH, INDEX_DELAY, WheelBurst, appearance, palette};
+use super::{App, INDEX_DELAY, Resumed, WheelBurst, appearance, palette};
 use crate::{
     launch::{self, Launch},
     preview,
@@ -21,45 +21,78 @@ use crate::{
 };
 
 impl App {
-    pub fn start(launch: &Launch, size: Size, detected: launch::Terminal) -> Result<Self> {
+    /// Starts Borg, on the shell the previous Borg carried when an update started this one in
+    /// its place.
+    pub fn start(launch: &Launch, size: Size, detected: launch::Terminal, resumed: Option<Resumed>) -> Result<Self> {
         let grid = GridSize::console(size.width, size.height);
         let now = Instant::now();
         let (mut state, pending, collections_writable) = initial_state(launch, size, now);
-        let emulator = console(launch, grid, &state);
-        let (pty, pty_events) = spawn_shell(launch, &state, grid)?;
+        let (emulator, pty, pty_events, cd_request) = match resumed {
+            Some(resumed) => resume_shell(resumed, grid, &mut state)?,
+            None => {
+                let (pty, pty_events) = spawn_shell(launch, &state, grid)?;
+                (console(launch, grid, &state), pty, pty_events, borg_term::cd_request_file(&launch.runtime_dir))
+            }
+        };
         let (messages, inbox) = unbounded_channel();
+        crate::link::register_unlock_prompt(messages.clone());
 
-        let preview = preview::Loader::new(messages.clone());
+        let drives = launch
+            .state_dir
+            .as_ref()
+            .map_or_else(borg_drives::Drives::default, |dir| borg_drives::Drives::load(dir.path()));
+        state.kept_answers = drives.kept();
+        let preview = preview::Loader::new(messages.clone(), drives.clone());
         let plugins = crate::plugins::Plugins::new(messages.clone());
         let monitor = crate::activity::Monitor::new(messages.clone());
         let backup = crate::backup::Backup::new(messages.clone());
         state.backup.available = crate::backup::available();
         state.network.access = crate::network::capture_access();
-        let docker = crate::docker::Docker::new(messages.clone(), launch.runtime_dir.join(DOCKER_SCRATCH));
-        let network = crate::network::Network::new(messages.clone());
+        state.network.shell_variables = ShellVariables::new(
+            Dialect::of(ShellKind::detect(&launch.shell)),
+            shell_variables().filter_map(|name| std::env::var_os(name).map(|value| (name, value))).collect(),
+        );
+        state.network.authority = launch.config.proxy_authority();
+        state.network.keep_free_mib = launch.config.capture_keep_free_mib();
+        let docker = crate::docker::Docker::new(messages.clone(), launch.runtime_dir.join(borg_core::DOCKER_SCRATCH));
+        let network = crate::network::Network::new(messages.clone(), launch.runtime_dir.clone());
+        let startup_items = crate::startup_items::StartupItems::new(messages.clone());
+        let hosts = crate::host_watch::HostWatch::new(messages.clone());
+        let mut alerts = crate::watch::Alerts::new(messages.clone());
+        if state.settings.preferences.process_watch {
+            alerts.follow_log();
+        }
         let agent = crate::agent::Agent::start(&launch.runtime_dir, launch.session_id.as_deref(), messages.clone());
         let link = start_link(launch, &mut state, &agent, &messages);
+        let native_mirror =
+            crate::native_mirror::Host::start(&launch.runtime_dir, launch.session_id.as_deref().unwrap_or("default"))?;
+        let membership = start_membership(launch, &agent, native_mirror.socket(), &messages);
         keep_runtime_dir(launch.runtime_dir.clone());
         let search = start_search(launch, &state, &messages);
+        let storage = start_storage(launch, &search, &messages);
         Ok(Self {
             search,
             emulator,
             backend: Arc::new(Local::new(state.settings.listing_batch)),
             state,
             pty,
-            cd_request: borg_term::cd_request_file(&launch.runtime_dir),
+            cd_request,
             pty_events,
+            host_asks: crate::host_asks::Watchers::new(messages.clone()),
             messages,
             inbox,
             listings: [None, None],
             remote_listings: crate::remote_fs::Listings::default(),
+            archives: crate::archive::Indexes::default(),
+            drives,
             remote_catalog: None,
             remote_consoles: crate::remote_console::Clients::new(),
-            console_server: crate::remote_console::Server::new(launch.shell.clone(), launch.runtime_dir.clone()),
-            native_mirror: crate::native_mirror::Host::start(
-                &launch.runtime_dir,
-                launch.session_id.as_deref().unwrap_or("default"),
-            )?,
+            console_server: crate::remote_console::Server::new(
+                launch.shell.clone(),
+                crate::program::path()?.to_path_buf(),
+                launch.runtime_dir.clone(),
+            ),
+            native_mirror,
             palette: palette(&detected.colors),
             themes: launch.themes.clone(),
             config_dir: launch.config_dir.clone(),
@@ -74,29 +107,40 @@ impl App {
             wheel: WheelBurst::default(),
             preview,
             viewer_search: None,
+            preview_search: None,
+            viewer_profile: None,
             plugins,
             monitor,
             backup,
             docker,
             network,
+            startup_items,
+            alerts,
+            hosts,
+            storage,
             shells: crate::docker::Shells::new(),
             console: borg_core::Console::Host,
             agent,
             reveals: Vec::new(),
             link,
+            run: borg_link::hex(&borg_link::secret()),
+            ask_board: tokio::sync::watch::Sender::new(borg_core::AskBoard::default()),
             uploads: HashMap::new(),
             downloads: std::collections::HashSet::new(),
             approve_all: std::collections::HashSet::new(),
             memory_readers: std::collections::HashSet::new(),
             saved_captures: super::agent_calls::SavedCaptures::default(),
             runtime_dir: launch.runtime_dir.clone(),
+            vaults: crate::vaults::Vaults::new(&launch.runtime_dir, launch.config.vault_idle()),
             mirror_connect: None,
             mirror_ready: None,
-            cloud_suppressed: launch.remote.is_some() || std::env::var_os("BORG_SERVICE_CHILD").is_some(),
+            cloud_suppressed: launch.remote.is_some() || service_child(),
+            membership,
             host_capture: None,
             clipboard: None,
             plain: None,
             wide_emoji: detected.wide_emoji,
+            relaunching: false,
         })
     }
 }
@@ -125,7 +169,6 @@ fn initial_state(launch: &Launch, size: Size, now: Instant) -> (AppState, Vec<Ef
         ));
     }
     state.notice = launch.warnings.first().cloned().or(state.notice.take());
-    // The glitch intro plays only where animations do: not over SSH or without truecolor.
     if state.settings.motion == borg_core::Motion::LOCAL {
         state.intro = Some(now);
     }
@@ -144,10 +187,30 @@ fn load_remote_names(state: &mut AppState, dir: &Path) {
     }
 }
 
-/// What the state folder keeps: the 2048 game, the collections, and the search history, which
-/// is cleared while it is off. False when the collections would not load.
+/// What the state folder keeps: the 2048 game, the collections, the log of what agents did, and
+/// the search history; the log and the history are cleared while they are off. False when the
+/// collections would not load.
 fn load_saved(state: &mut AppState, dir: &StateDir) -> bool {
     state.game2048 = dir.load_game2048().ok().flatten();
+    match dir.load_neighbors() {
+        Ok(memory) => state.network.memory = memory,
+        Err(error) => {
+            state.network.memory_writable = false;
+            state.notice = Some(tr!(network_memory_load_error, error = error));
+        }
+    }
+    match dir.load_port_scans() {
+        Ok(memory) => state.port_scans.memory = memory,
+        Err(error) => {
+            state.port_scans.writable = false;
+            state.notice = Some(tr!(port_scan_memory_load_error, error = error));
+        }
+    }
+    if state.settings.preferences.agent_log {
+        state.agent.restore_log(dir.load_agent_log().unwrap_or_default());
+    } else {
+        let _ = dir.forget_agent_log();
+    }
     let loaded = match dir.load_collections() {
         Ok(collections) => {
             state.collections = collections;
@@ -185,13 +248,33 @@ fn console(launch: &Launch, grid: GridSize, state: &AppState) -> Emulator {
     emulator
 }
 
+/// The shell the previous Borg carried, its screen, and where it reads the folder to change
+/// into. Borg knows of it what the previous one did, and says that the session moved.
+fn resume_shell(
+    resumed: Resumed,
+    grid: GridSize,
+    state: &mut AppState,
+) -> Result<(Emulator, Pty, UnboundedReceiver<PtyEvent>, PathBuf)> {
+    let Resumed { shell, notice } = resumed;
+    let mut emulator = Emulator::new(grid, state.settings.scrollback);
+    emulator.feed(&shell.screen);
+    let (pty_tx, pty_events) = unbounded_channel();
+    let pty = Pty::adopt(shell.detached, pty_tx)?;
+    let _ = pty.resize(grid);
+    state.shell.integrated = shell.integrated;
+    state.shell.silent_cd = shell.silent_cd;
+    state.intro = None;
+    state.notice = Some(notice);
+    Ok((emulator, pty, pty_events, shell.cd_request))
+}
+
 /// The shell under the panels, started in the active panel's folder.
 fn spawn_shell(launch: &Launch, state: &AppState, grid: GridSize) -> Result<(Pty, UnboundedReceiver<PtyEvent>)> {
     let shell_dir = state.active_panel().dir().to_path_buf();
     let mut command = shell_command(&launch.shell, &shell_dir, &launch.runtime_dir).context("preparing shell")?;
     command.env("BORG_CONFIRM_EXIT", "1");
     let (pty_tx, pty_events) = unbounded_channel();
-    let pty = Pty::spawn(command, grid, pty_tx)?;
+    let pty = Pty::spawn(crate::program::path()?, &command, grid, pty_tx)?;
     Ok((pty, pty_events))
 }
 
@@ -219,6 +302,24 @@ fn start_link(
     link
 }
 
+fn service_child() -> bool {
+    std::env::var_os(crate::service::SERVICE_CHILD).is_some()
+}
+
+/// This Borg's registration with the background service, for a named session on this machine.
+fn start_membership(
+    launch: &Launch,
+    agent: &crate::agent::Agent,
+    mirror: &Path,
+    messages: &UnboundedSender<Msg>,
+) -> Option<crate::service::Membership> {
+    let session = launch.session_id.as_deref().filter(|_| launch.remote.is_none() && launch.state_dir.is_some())?;
+    let place = if service_child() { crate::service::Place::Background } else { crate::service::Place::Terminal };
+    let inbox =
+        crate::service::Inbox { calls: agent.requeue_sender(), messages: messages.clone(), clients: agent.clients() };
+    Some(crate::service::Membership::start(session, mirror.to_path_buf(), place, inbox))
+}
+
 /// Marks the runtime folder as in use now and then, for as long as Borg runs.
 fn keep_runtime_dir(runtime_dir: PathBuf) {
     tokio::spawn(async move {
@@ -230,9 +331,27 @@ fn keep_runtime_dir(runtime_dir: PathBuf) {
     });
 }
 
+/// Borg's own files: measured for the Borg's files window, and cleaned up while Borg runs.
+fn start_storage(
+    launch: &Launch,
+    search: &crate::search::Search,
+    messages: &UnboundedSender<Msg>,
+) -> crate::storage::Storage {
+    let places = crate::storage::Places {
+        runtime: launch.runtime_dir.clone(),
+        state: launch.state_dir.as_ref().map(|dir| dir.path().to_path_buf()),
+        cache: crate::size_cache::cache_dir(),
+        config: launch.config_dir.as_ref().map(|dir| dir.path().to_path_buf()),
+    };
+    let indexes = search.indexes.clone();
+    let roots: crate::storage::Roots = std::sync::Arc::new(move || indexes.roots());
+    crate::storage::Storage::start(places, launch.runtime_idle, roots, messages.clone())
+}
+
 /// The searches and their indexes, which refresh the stale ones once Borg is up.
 fn start_search(launch: &Launch, state: &AppState, messages: &UnboundedSender<Msg>) -> crate::search::Search {
-    let search = crate::search::Search::new(launch.config.index_refresh());
+    let rules = launch.config_dir.as_ref().map(crate::config::ConfigDir::rules);
+    let search = crate::search::Search::new(launch.config.index_refresh(), rules);
     search.indexes.connect(messages.clone());
     search.indexes.set_roots(state.settings.index_roots.clone());
     let (indexes, settings) = (search.indexes.clone(), state.settings.search.clone());

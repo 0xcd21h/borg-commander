@@ -6,10 +6,14 @@ use crate::{Appearance, Msg, Settings, Startup, ThemeChoice, update};
 use crossterm::event::{KeyCode, KeyEvent};
 use std::{path::PathBuf, time::Instant};
 mod control;
+mod cpu;
+mod entropy;
 mod map;
 mod processes;
 mod search;
 mod snapshots;
+mod summary;
+mod tree;
 
 fn state() -> (AppState, Instant) {
     let now = Instant::now();

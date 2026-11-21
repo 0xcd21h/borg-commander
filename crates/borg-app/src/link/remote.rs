@@ -1,23 +1,31 @@
 //! The computer's side of borg cloud: pairing with a server, calling it, and copying files to and from it.
 
 use super::{
-    APPROVAL_WAIT, Answer, Hello, LINK_DIR, SERVERS_FILE, Server, clean_name, identity, load, save, this_computer,
+    APPROVAL_WAIT, Answer, Hello, LINK_DIR, ROTATE_CALL, SERVERS_FILE, Server, UNREADABLE_HELLO, clean_name,
+    keys::{ComputerKeys, computer_keys, legacy_key, lock, retire_unused, saved_server, update_server},
+    load_to_change, save, this_computer,
 };
 use crate::agent::{Call, Reply};
 use anyhow::{Context, Result, bail};
-use borg_link::{Channel, PairingCode, PairingLink, PublicKey, Relay, hex, initiate, relay, unhex};
+use borg_link::{Channel, Identity, PairingCode, PairingLink, PublicKey, Relay, hex, initiate, relay, unhex};
 use serde::Deserialize;
 use serde_json::json;
-use std::{path::Path, time::Duration};
+use std::{
+    path::{Path, PathBuf},
+    time::Duration,
+};
+
+const ROUNDS: usize = 3;
 
 /// The computer's side: pairs with the server a link names. The user approves it in borg on
 /// the server, comparing the code `shown` here; then the server is saved by name.
 pub async fn pair(state: &Path, link: &str, shown: impl FnOnce(&PairingCode)) -> Result<Server> {
     let link = PairingLink::parse(link).context("that is not a borg pairing link")?;
-    let identity = identity(state)?;
+    let keys = computer_keys(state).await?;
+    let identity = &keys.current;
     let socket = relay::dial(&link.relay, &link.server).await?;
     let hello = serde_json::to_vec(&Hello::Pair { secret: hex(&link.secret), name: this_computer() })?;
-    let mut channel = initiate(socket, &identity, &link.server, &hello).await?;
+    let mut channel = initiate(socket, identity, &link.server, &hello).await?;
     shown(&channel.pairing_code());
     let reply = tokio::time::timeout(APPROVAL_WAIT + Duration::from_secs(30), channel.recv())
         .await
@@ -27,8 +35,9 @@ pub async fn pair(state: &Path, link: &str, shown: impl FnOnce(&PairingCode)) ->
     if !answer.ok {
         bail!("{}", answer.error);
     }
+    let lock = lock(state)?;
     let path = state.join(LINK_DIR).join(SERVERS_FILE);
-    let mut servers: Vec<Server> = load(&path);
+    let mut servers: Vec<Server> = load_to_change(&path)?;
     servers.retain(|server| server.key != hex(&link.server));
     let base = clean_name(&answer.name).replace(|c: char| !c.is_ascii_alphanumeric() && c != '-' && c != '_', "-");
     let mut name = base.clone();
@@ -37,9 +46,17 @@ pub async fn pair(state: &Path, link: &str, shown: impl FnOnce(&PairingCode)) ->
         name = format!("{base}-{n}");
         n += 1;
     }
-    let server = Server { name, relay: link.relay.to_string(), key: hex(&link.server) };
+    let server = Server {
+        name,
+        relay: link.relay.to_string(),
+        key: hex(&link.server),
+        computer: Some(hex(identity.public())),
+        offered: None,
+    };
     servers.push(server.clone());
     save(&path, &servers)?;
+    drop(lock);
+    retire_unused(state)?;
     Ok(server)
 }
 
@@ -50,18 +67,75 @@ pub struct Remote {
 
 impl Remote {
     pub async fn open(state: &Path, server: &Server) -> Result<Self> {
+        Self::open_as(state, server, &Hello::Session).await
+    }
+
+    /// A viewer connection, for the asks of a session the panels here show.
+    pub async fn open_viewer(state: &Path, server: &Server) -> Result<Self> {
+        Self::open_as(state, server, &Hello::Viewer).await
+    }
+
+    /// A monitor connection, which only asks what the host is and how it is doing: the host
+    /// counts no agent for it and reaches no session. A Borg from before monitor connections
+    /// gets a session connection instead.
+    pub async fn open_monitor(state: &Path, server: &Server) -> Result<Self> {
+        match Self::open_as(state, server, &Hello::Monitor).await {
+            Err(error) if error.chain().any(|cause| cause.downcast_ref::<HelloUnknown>().is_some()) => {
+                Self::open(state, server).await
+            }
+            opened => opened,
+        }
+    }
+
+    async fn open_as(state: &Path, server: &Server, hello: &Hello) -> Result<Self> {
         let relay = Relay::parse(&server.relay).context("the saved relay is not valid")?;
         let key: PublicKey = unhex(&server.key).context("the saved key is not valid")?;
-        let identity = identity(state)?;
-        let socket =
-            relay::dial(&relay, &key).await.with_context(|| format!("borg on {} is not reachable", server.name))?;
-        let mut channel = initiate(socket, &identity, &key, &serde_json::to_vec(&Hello::Session)?).await?;
-        let reply = channel.recv().await?.context("the server closed the connection")?;
-        let answer: Answer = serde_json::from_slice(&reply)?;
-        if !answer.ok {
-            bail!("{}", answer.error);
+        let hello_bytes = serde_json::to_vec(hello)?;
+        for round in 1..=ROUNDS {
+            let keys = computer_keys(state).await?;
+            let entry = saved_server(state, &server.key).unwrap_or_else(|| server.clone());
+            let mut opened = None;
+            let unheld = |public: &Option<String>| public.as_deref().is_none_or(|public| keys.held(public).is_none());
+            let legacy = (unheld(&entry.computer) || unheld(&entry.offered)).then(|| legacy_key(state)).flatten();
+            for candidate in candidates(&entry, &keys, legacy) {
+                if let Some((channel, answer)) = connect(&relay, &key, &candidate, &hello_bytes, &server.name).await? {
+                    opened = Some((candidate, channel, answer));
+                    break;
+                }
+            }
+            let Some((used, mut channel, answer)) = opened else {
+                bail!("{}", borg_i18n::tr!(cloud_key_refused, server = server.name));
+            };
+            let used_key = hex(used.public());
+            if entry.computer.as_deref() != Some(used_key.as_str()) || entry.offered.is_some() {
+                update_server(state, &server.key, |saved| {
+                    saved.computer = Some(used_key.clone());
+                    saved.offered = None;
+                })?;
+            }
+            let rotates = matches!(hello, Hello::Session | Hello::Monitor) && answer.rotation && round < ROUNDS;
+            if used == keys.current || !rotates {
+                return Ok(Self { channel });
+            }
+            let new_key = hex(keys.current.public());
+            update_server(state, &server.key, |saved| saved.offered = Some(new_key.clone()))?;
+            match rotate(&mut channel, &keys.current).await {
+                Ok(true) => {
+                    update_server(state, &server.key, |saved| {
+                        saved.computer = Some(new_key.clone());
+                        saved.offered = None;
+                    })?;
+                    retire_unused(state)?;
+                    channel.close().await;
+                }
+                Ok(false) => {
+                    update_server(state, &server.key, |saved| saved.offered = None)?;
+                    return Ok(Self { channel });
+                }
+                Err(_) => {}
+            }
         }
-        Ok(Self { channel })
+        bail!("borg on {} did not settle which key this computer uses", server.name)
     }
 
     pub async fn call(&mut self, call: &Call) -> Result<Reply> {
@@ -76,6 +150,69 @@ impl Remote {
     }
 }
 
+fn candidates(entry: &Server, keys: &ComputerKeys, legacy: Option<Identity>) -> Vec<Identity> {
+    let held = |public: &str| {
+        keys.held(public).cloned().or_else(|| legacy.clone().filter(|legacy| hex(legacy.public()) == public))
+    };
+    let accepted = match entry.computer.as_deref() {
+        Some(public) => held(public),
+        None => legacy.clone(),
+    };
+    let mut list: Vec<Identity> = Vec::new();
+    for candidate in
+        [entry.offered.as_deref().and_then(held), accepted, Some(keys.current.clone())].into_iter().flatten()
+    {
+        if !list.contains(&candidate) {
+            list.push(candidate);
+        }
+    }
+    list
+}
+
+pub(super) async fn connect(
+    relay: &Relay,
+    server: &PublicKey,
+    identity: &Identity,
+    hello: &[u8],
+    name: &str,
+) -> Result<Option<(Channel, Answer)>> {
+    let socket = relay::dial(relay, server).await.with_context(|| format!("borg on {name} is not reachable"))?;
+    let mut channel = initiate(socket, identity, server, hello).await?;
+    let reply = channel.recv().await?.context("the server closed the connection")?;
+    let answer: Answer = serde_json::from_slice(&reply)?;
+    if answer.ok {
+        Ok(Some((channel, answer)))
+    } else if answer.refused() {
+        channel.close().await;
+        Ok(None)
+    } else if answer.error == UNREADABLE_HELLO {
+        channel.close().await;
+        Err(HelloUnknown.into())
+    } else {
+        bail!("{}", answer.error)
+    }
+}
+
+/// The server's Borg does not know the kind of connection asked for.
+#[derive(Debug)]
+pub(super) struct HelloUnknown;
+
+impl std::fmt::Display for HelloUnknown {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("borg there does not know this kind of connection")
+    }
+}
+
+impl std::error::Error for HelloUnknown {}
+
+pub(super) async fn rotate(channel: &mut Channel, new: &Identity) -> Result<bool> {
+    let proof = channel.rotation_proof(new).context("the new key shares no secret with the server")?;
+    let call = Call::new(ROTATE_CALL, json!({ "key": hex(new.public()), "proof": hex(&proof) }));
+    channel.send(&serde_json::to_vec(&call)?).await?;
+    let reply = channel.recv().await?.context("the server closed the connection")?;
+    Ok(serde_json::from_slice::<Reply>(&reply)?.ok)
+}
+
 /// Bytes a single call to `get` or `put` carries.
 pub const CHUNK: u64 = 1024 * 1024;
 
@@ -85,18 +222,49 @@ pub(super) struct Piece {
     pub(super) data: String,
 }
 
+/// Whether a download may take the place of a file already at its destination.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Existing {
+    Replace,
+    Keep,
+}
+
+/// What a download is written to until all of it arrived: a new file beside `to` with a random
+/// name, so nothing already there, such as a link someone left, is written through.
+fn staging(to: &Path) -> Result<(PathBuf, std::fs::File)> {
+    let parent = to.parent().filter(|parent| !parent.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let name = to.file_name().context("the destination names no file")?.to_string_lossy();
+    let staged = parent.join(format!(".{name}.borg-download-{}", hex(&borg_link::secret())));
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&staged)
+        .with_context(|| format!("could not write beside {}", to.display()))?;
+    Ok((staged, file))
+}
+
+/// Puts a complete download in place: over an existing file only when `existing` allows it.
+fn place(staged: &Path, to: &Path, existing: Existing) -> Result<()> {
+    let placed = match existing {
+        Existing::Replace => std::fs::rename(staged, to).map_err(anyhow::Error::from),
+        Existing::Keep => std::fs::hard_link(staged, to).with_context(|| format!("{} already exists", to.display())),
+    };
+    let _ = std::fs::remove_file(staged);
+    placed
+}
+
 /// Copies a file from the server to `to` on this computer, piece by piece; its size.
 pub async fn download_in_session(
     remote: &mut Remote,
     session: Option<&str>,
     path: &str,
     to: &Path,
+    existing: Existing,
     mut progress: impl FnMut(u64, u64),
 ) -> Result<u64> {
     use base64::Engine as _;
     use std::io::Write as _;
-    let staged = to.with_extension(format!("borg-download-{}", std::process::id()));
-    let mut file = std::fs::File::create(&staged).with_context(|| format!("could not write {}", staged.display()))?;
+    let (staged, mut file) = staging(to)?;
     let mut offset = 0;
     let result = async {
         loop {
@@ -118,10 +286,7 @@ pub async fn download_in_session(
     .await;
     drop(file);
     match result {
-        Ok(size) => {
-            std::fs::rename(&staged, to)?;
-            Ok(size)
-        }
+        Ok(size) => place(&staged, to, existing).map(|()| size),
         Err(error) => {
             let _ = std::fs::remove_file(&staged);
             Err(error)
@@ -142,7 +307,9 @@ pub async fn upload_in_session(
     use std::io::Read as _;
     let mut file = std::fs::File::open(from).with_context(|| format!("could not read {}", from.display()))?;
     let size = file.metadata()?.len();
-    let reply = remote.call(&Call::new("put", json!({ "session": session, "path": path, "size": size }))).await?;
+    let source = crate::agent::home_relative(from);
+    let announced = json!({ "session": session, "path": path, "size": size, "from": source });
+    let reply = remote.call(&Call::new("put", announced)).await?;
     if !reply.ok {
         bail!("{}", reply.text);
     }

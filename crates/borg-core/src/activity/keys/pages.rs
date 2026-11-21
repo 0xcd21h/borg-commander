@@ -10,7 +10,8 @@ use super::form;
 use crate::{
     AppState, Effect,
     activity::{
-        Activity, ActivityPage, ActivityRequest, ActivitySort, CENSUS_LEGEND, SNAPSHOT_LIMIT, census_grid, chrome_rows,
+        Activity, ActivityPage, ActivityRequest, ActivitySort, CENSUS_LEGEND, FindingsReport, SNAPSHOT_LIMIT,
+        census_grid, chrome_rows,
     },
 };
 
@@ -22,7 +23,6 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
     if let Some(form) = activity.search_form.take() {
         return form::on_key(activity, form, key);
     }
-    // Typing edits the filter; the arrows and paging keys still move through the matches.
     let moving = matches!(
         key.code,
         KeyCode::Up | KeyCode::Down | KeyCode::PageUp | KeyCode::PageDown | KeyCode::Home | KeyCode::End
@@ -32,7 +32,7 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
         return Vec::new();
     }
 
-    let rows = usize::from(rect.height.saturating_sub(chrome_rows(activity.page))).max(1);
+    let rows = usize::from(rect.height.saturating_sub(chrome_rows(activity, activity.page, rect))).max(1);
     let width = usize::from(rect.width.saturating_sub(2));
     if activity.page == ActivityPage::Snapshot
         && activity.map
@@ -51,7 +51,7 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
         KeyCode::Char('/')
             if !matches!(activity.page, ActivityPage::Processes | ActivityPage::Files | ActivityPage::FileDetails) =>
         {
-            activity.search_form = Some(form::new());
+            activity.search_form = Some(form::reopen(activity));
         }
         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) && scanning(activity) => {
             return vec![Effect::CancelMemorySearch];
@@ -75,27 +75,36 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent) -> Vec<Effect> {
     Vec::new()
 }
 
-/// Typing into the processes' filter: Enter keeps it and Esc clears it.
+/// Typing into the processes' filter: Enter keeps it and Esc clears it. A PID typed in full
+/// takes the cursor to its process.
 fn filter_key(activity: &mut Activity, code: KeyCode) {
-    match code {
-        KeyCode::Enter => activity.filtering = false,
+    let typed = match code {
+        KeyCode::Enter => {
+            activity.filtering = false;
+            false
+        }
         KeyCode::Esc => {
             activity.filtering = false;
             activity.filter.clear();
+            false
         }
-        KeyCode::Backspace => {
-            activity.filter.pop();
+        KeyCode::Backspace => activity.filter.pop().is_some(),
+        KeyCode::Char(c) => {
+            activity.filter.push(c);
+            true
         }
-        KeyCode::Char(c) => activity.filter.push(c),
-        _ => {}
-    }
-    activity.rebuild();
+        _ => false,
+    };
+    if typed { activity.refilter() } else { activity.rebuild() }
 }
 
-/// Whether a memory search or an integrity check is under way, which Ctrl-C stops.
+/// Whether a memory search, an integrity check or a rules scan is under way, which Ctrl-C stops.
 fn scanning(activity: &Activity) -> bool {
     activity.pending.as_ref().is_some_and(|(_, request)| {
-        matches!(request, ActivityRequest::Search { .. } | ActivityRequest::Integrity { .. })
+        matches!(
+            request,
+            ActivityRequest::Search { .. } | ActivityRequest::Integrity { .. } | ActivityRequest::Rules { .. }
+        )
     })
 }
 
@@ -124,12 +133,12 @@ fn pause(activity: &mut Activity) -> Vec<Effect> {
     if !activity.paused && activity.pending.is_none() { activity.request(ActivityRequest::Sample) } else { Vec::new() }
 }
 
-/// R reads again what the page shows: the integrity check, the snapshot, the regions or the
-/// open files, or else takes a sample.
+/// R reads again what the page shows: the check that found the findings, the snapshot, the
+/// regions or the open files, or else takes a sample.
 fn reload(activity: &mut Activity) -> Vec<Effect> {
     let process = activity.selected;
     let request = match activity.page {
-        ActivityPage::Integrity => process.map(|process| ActivityRequest::Integrity { process, admin: false }),
+        ActivityPage::Findings => activity.findings.as_ref().map(FindingsReport::check),
         ActivityPage::Snapshot => activity.recapture_request(),
         ActivityPage::Regions => process.map(|process| ActivityRequest::Regions { process, admin: false }),
         ActivityPage::Files | ActivityPage::FileDetails => {
@@ -186,10 +195,18 @@ fn export(activity: &Activity, folder: &Path) -> Vec<Effect> {
     vec![Effect::ExportMemory { path: folder.join(name), bytes: snapshot.bytes.clone() }]
 }
 
-/// The processes' keys: a column's key sorts by it, again turns the order round, and T shows
-/// the processes as a tree.
+/// The processes' keys: a column's key sorts by it, again turns the order round, T shows the
+/// processes as a tree, H hides the idle ones, and S hides the system summary.
 fn sort_key(activity: &mut Activity, c: char) {
     let sort = match c.to_ascii_lowercase() {
+        'h' => {
+            activity.hide_idle = !activity.hide_idle;
+            None
+        }
+        's' => {
+            activity.hide_summary = !activity.hide_summary;
+            None
+        }
         'm' => Some(ActivitySort::Memory),
         'c' => Some(ActivitySort::Cpu),
         'g' => Some(ActivitySort::Growth),

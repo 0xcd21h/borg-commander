@@ -3,6 +3,8 @@
 //! Colima, and remote contexts.
 
 use borg_i18n::tr;
+mod disk;
+pub mod helper;
 mod model;
 
 use std::{
@@ -18,6 +20,7 @@ use tokio::{
     process::Command,
 };
 
+pub use disk::{CacheRecord, Compose, DiskUse, Engine, Image, LastUse, Layer, Volume, VolumeUser};
 pub use model::{Action, Container, Details, File, Frames, Health, Mount, Network, State, Stats, parse_size};
 
 const PROGRAM: &str = "docker";
@@ -25,6 +28,8 @@ const OUTPUT_LIMIT: u64 = 16 * 1024 * 1024;
 const QUERY_TIMEOUT: Duration = Duration::from_secs(15);
 /// Stopping waits up to ten seconds for each container before Docker kills it.
 const ACTION_TIMEOUT: Duration = Duration::from_secs(120);
+/// Docker measures every volume to report disk use, which takes a while on a busy engine.
+const DISK_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 /// Copies run as long as they need; the user can watch them in the panel footer.
 const COPY_TIMEOUT: Duration = Duration::from_secs(24 * 60 * 60);
 
@@ -62,6 +67,51 @@ async fn run(args: &[&str], timeout: Duration) -> Result<String> {
 /// The name of the context the CLI talks to, such as "default", "desktop-linux" or "orbstack".
 pub async fn context() -> Result<String> {
     Ok(run(&["context", "show"], QUERY_TIMEOUT).await?.trim().to_owned())
+}
+
+/// The names of all the CLI's contexts.
+pub async fn contexts() -> Result<Vec<String>> {
+    Ok(run(&["context", "ls", "--quiet"], QUERY_TIMEOUT).await?.lines().map(str::to_owned).collect())
+}
+
+/// What the engine keeps on disk: images, containers' layers, volumes with what made them and
+/// what mounts them, build cache and unused networks.
+pub async fn disk_use() -> Result<DiskUse> {
+    let (report, tags, networks, volumes, containers, engine) = tokio::try_join!(
+        run(&["system", "df", "--verbose", "--format", "json"], DISK_TIMEOUT),
+        run(&["image", "ls", "--no-trunc", "--format", disk::TAGS_FORMAT], QUERY_TIMEOUT),
+        unused_networks(),
+        inspect_all(&["volume", "ls", "--quiet"], &["volume", "inspect", "--format", disk::VOLUME_FORMAT]),
+        inspect_all(
+            &["container", "ls", "--all", "--no-trunc", "--quiet"],
+            &["inspect", "--type", "container", "--format", disk::CONTAINER_FORMAT],
+        ),
+        run(&["info", "--format", disk::ENGINE_FORMAT], QUERY_TIMEOUT),
+    )?;
+    let outputs = disk::Outputs { report: &report, tags: &tags, volumes: &volumes, containers: &containers };
+    let engine = disk::Engine { helper: helper::present().await, ..disk::parse_engine(&engine)? };
+    disk::parse(&outputs, networks, engine)
+}
+
+/// Inspects everything `list` names, in one call; nothing when it names nothing.
+async fn inspect_all(list: &[&str], inspect: &[&str]) -> Result<String> {
+    let names = run(list, QUERY_TIMEOUT).await?;
+    let names: Vec<&str> = names.split_whitespace().collect();
+    if names.is_empty() {
+        return Ok(String::new());
+    }
+    run(&[inspect, &names].concat(), QUERY_TIMEOUT).await
+}
+
+async fn unused_networks() -> Result<Vec<String>> {
+    let ids = run(&["network", "ls", "--filter", "dangling=true", "--no-trunc", "--quiet"], QUERY_TIMEOUT).await?;
+    let ids: Vec<&str> = ids.split_whitespace().collect();
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut args = vec!["network", "inspect", "--format", disk::NETWORK_FORMAT];
+    args.extend(ids);
+    disk::parse_networks(&run(&args, QUERY_TIMEOUT).await?)
 }
 
 /// Every container, running or not.

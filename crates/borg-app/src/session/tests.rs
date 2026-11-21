@@ -1,5 +1,6 @@
 use super::*;
 use std::os::unix::ffi::OsStringExt;
+use std::time::{Duration, UNIX_EPOCH};
 
 #[test]
 fn game2048_round_trips_and_rejects_corrupt_or_oversized_saves() {
@@ -37,15 +38,58 @@ fn recent_folders_round_trip_privately_and_none_removes_the_file() {
 }
 
 #[test]
-fn update_checks_are_due_once_a_day() {
-    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+fn the_remote_log_is_private_to_its_session_and_keeps_its_newest_entries() {
+    use std::os::unix::fs::PermissionsExt;
+    let temp = tempfile::tempdir().unwrap();
+    let state = StateDir::at(temp.path().join("state"));
+    let dir = state.for_session("work");
+    assert!(dir.load_agent_log().unwrap().is_empty());
+    let ran = "2026-11-09 14:00:00  ran in ~/srv\n$ make\n[exit 0]";
+    dir.save_agent_note(ran).unwrap();
+    let file = state.workspace("work").join(AGENT_LOG_FILE);
+    let mode = |file: &Path| fs::metadata(file).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode(&file), 0o600);
+    fs::set_permissions(&file, fs::Permissions::from_mode(0o644)).unwrap();
+    dir.save_agent_note("2026-11-09 14:00:01  read /srv/app").unwrap();
+    assert_eq!(mode(&file), 0o600, "a log others could read is made private again");
+    assert_eq!(dir.load_agent_log().unwrap(), [ran, "2026-11-09 14:00:01  read /srv/app"]);
+    assert!(state.load_agent_log().unwrap().is_empty(), "each session keeps its own log");
+
+    let quarter = "x".repeat(MAX_AGENT_LOG_BYTES as usize / 4);
+    for n in 0..5 {
+        dir.save_agent_note(&format!("{n} {quarter}")).unwrap();
+        assert!(fs::metadata(&file).unwrap().len() <= MAX_AGENT_LOG_BYTES);
+    }
+    assert_eq!(mode(&file), 0o600, "trimming keeps the log private");
+    let kept: Vec<_> = dir.load_agent_log().unwrap().iter().map(|entry| entry[..1].to_owned()).collect();
+    assert_eq!(kept, ["3", "4"]);
+
+    dir.forget_agent_log().unwrap();
+    assert!(!file.exists());
+    dir.forget_agent_log().unwrap();
+}
+
+#[test]
+fn a_remote_log_past_its_limit_loads_its_newest_whole_entries() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = StateDir::at(temp.path().to_path_buf());
+    let oldest = agent_log::line(&"x".repeat(MAX_AGENT_LOG_BYTES as usize));
+    fs::write(temp.path().join(AGENT_LOG_FILE), oldest + &agent_log::line("newest")).unwrap();
+    assert_eq!(dir.load_agent_log().unwrap(), ["newest"]);
+}
+
+#[test]
+fn the_update_check_keeps_when_it_ran_and_the_skipped_version() {
+    let dir = tempfile::tempdir().unwrap();
     let state = StateDir::at(dir.path().join("state"));
-    let day = Duration::from_secs(86_400);
-    let now = UNIX_EPOCH + Duration::from_secs(1_800_000_000);
-    assert!(state.update_check_due(now, day));
-    state.record_update_check(now).unwrap_or_else(|e| panic!("{e}"));
-    assert!(!state.update_check_due(now + day / 2, day));
-    assert!(state.update_check_due(now + day, day));
+    assert_eq!(state.update_check(), UpdateCheck::default(), "no file yet");
+    let checked = Some(UNIX_EPOCH + Duration::from_secs(1_800_000_000));
+    state.save_update_check(&UpdateCheck { checked, skipped: None }).unwrap();
+    crate::update::skip(&state, "0.11.0").unwrap();
+    let skipped = Some("0.11.0".parse().unwrap());
+    assert_eq!(state.update_check(), UpdateCheck { checked, skipped });
+    let text = fs::read_to_string(state.path().join(UPDATE_CHECK_FILE)).unwrap();
+    assert_eq!(text, "1800000000\n0.11.0\n");
 }
 
 fn saved(left: &Path, right: &Path) -> Session {

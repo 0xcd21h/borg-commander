@@ -17,7 +17,8 @@ export default defineConfig({
       ru: { label: 'Русский', lang: 'ru' },
     },
     description: 'A two-panel file manager with your shell built in. A practical guide for macOS and Linux.',
-    favicon: '/favicon.svg',
+    favicon: '/favicon.png',
+    logo: { src: './src/generated/icon.png' },
     social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/0xcd21h/borg-commander' }],
     customCss: ['./src/styles/custom.css'],
     components: { Footer: './src/components/Footer.astro', Header: './src/components/Header.astro' },
@@ -34,6 +35,7 @@ export default defineConfig({
         { ...label('remote-access.title'), slug: 'guide/remote-access' },
         { ...label('activity.title'), slug: 'guide/activity' },
         { ...label('network.title'), slug: 'guide/network' },
+        { ...label('startup-items.title'), slug: 'guide/startup-items' },
       ] },
       { ...label('customize'), items: [
         { ...label('themes.title'), slug: 'guide/themes' },

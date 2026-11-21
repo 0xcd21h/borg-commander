@@ -19,10 +19,11 @@ const pages = [
   ['files', 'Files, jobs & viewers', 'Find, preview, copy, move, and manage files.', ['Find, jobs, and viewers']],
   ['search', 'Search & collections', 'Search recursively, save collections, and measure folder sizes.', ['Collections and recursive search']],
   ['git', 'Git', 'Inspect changes, stage files, and work with Git inside Borg.', ['Git plugin']],
-  ['docker', 'Docker', 'Browse containers, inspect status, and open container files and shells.', ['Docker plugin']],
+  ['docker', 'Docker', 'Browse containers, inspect status, open container files and shells, and free disk space.', ['Docker plugin']],
   ['remote-access', 'Remote access & MCP', 'Connect Borg sessions, browse remote files, and pair an assistant.', ['Claude and other agents (MCP)']],
   ['activity', 'Activity & memory', 'Inspect processes, resource use, and memory maps.', ['Activity and memory']],
   ['network', 'Network', 'See open ports, connections, and traffic by process and interface.', ['Network']],
+  ['startup-items', 'Startup items', 'See what starts on its own, newest change first, and what it runs.', ['Startup items']],
   ['themes', 'Themes & icons', 'Choose a theme and configure terminal fonts and file icons.', ['Themes and icons']],
   ['configuration', 'Configuration', 'Find settings, state, and command-line options.', ['Configuration']],
 ];
@@ -98,4 +99,6 @@ if (!version) throw new Error('Workspace version is missing');
 const revision = process.env.GITHUB_SHA ?? execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
 await mkdir(join(site, 'src/generated'), { recursive: true });
 await writeFile(join(site, 'src/generated/build.json'), JSON.stringify({ version, revision: revision.slice(0, 7) }));
+await copyFile(join(root, 'docs/brand/favicon.png'), join(site, 'public/favicon.png'));
+await copyFile(join(root, 'docs/brand/icon.png'), join(site, 'src/generated/icon.png'));
 console.log(`Generated ${pages.length * codes.length} guide pages across ${codes.length} languages and ${screenshots.length} public screenshots for Borg ${version}.`);

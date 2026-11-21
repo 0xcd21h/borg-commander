@@ -1,5 +1,6 @@
 //! The dialog R opens on the network screen: what to capture, on which interface, for how
-//! long, how much of each packet to keep, and whether to run as administrator.
+//! long, how much of each packet to keep, whether to record TLS keys, and whether to run as
+//! administrator.
 
 use crate::{
     Theme,
@@ -7,7 +8,9 @@ use crate::{
     dialog_view::centered,
     format,
 };
-use borg_core::{CaptureDialog, CaptureField, CaptureScope, DURATIONS, HEADER_BYTES, Network, capture_extension};
+use borg_core::{
+    Authority, CaptureDialog, CaptureField, CaptureScope, DURATIONS, KEEP_CHOICES, Network, TlsKeys, capture_extension,
+};
 use borg_i18n::tr;
 use ratatui::{
     buffer::Buffer,
@@ -37,6 +40,7 @@ fn label(field: CaptureField) -> &'static str {
         CaptureField::Interface => tr!(network_interface_column),
         CaptureField::Duration => tr!(capture_duration_field),
         CaptureField::Content => tr!(capture_content_field),
+        CaptureField::TlsKeys => tr!(capture_tls_field),
         CaptureField::Access => tr!(capture_access_field),
     }
 }
@@ -46,6 +50,15 @@ fn access_label(dialog: &CaptureDialog, administrator: bool) -> &'static str {
         (false, _) => tr!(capture_as_you),
         (true, false) => tr!(capture_as_administrator),
         (true, true) => tr!(capture_as_administrator_tagged),
+    }
+}
+
+fn tls_label(tls_keys: &TlsKeys) -> String {
+    match tls_keys {
+        TlsKeys::Off => tr!(capture_tls_off).to_owned(),
+        TlsKeys::Shell => tr!(capture_tls_on).to_owned(),
+        TlsKeys::Proxy(Authority::Temporary) => tr!(capture_tls_proxy).to_owned(),
+        TlsKeys::Proxy(Authority::Folder(folder)) => tr!(capture_tls_proxy_folder, folder = folder.display()),
     }
 }
 
@@ -65,8 +78,8 @@ fn value(dialog: &CaptureDialog, network: &Network, field: CaptureField) -> Stri
         CaptureField::Scope => dialog.scopes.get(dialog.scope).map_or_else(String::new, |s| scope_label(network, *s)),
         CaptureField::Interface => dialog.interfaces.get(dialog.interface).cloned().unwrap_or_default(),
         CaptureField::Duration => duration_label(DURATIONS[dialog.duration]),
-        CaptureField::Content if dialog.headers_only => tr!(capture_headers_only, bytes = HEADER_BYTES),
-        CaptureField::Content => tr!(capture_whole_packets).to_owned(),
+        CaptureField::Content => dialog.keep.label(),
+        CaptureField::TlsKeys => tls_label(&dialog.tls_keys),
         CaptureField::Access => access_label(dialog, dialog.administrator).to_owned(),
     }
 }
@@ -76,11 +89,12 @@ fn widest_value(dialog: &CaptureDialog, network: &Network) -> usize {
     let scopes = dialog.scopes.iter().map(|scope| scope_label(network, *scope).width());
     let interfaces = dialog.interfaces.iter().map(|name| name.width());
     let durations = DURATIONS.iter().map(|seconds| duration_label(*seconds).width());
-    let contents = [tr!(capture_headers_only, bytes = HEADER_BYTES).width(), tr!(capture_whole_packets).width()];
+    let contents = KEEP_CHOICES.map(|keep| keep.label().width());
+    let tls_keys = dialog.tls_choices().map(|tls_keys| tls_label(&tls_keys).width());
     let shown = dialog.fields().contains(&CaptureField::Access);
     let access =
         [false, true].into_iter().filter(|_| shown).map(|administrator| access_label(dialog, administrator).width());
-    scopes.chain(interfaces).chain(durations).chain(contents).chain(access).max().unwrap_or_default()
+    scopes.chain(interfaces).chain(durations).chain(contents).chain(tls_keys).chain(access).max().unwrap_or_default()
 }
 
 fn label_width(dialog: &CaptureDialog) -> usize {

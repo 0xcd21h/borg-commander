@@ -17,11 +17,15 @@ pub(super) fn on_pointer(state: &mut AppState, pointer: Pointer, overlay: Overla
             }
             show(state, Overlay::Prompt(prompt))
         }
-        (Pointer::DialogScroll(delta), Overlay::Approval(_) | Overlay::AgentLog { .. }) => {
+        (Pointer::DialogScroll(delta), Overlay::AgentLog { .. }) => {
             crate::agent::scroll_dialog(state, delta);
             Vec::new()
         }
         (Pointer::DialogScroll(delta), overlay) => scroll_list(state, overlay, delta, now),
+        (Pointer::DialogRow(row), Overlay::Jobs(list)) => {
+            crate::jobs::on_row(state, list, row);
+            Vec::new()
+        }
         (Pointer::DialogRow(row), overlay) => {
             select_row(state, overlay, row, now);
             Vec::new()
@@ -30,13 +34,18 @@ pub(super) fn on_pointer(state: &mut AppState, pointer: Pointer, overlay: Overla
             crate::network::pick_capture_field(state, dialog, row);
             Vec::new()
         }
+        (Pointer::ListenField(row), Overlay::Listen(form)) => {
+            crate::network::pick_listen_field(state, form, row);
+            Vec::new()
+        }
         (Pointer::DialogMark(row), Overlay::TimeMachine) => {
             state.backup.window.point(row, true);
             Vec::new()
         }
         (Pointer::DismissDialog, _) => press(state, KeyCode::Esc, now),
-        (Pointer::Confirm(accept), Overlay::Confirm(_) | Overlay::Approval(_)) => {
-            press(state, KeyCode::Char(if accept { 'y' } else { 'n' }), now)
+        (Pointer::Confirm(accept), Overlay::Confirm(_)) => {
+            let answer = if accept { crate::keyboard::YES_KEY } else { crate::keyboard::NO_KEY };
+            press(state, KeyCode::Char(answer), now)
         }
         (Pointer::Collection { index, open }, Overlay::Collections(picker)) if picker.creating.is_none() => {
             pick_collection(state, picker, index, open, now)
@@ -66,7 +75,8 @@ pub(super) fn on_pointer(state: &mut AppState, pointer: Pointer, overlay: Overla
         (Pointer::Setting(selected), Overlay::Settings { .. } | Overlay::Plugins { .. }) => {
             crate::overlays::toggle_setting(state, selected, now)
         }
-        (Pointer::DismissMenu, Overlay::Menu(_)) => {
+        (Pointer::MenuItem(index), Overlay::ContextMenu(menu)) => crate::context_menu::choose(state, menu, index, now),
+        (Pointer::DismissMenu, Overlay::Menu(_) | Overlay::ContextMenu(_)) => {
             state.overlay = None;
             Vec::new()
         }
@@ -104,26 +114,34 @@ fn pick_search_field(state: &mut AppState, mut form: crate::SearchForm, selected
         return Vec::new();
     }
     form.selected = selected;
-    let toggle = matches!(form.selected, crate::KIND_FIELD | crate::HIDDEN_FIELD | crate::SKIP_FIELD);
+    let toggle =
+        matches!(form.selected, crate::KIND_FIELD | crate::HIDDEN_FIELD | crate::SKIP_FIELD | crate::TYPOS_FIELD);
     state.overlay = Some(Overlay::Search(form));
     if toggle { press(state, KeyCode::Right, now) } else { Vec::new() }
 }
 
 /// An item of the open menu, which closes it and does what the item names, if it can be chosen.
 fn choose_menu_item(state: &mut AppState, cursor: MenuCursor, index: usize, now: Instant) -> Vec<Effect> {
-    let chosen = menus(state)
-        .get(cursor.menu)
-        .and_then(|menu| menu.item(index))
-        .filter(|item| item.enabled)
-        .map(|item| item.action);
+    let all = menus(state);
+    let chosen =
+        all.get(cursor.menu).and_then(|menu| menu.item(index)).filter(|item| item.enabled).map(|item| item.action);
     let Some(action) = chosen else { return Vec::new() };
-    state.last_menu = Some(MenuCursor { item: Some(index), ..cursor });
+    state.last_menu = crate::menu::MenuPlace::of(&all, MenuCursor { item: Some(index), ..cursor });
     state.overlay = None;
     actions::perform(state, action, now)
 }
 
-/// The wheel over a list dialog moves its choice by rows.
+/// The wheel over a list dialog moves its choice by rows, and over a menu by entries that can be
+/// chosen.
 fn scroll_list(state: &mut AppState, overlay: Overlay, delta: isize, now: Instant) -> Vec<Effect> {
+    if let Overlay::Menu(cursor) = overlay {
+        let item = menus(state).get(cursor.menu).and_then(|menu| menu.scroll(cursor.item, delta));
+        return show(state, Overlay::Menu(MenuCursor { item, ..cursor }));
+    }
+    if let Overlay::ContextMenu(mut context) = overlay {
+        context.selected = context.menu.scroll(context.selected, delta);
+        return show(state, Overlay::ContextMenu(context));
+    }
     if let Some((selected, count)) = list_position(state, &overlay) {
         let row = selected.saturating_add_signed(delta).min(count.saturating_sub(1));
         select_row(state, overlay, row, now);
@@ -139,11 +157,12 @@ fn list_position(state: &AppState, overlay: &Overlay) -> Option<(usize, usize)> 
         Overlay::Settings { selected } | Overlay::Plugins { selected } => {
             (*selected, crate::menu::checkbox_items(state).len())
         }
-        Overlay::Jobs(list) => (list.selected, state.jobs.len()),
+        Overlay::Jobs(list) => (list.selected, crate::shown_jobs(&state.jobs).len()),
         Overlay::Folders(dialog) => {
             (dialog.selected, crate::folders::dialog_choices(state, dialog.filter.text()).len())
         }
         Overlay::ProcessControl(dialog) => (dialog.selected, crate::CONTROL_CHOICES.len()),
+        Overlay::EntropyScan(dialog) => (dialog.selected, dialog.choices().len()),
         Overlay::Remotes(browser) if browser.show_clients => {
             (browser.client_selected, browser.clients.as_ref().map_or(0, Vec::len))
         }
@@ -155,6 +174,7 @@ fn list_position(state: &AppState, overlay: &Overlay) -> Option<(usize, usize)> 
             let list = state.backup.window.list();
             (list.cursor, list.items.len())
         }
+        Overlay::Storage(window) => (window.selected, window.rows().len()),
         _ => return None,
     })
 }
@@ -177,7 +197,9 @@ fn select_row(state: &mut AppState, overlay: Overlay, row: usize, now: Instant) 
         Overlay::Plugins { .. } => Overlay::Plugins { selected: row },
         Overlay::Jobs(_) => Overlay::Jobs(crate::JobList { selected: row }),
         Overlay::Folders(dialog) => Overlay::Folders(crate::FoldersDialog { selected: row, ..dialog }),
+        Overlay::Storage(window) => Overlay::Storage(crate::StorageWindow { selected: row, ..window }),
         Overlay::ProcessControl(dialog) => Overlay::ProcessControl(crate::ControlDialog { selected: row, ..dialog }),
+        Overlay::EntropyScan(dialog) => Overlay::EntropyScan(crate::EntropyDialog { selected: row, ..dialog }),
         Overlay::Remotes(mut browser) => {
             if browser.show_clients {
                 browser.client_selected = row;

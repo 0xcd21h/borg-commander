@@ -1,0 +1,4 @@
+SHELL=/bin/sh
+# m h dom mon dow user	command
+17 *	* * *	root    cd / && run-parts --report /etc/cron.hourly
+@daily   backup  /usr/local/bin/backup --quiet

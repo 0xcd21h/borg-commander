@@ -9,7 +9,12 @@ pub const SPLIT_STEP: i16 = 2;
 pub enum Action {
     Activity,
     Network,
+    StartupItems,
+    Alerts,
+    HostsOverview,
     ToggleSystemPlugin,
+    ToggleProcessWatch,
+    ToggleProcessFreeze,
     Docker,
     ToggleDockerPlugin,
     ToggleDockerConsole,
@@ -20,6 +25,7 @@ pub enum Action {
     DockerFilter,
     DockerFiles,
     DockerShell,
+    DockerDisk,
     AgentLog,
     ConnectClaude,
     Search,
@@ -41,6 +47,8 @@ pub enum Action {
     RevealOriginal,
     RemoveReferences,
     DeleteOriginals,
+    /// Replaces the text a contents search found in the files it found.
+    ReplaceInFiles,
     CancelSearch,
     Quit,
     ToggleShell,
@@ -55,6 +63,8 @@ pub enum Action {
     Top,
     Bottom,
     Open,
+    /// Into the hovered folder or archive.
+    Enter,
     Descend,
     Leave,
     InsertName,
@@ -93,6 +103,8 @@ pub enum Action {
     Compress,
     ExtractHere,
     ExtractToOther,
+    CreateVault,
+    CloseVault,
     SwapPanels,
     /// Opens the active panel's folder in the other panel.
     SameFolder,
@@ -102,7 +114,13 @@ pub enum Action {
     ToggleMenuBar,
     ToggleRestoreTerminal,
     ToggleScreensaver,
+    /// Toasts that say when jobs start, end or wait.
+    ToggleJobNotifications,
     Jobs,
+    /// Opens the result of the job that finished last.
+    JobResult,
+    /// Closes the toasts on screen, leaving their jobs in the panel.
+    CloseToasts,
     Find,
     ToggleReturnToPanels,
     SetListing(Side, ListingMode),
@@ -113,6 +131,12 @@ pub enum Action {
     Reload,
     /// Opens the Time Machine window for the selection (macOS).
     TimeMachine,
+    /// Opens the window of Borg's own files.
+    Storage,
+    /// Offers to install or start the background service.
+    BackgroundService,
+    /// Forgets the answers that keep Borg from asking before long jobs.
+    AskAgain,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -175,6 +199,8 @@ pub const KEYMAP: &[Binding] = &[
     bind(KeyCode::Char('i'), ALT, Action::MeasureSizes, Scope::PanelsEmptyLine),
     bind(KeyCode::Char('m'), ALT, Action::Activity, Scope::Panels),
     bind(KeyCode::Char('n'), ALT, Action::Network, Scope::Panels),
+    bind(KeyCode::Char('u'), ALT, Action::StartupItems, Scope::Panels),
+    bind(KeyCode::Char('l'), ALT, Action::Alerts, Scope::Panels),
     bind(KeyCode::Char('M'), ALT, Action::MirrorRemote, Scope::Panels),
     bind(KeyCode::Char('h'), ALT, Action::BrowseRemotes, Scope::Panels),
     bind(KeyCode::Char('r'), ALT, Action::Reload, Scope::Panels),
@@ -182,13 +208,9 @@ pub const KEYMAP: &[Binding] = &[
     bind(KeyCode::Char('a'), CTRL_ALT, Action::ApprovalModeOff, Scope::Anywhere),
     bind(KeyCode::Char('c'), ALT, Action::Docker, Scope::Panels),
     bind(KeyCode::Char('D'), ALT, Action::FolderTree, Scope::Panels),
-    bind(KeyCode::Char('D'), ALT_SHIFT, Action::FolderTree, Scope::Panels),
-    bind(KeyCode::Char('d'), ALT_SHIFT, Action::FolderTree, Scope::Panels),
     bind(KeyCode::Char('s'), ALT, Action::CalculateSizes, Scope::Panels),
     bind(KeyCode::Char('d'), ALT, Action::AnalyzeSpace, Scope::Panels),
     bind(KeyCode::Char('R'), ALT, Action::BackResults, Scope::Panels),
-    bind(KeyCode::Char('R'), ALT_SHIFT, Action::BackResults, Scope::Panels),
-    bind(KeyCode::Char('r'), ALT_SHIFT, Action::BackResults, Scope::Panels),
     bind(KeyCode::F(8), SHIFT, Action::DeleteOriginals, Scope::Panels),
     bind(KeyCode::Char('f'), CTRL, Action::Search, Scope::Panels),
     // Not Alt-B: terminals send Option-Left as Esc b, the shell's word-left.
@@ -216,6 +238,8 @@ pub const KEYMAP: &[Binding] = &[
     bind(KeyCode::Down, NONE, Action::Down, Scope::Panels),
     bind(KeyCode::PageUp, NONE, Action::PageUp, Scope::Panels),
     bind(KeyCode::PageDown, NONE, Action::PageDown, Scope::Panels),
+    bind(KeyCode::PageDown, CTRL, Action::Enter, Scope::Panels),
+    bind(KeyCode::PageUp, CTRL, Action::Leave, Scope::Panels),
     bind(KeyCode::Home, NONE, Action::Top, Scope::PanelsEmptyLine),
     bind(KeyCode::End, NONE, Action::Bottom, Scope::PanelsEmptyLine),
     bind(KeyCode::Enter, NONE, Action::Open, Scope::PanelsEmptyLine),
@@ -242,14 +266,62 @@ pub const KEYMAP: &[Binding] = &[
     bind(KeyCode::Char('q'), CTRL, Action::QuickView, Scope::PanelsEmptyLine),
     bind(KeyCode::Char('l'), CTRL, Action::Info, Scope::PanelsEmptyLine),
     bind(KeyCode::Char('j'), ALT, Action::Jobs, Scope::Panels),
+    bind(KeyCode::Char('g'), ALT, Action::JobResult, Scope::Panels),
+    bind(KeyCode::Char('x'), ALT, Action::CloseToasts, Scope::Panels),
     bind(KeyCode::Left, ALT_SHIFT, Action::NudgeSplit(-SPLIT_STEP), Scope::Panels),
     bind(KeyCode::Right, ALT_SHIFT, Action::NudgeSplit(SPLIT_STEP), Scope::Panels),
 ];
 
+const CONTROL_HINT: &str = "C-";
+const ALT_HINT: &str = "M-";
+const SHIFT_HINT: &str = "S-";
+
+/// A key as menus name it, with a capital letter written as Shift and the small one.
+fn key_hint(code: KeyCode) -> (bool, String) {
+    match code {
+        KeyCode::Char(letter) if letter.is_uppercase() => (true, letter.to_lowercase().collect()),
+        KeyCode::Char(letter) => (false, letter.to_string()),
+        KeyCode::F(number) => (false, format!("F{number}")),
+        KeyCode::Insert => (false, "Ins".to_owned()),
+        KeyCode::Enter => (false, "Enter".to_owned()),
+        KeyCode::Left => (false, "←".to_owned()),
+        KeyCode::Right => (false, "→".to_owned()),
+        other => (false, other.to_string()),
+    }
+}
+
+/// The first key bound to `action`, as menus show it: `C-` for Ctrl, `M-` for Alt and `S-` for
+/// Shift before the key.
+pub fn hint(action: Action) -> Option<String> {
+    let binding = KEYMAP.iter().find(|binding| binding.action == action)?;
+    let (capital, key) = key_hint(binding.code);
+    let held =
+        |modifier: KeyModifiers, name: &'static str| if binding.modifiers.contains(modifier) { name } else { "" };
+    let shift = if capital { SHIFT_HINT } else { held(KeyModifiers::SHIFT, SHIFT_HINT) };
+    Some(format!("{}{}{shift}{key}", held(KeyModifiers::CONTROL, CONTROL_HINT), held(KeyModifiers::ALT, ALT_HINT)))
+}
+
+/// The letter Shift makes of `typed`, where there is exactly one.
+fn shifted(typed: char) -> char {
+    let mut upper = typed.to_uppercase();
+    match (upper.next(), upper.next()) {
+        (Some(letter), None) => letter,
+        _ => typed,
+    }
+}
+
+/// The key as the bindings name it. A terminal reports a shifted letter either as the capital
+/// alone or as the small letter with Shift, and bindings name the capital without Shift.
+fn as_bound(key: &KeyEvent) -> (KeyCode, KeyModifiers) {
+    match key.code {
+        KeyCode::Char(typed) if key.modifiers.contains(KeyModifiers::SHIFT) => {
+            (KeyCode::Char(shifted(typed)), key.modifiers - KeyModifiers::SHIFT)
+        }
+        code => (code, key.modifiers),
+    }
+}
+
 pub fn lookup(key: &KeyEvent, context: Context) -> Option<Action> {
-    let modifiers = match key.code {
-        KeyCode::Char(_) => key.modifiers - KeyModifiers::SHIFT,
-        _ => key.modifiers,
-    };
-    KEYMAP.iter().find(|b| b.code == key.code && b.modifiers == modifiers && b.scope.applies(context)).map(|b| b.action)
+    let (code, modifiers) = as_bound(key);
+    KEYMAP.iter().find(|b| b.code == code && b.modifiers == modifiers && b.scope.applies(context)).map(|b| b.action)
 }

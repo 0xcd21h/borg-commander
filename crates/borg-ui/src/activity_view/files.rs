@@ -101,7 +101,6 @@ pub(super) fn file_details(activity: &Activity, look: &Look<'_>, body: Rect, buf
 pub(super) fn open_file(activity: &Activity, file: &ProcessFile, look: &Look<'_>, body: Rect, buf: &mut Buffer) {
     let theme = look.theme;
     let width = usize::from(body.width).max(1);
-    // Two rows of path; a longer one keeps its end, which names the file.
     let path: Vec<char> = format::truncate_start(&file.name, width * 2).chars().collect();
     for (y, chunk) in path.chunks(width).enumerate() {
         text(buf, row(body, y as u16), chunk.iter().collect::<String>(), emphasis(theme));

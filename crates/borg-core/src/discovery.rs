@@ -12,7 +12,8 @@ pub const MINIMUM_FIELD: usize = 4;
 pub const FILES_FIELD: usize = 5;
 pub const HIDDEN_FIELD: usize = 6;
 pub const SKIP_FIELD: usize = 7;
-pub const SEARCH_FIELDS: usize = 8;
+pub const TYPOS_FIELD: usize = 8;
+pub const SEARCH_FIELDS: usize = 9;
 /// Recent searches the search dialog lists.
 pub const RECENT_SHOWN: usize = 5;
 const UNIT: f64 = 1024.0;
@@ -25,6 +26,10 @@ pub enum SearchKind {
     Folders,
     FolderTotals,
     FolderTree,
+    /// Files that Borg's rules or the user's match.
+    Rules,
+    /// Programs whose code is mostly high entropy, as packed or encrypted code is.
+    Packed,
 }
 
 impl SearchKind {
@@ -35,10 +40,22 @@ impl SearchKind {
             Self::Folders => tr!(folders_only),
             Self::FolderTotals => tr!(folder_totals),
             Self::FolderTree => tr!(folder_size_tree),
+            Self::Rules => tr!(rule_matches),
+            Self::Packed => tr!(packed_executables),
         }
     }
+    /// Whether the search measures folder sizes rather than looking for names.
+    pub fn measures_sizes(self) -> bool {
+        matches!(self, Self::FolderTotals | Self::FolderTree)
+    }
+    /// Whether the search lists the files it judges by what they hold, with rules or by the
+    /// entropy of their code, rather than by text it is given.
+    pub fn judges_files(self) -> bool {
+        matches!(self, Self::Rules | Self::Packed)
+    }
     fn step(self, reverse: bool) -> Self {
-        let kinds = [Self::All, Self::Files, Self::Folders, Self::FolderTotals, Self::FolderTree];
+        let kinds =
+            [Self::All, Self::Files, Self::Folders, Self::FolderTotals, Self::FolderTree, Self::Rules, Self::Packed];
         let index = kinds.iter().position(|kind| *kind == self).unwrap_or(0);
         kinds[(index + if reverse { kinds.len() - 1 } else { 1 }) % kinds.len()]
     }
@@ -52,6 +69,14 @@ pub struct SearchOptions {
     pub minimum_files: u64,
     /// Text the files must contain. A search with it lists files only.
     pub contents: Option<Box<borg_view::Query>>,
+}
+
+impl SearchOptions {
+    /// Whether the search reads the files it finds, for text, with rules or for packed code,
+    /// which no index answers.
+    pub fn reads_files(&self) -> bool {
+        self.contents.is_some() || self.kind.judges_files()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,10 +93,14 @@ pub struct SearchForm {
     pub hidden: bool,
     /// Leave out generated folders, ignored files and the configured globs.
     pub skip: bool,
+    /// Also find names with typos, shuffled digits or letters left out.
+    pub typos: bool,
     pub selected: usize,
     pub error: Option<String>,
     /// The recalled query's place in the history, and what was typed before recalling.
     pub recalled: Option<(usize, String)>,
+    /// Opened to analyze space, which keeps the search's own values for the next time.
+    pub space: bool,
 }
 
 impl SearchForm {
@@ -81,6 +110,16 @@ impl SearchForm {
             _ => None,
         };
         let root = request.map_or_else(|| state.active_panel().dir().to_path_buf(), |r| r.root.clone());
+        if let Some(draft) = state.search_draft.as_ref().filter(|_| request.is_none() && !space) {
+            return Self {
+                root: LineInput::new(root.display().to_string()),
+                original_root: root,
+                selected: 0,
+                error: None,
+                recalled: None,
+                ..draft.clone()
+            };
+        }
         let mut contents = FindBar::default();
         if let Some(query) = request.and_then(|r| r.options.contents.as_ref()) {
             contents.load(query);
@@ -101,17 +140,24 @@ impl SearchForm {
             ),
             hidden: space || request.map_or(state.settings.preferences.show_hidden, |r| r.hidden),
             skip: request.is_none_or(|r| r.skip.is_some()),
+            typos: request.map_or(state.settings.search.typos, |r| r.typos),
             selected: 0,
             error: None,
             recalled: None,
+            space,
         }
     }
 
     /// Whether the dialog shows `field`. Size scans measure folders and read everything, so
-    /// they look inside no file and have no switch for leaving things out.
+    /// they look inside no file, have no switch for leaving things out and match names only as
+    /// typed. Rule scans and the search for packed programs judge what files hold and list
+    /// files, so they take no text and no count of files.
     pub fn shows(&self, field: usize) -> bool {
         let sizes = matches!(self.kind, SearchKind::FolderTotals | SearchKind::FolderTree);
-        field < SEARCH_FIELDS && !(sizes && matches!(field, CONTENTS_FIELD | SKIP_FIELD))
+        let judges = self.kind.judges_files();
+        field < SEARCH_FIELDS
+            && !(sizes && matches!(field, CONTENTS_FIELD | SKIP_FIELD | TYPOS_FIELD))
+            && !(judges && matches!(field, CONTENTS_FIELD | FILES_FIELD))
     }
 
     /// The field Tab goes to, or Shift-Tab when `back`, passing over those not shown.
@@ -232,6 +278,7 @@ pub(crate) fn search_key(state: &mut AppState, mut form: SearchForm, key: &KeyEv
     match key.code {
         KeyCode::Esc => {
             state.overlay = None;
+            keep_draft(state, form);
             return Vec::new();
         }
         KeyCode::Tab | KeyCode::Down => form.selected = form.step(false),
@@ -245,14 +292,16 @@ pub(crate) fn search_key(state: &mut AppState, mut form: SearchForm, key: &KeyEv
                 let root = form.root(state);
                 let query = form.pattern.text().trim();
                 let query = if query.is_empty() { "*" } else { query };
-                match crate::results::name_search(state, root, query, form.hidden, form.skip, options) {
+                let reach = crate::results::Reach { hidden: form.hidden, skip: form.skip, typos: form.typos };
+                match crate::results::name_search(state, root, query, reach, options) {
                     Ok(request) => {
                         state.overlay = None;
+                        form.contents.remember(&mut state.find_recent);
+                        keep_draft(state, form);
                         let mut effects = Vec::new();
                         if state.settings.search.history && state.search_history.record(&request.query, &request.root) {
                             effects.push(Effect::SaveSearchHistory);
                         }
-                        form.contents.remember(&mut state.find_recent);
                         effects.extend(crate::results::start_search(state, request));
                         return effects;
                     }
@@ -268,6 +317,9 @@ pub(crate) fn search_key(state: &mut AppState, mut form: SearchForm, key: &KeyEv
             form.hidden = !form.hidden;
         }
         KeyCode::Char(' ') | KeyCode::Left | KeyCode::Right if form.selected == SKIP_FIELD => form.skip = !form.skip,
+        KeyCode::Char(' ') | KeyCode::Left | KeyCode::Right if form.selected == TYPOS_FIELD => {
+            form.typos = !form.typos;
+        }
         _ if form.selected == CONTENTS_FIELD => {
             form.contents.edit(key, &state.find_recent);
         }
@@ -298,12 +350,19 @@ pub(crate) fn search_key(state: &mut AppState, mut form: SearchForm, key: &KeyEv
     Vec::new()
 }
 
+/// Keeps what the dialog holds for the next time it opens, unless it measured space.
+fn keep_draft(state: &mut AppState, form: SearchForm) {
+    if !form.space {
+        state.search_draft = Some(form);
+    }
+}
+
 /// What the form asks the search for, or why it cannot search. Folder sizes and file counts
 /// turn a name search into folder totals; text to look for makes it a search of files, and
 /// size scans leave that text aside.
 fn options(form: &SearchForm) -> Result<SearchOptions, String> {
     let files = form.files.text().trim();
-    let files = if files.is_empty() { Ok(0) } else { files.parse::<u64>() };
+    let files = if files.is_empty() || !form.shows(FILES_FIELD) { Ok(0) } else { files.parse::<u64>() };
     let (Some(minimum), Ok(minimum_files)) = (parse_size(form.minimum.text()), files) else {
         return Err(tr!(use_a_size_such_as_500m_or).into());
     };

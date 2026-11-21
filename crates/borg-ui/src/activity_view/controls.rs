@@ -1,10 +1,10 @@
 //! The activity monitor's key bar, and what clicks and the wheel do in its panes.
 
-use super::processes::columns;
+use super::processes::{columns, pid_width};
 use super::search::{form_field, results_list};
-use super::{SEARCH_HEADER, body, inner, row, tabs, text};
+use super::{SEARCH_HEADER, below, body, by_rules, inner, row, summary_rows, tabs, text};
 use crate::Theme;
-use borg_core::{Activity, ActivityPage, AppState, FINDING_NOTE, Msg, Pointer};
+use borg_core::{Activity, ActivityPage, AppState, EntropyScan, FINDING_NOTE, Msg, Pointer};
 use borg_i18n::tr;
 use crossterm::event::{KeyCode, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::{
@@ -13,7 +13,12 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 
-pub(super) fn buttons(activity: &Activity, page: ActivityPage, area: Rect) -> Vec<(Rect, &'static str, KeyCode)> {
+pub(super) fn buttons(
+    activity: &Activity,
+    page: ActivityPage,
+    gives_back: bool,
+    area: Rect,
+) -> Vec<(Rect, &'static str, KeyCode)> {
     let mut specs: Vec<_> = if activity.retry.is_some() && activity.error.is_some() {
         vec![(tr!(activity_admin_button), KeyCode::Char('a')), (tr!(activity_back_button), KeyCode::Esc)]
     } else {
@@ -28,6 +33,11 @@ pub(super) fn buttons(activity: &Activity, page: ActivityPage, area: Rect) -> Ve
                 (tr!(activity_memory_button), KeyCode::Enter),
                 (tr!(activity_filter_button), KeyCode::Char('/')),
                 (tr!(activity_signal_button), KeyCode::Char('k')),
+                (tr!(entropy_button), KeyCode::Char('e')),
+                (
+                    if activity.hide_idle { tr!(activity_show_idle_button) } else { tr!(activity_hide_idle_button) },
+                    KeyCode::Char('h'),
+                ),
                 (tr!(activity_pause_button), KeyCode::Char(' ')),
                 (
                     if activity.from_network { tr!(activity_back_button) } else { tr!(activity_close_button) },
@@ -44,17 +54,22 @@ pub(super) fn buttons(activity: &Activity, page: ActivityPage, area: Rect) -> Ve
             ActivityPage::Regions => vec![
                 (tr!(memory_search_shortcut), KeyCode::Char('/')),
                 (tr!(activity_capture_button), KeyCode::Enter),
+                (tr!(activity_signal_button), KeyCode::Char('k')),
                 (
                     if activity.map { tr!(activity_bytes_button) } else { tr!(activity_page_map_button) },
                     KeyCode::Char('m'),
                 ),
                 (tr!(integrity_button), KeyCode::Char('i')),
+                (tr!(rules_button), KeyCode::Char('y')),
                 (tr!(activity_refresh_button), KeyCode::Char('r')),
                 (tr!(activity_back_button), KeyCode::Esc),
             ],
             ActivityPage::Files | ActivityPage::FileDetails => {
-                let mut specs =
-                    vec![(tr!(activity_refresh_button), KeyCode::Char('r')), (tr!(activity_back_button), KeyCode::Esc)];
+                let mut specs = vec![
+                    (tr!(activity_signal_button), KeyCode::Char('k')),
+                    (tr!(activity_refresh_button), KeyCode::Char('r')),
+                    (tr!(activity_back_button), KeyCode::Esc),
+                ];
                 if activity.previewable_file().is_some() {
                     specs.insert(0, (tr!(process_file_view_button), KeyCode::F(3)));
                 }
@@ -77,12 +92,33 @@ pub(super) fn buttons(activity: &Activity, page: ActivityPage, area: Rect) -> Ve
                 ]);
                 specs
             }
-            ActivityPage::Integrity => vec![
+            ActivityPage::Findings => vec![
                 (tr!(memory_preview_button), KeyCode::Enter),
-                (tr!(integrity_again_button), KeyCode::Char('r')),
+                (
+                    if by_rules(activity) { tr!(rules_again_button) } else { tr!(integrity_again_button) },
+                    KeyCode::Char('r'),
+                ),
                 (tr!(memory_search_shortcut), KeyCode::Char('/')),
                 (tr!(activity_back_button), KeyCode::Esc),
             ],
+            ActivityPage::Entropy | ActivityPage::EntropyDetails => {
+                let scan = activity.entropy.as_ref();
+                let mut specs = Vec::new();
+                if scan.is_some_and(|scan| scan.selected().is_some()) {
+                    specs.push((tr!(entropy_open_button), KeyCode::Enter));
+                }
+                if scan.is_some_and(EntropyScan::continues) {
+                    specs.push((tr!(memory_continue_button), KeyCode::Char('n')));
+                }
+                if scan.is_some_and(|scan| scan.elevates(activity.sample.administrator)) {
+                    specs.push((tr!(activity_admin_button), KeyCode::Char('a')));
+                }
+                if scan.is_some_and(|scan| !scan.running) {
+                    specs.push((tr!(rules_again_button), KeyCode::Char('r')));
+                }
+                specs.push((tr!(activity_back_button), KeyCode::Esc));
+                specs
+            }
             ActivityPage::Snapshot if activity.map => vec![
                 (tr!(activity_open_page_button), KeyCode::Enter),
                 (tr!(activity_bytes_button), KeyCode::Char('m')),
@@ -102,6 +138,7 @@ pub(super) fn buttons(activity: &Activity, page: ActivityPage, area: Rect) -> Ve
     if activity.retry.is_some() && activity.error.is_none() {
         specs.insert(0, (tr!(activity_admin_button), KeyCode::Char('a')));
     }
+    let specs = crate::keybar::lent_esc(specs, gives_back);
     let mut x = area.x;
     specs
         .into_iter()
@@ -124,7 +161,7 @@ pub(crate) fn keybar(state: &AppState, area: Rect, theme: &Theme, buf: &mut Buff
     let controls = if activity.search_form.is_some() {
         vec![(row(area, 0), tr!(memory_submit_button), KeyCode::Enter)]
     } else {
-        buttons(activity, page, row(area, 0))
+        buttons(activity, page, state.esc_gives_back(), row(area, 0))
     };
     for (rect, label, _) in controls {
         text(buf, rect, label, theme.styles.key);
@@ -134,6 +171,7 @@ pub(crate) fn keybar(state: &AppState, area: Rect, theme: &Theme, buf: &mut Buff
     } else {
         match page {
             ActivityPage::Processes if activity.filtering => tr!(activity_filter_hint),
+            ActivityPage::Processes if activity.tree && activity.filter.is_empty() => tr!(activity_tree_hint),
             ActivityPage::Processes => tr!(activity_list_hint),
             ActivityPage::Memory => tr!(activity_memory_hint),
             ActivityPage::Regions => tr!(activity_map_hint),
@@ -143,10 +181,12 @@ pub(crate) fn keybar(state: &AppState, area: Rect, theme: &Theme, buf: &mut Buff
                 tr!(memory_strings_hint)
             }
             ActivityPage::Search => tr!(memory_results_hint),
-            ActivityPage::Integrity => tr!(integrity_hint),
+            ActivityPage::Findings if by_rules(activity) => tr!(rules_hint),
+            ActivityPage::Findings => tr!(integrity_hint),
             ActivityPage::FileDetails if activity.previewable_file().is_some() => tr!(process_file_scroll_hint),
             ActivityPage::Files if activity.previewable_file().is_some() => tr!(process_file_preview_hint),
             ActivityPage::Files | ActivityPage::FileDetails => tr!(process_files_hint),
+            ActivityPage::Entropy | ActivityPage::EntropyDetails => tr!(entropy_hint),
         }
     };
     text(buf, crate::branding::content(row(area, 1)), hint, theme.styles.key_label);
@@ -169,7 +209,7 @@ pub(crate) fn panel_mouse(
             return Some(Msg::Pointer(Pointer::ActivityControl { preview: true, code: KeyCode::Enter }));
         }
         let page = if preview { activity.page } else { activity.list };
-        return buttons(activity, page, row(layout.keybar, 0))
+        return buttons(activity, page, state.esc_gives_back(), row(layout.keybar, 0))
             .into_iter()
             .find(|(rect, _, _)| rect.contains(point))
             .map(|(_, _, code)| Msg::Pointer(Pointer::ActivityControl { preview, code }));
@@ -202,18 +242,22 @@ pub(crate) fn panel_mouse(
         if event.kind != MouseEventKind::Down(MouseButton::Left) {
             return None;
         }
-        let body = body(rect);
-        if !preview && activity.list != ActivityPage::Processes && row(inner(rect), 1).contains(point) {
-            return tabs(row(inner(rect), 1))
+        let extra = if preview { 0 } else { summary_rows(activity, activity.list, rect) };
+        let (inner, body) = (below(inner(rect), extra), below(body(rect), extra));
+        if !preview
+            && !matches!(activity.list, ActivityPage::Processes | ActivityPage::Entropy)
+            && row(inner, 1).contains(point)
+        {
+            return tabs(row(inner, 1))
                 .into_iter()
                 .find(|(r, _, _)| r.contains(point))
                 .map(|(_, _, code)| Msg::Pointer(Pointer::ActivityControl { preview: false, code }));
         }
-        if !preview && activity.list == ActivityPage::Processes && row(inner(rect), 1).contains(point) {
+        if !preview && activity.list == ActivityPage::Processes && row(inner, 1).contains(point) {
             return Some(Msg::Pointer(Pointer::ActivityControl { preview: false, code: KeyCode::Char('/') }));
         }
-        if !preview && activity.list == ActivityPage::Processes && row(inner(rect), 2).contains(point) {
-            return columns(row(inner(rect), 2))
+        if !preview && activity.list == ActivityPage::Processes && row(inner, 2).contains(point) {
+            return columns(row(inner, 2), pid_width(activity))
                 .into_iter()
                 .find(|(_, r)| r.contains(point))
                 .map(|(sort, _)| Msg::Pointer(Pointer::ActivitySort(sort)));
@@ -226,7 +270,7 @@ pub(crate) fn panel_mouse(
         let body = match activity.list {
             _ if preview => body,
             ActivityPage::Search => results_list(body, SEARCH_HEADER, 0),
-            ActivityPage::Integrity => results_list(body, 1, FINDING_NOTE),
+            ActivityPage::Findings => results_list(body, 1, FINDING_NOTE),
             _ => body,
         };
         if body.contains(point) && !preview {

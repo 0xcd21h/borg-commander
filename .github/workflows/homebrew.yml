@@ -1,4 +1,4 @@
-name: Publish Homebrew formula
+name: Publish Homebrew cask
 
 on:
   workflow_dispatch:
@@ -37,7 +37,7 @@ jobs:
       - name: Download release checksums
         run: gh release download "v${VERSION}" --repo "${GITHUB_REPOSITORY}" --pattern '*.tar.gz.sha256' --dir dist
 
-      - name: Render and publish the formula
+      - name: Render and publish the cask
         run: |
-          scripts/homebrew-formula.sh "${VERSION}" dist > borg-commander.rb
-          scripts/publish-formula.sh borg-commander.rb "${HOMEBREW_TAP}" "v${VERSION}"
+          scripts/homebrew-cask.sh "${VERSION}" dist > borg-commander.rb
+          scripts/publish-cask.sh borg-commander.rb "${HOMEBREW_TAP}" "v${VERSION}"

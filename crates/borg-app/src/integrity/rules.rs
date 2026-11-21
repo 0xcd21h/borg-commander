@@ -5,7 +5,7 @@ use super::findings::file_name;
 use borg_core::MemoryRegion;
 
 /// Pages the kernel maps into every process, which hold code and an image header by design.
-pub(super) const KERNEL_PAGES: &[&str] =
+pub(crate) const KERNEL_PAGES: &[&str] =
     &["[vdso]", "[vvar]", "[vvar_vclock]", "[vsyscall]", "[vectors]", "[sigpage]", "[uprobes]"];
 
 /// Programs, and what they map, that compile code as they run, so code no file backs is

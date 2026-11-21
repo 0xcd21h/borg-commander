@@ -10,9 +10,12 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use borg_jobs::{Ask, Decision, Event, Outcome, Progress, Spec, Totals};
 
 use crate::{
-    Action, AppState, Effect, JobCommand, ListingMode, Msg, Overlay, PanelSetup, Settings, ShellView, Side, SortKey,
-    Startup, ThemeChoice, View, menus, state::REVEAL_DELAY, update,
+    Action, AppState, Effect, How, JobCommand, JobKind, ListingMode, Msg, Overlay, PanelSetup, Settings, ShellView,
+    Side, SortKey, Startup, ThemeChoice, ToastEvent, View, menus, state::REVEAL_DELAY, update,
 };
+
+mod jobs;
+mod sizes;
 
 const COLS: u16 = 80;
 const ROWS: u16 = 24;
@@ -141,8 +144,18 @@ fn remote_browser_shows_incoming_clients_without_turning_them_into_hosts() {
     crate::actions::perform(&mut state, Action::BrowseRemotes, now);
     update(&mut state, Msg::RemoteCatalog { choices: Vec::new(), complete: true }, now);
     let clients = vec![
-        crate::RemoteClient { name: "laptop".into(), fingerprint: "first-key".into(), connections: Some(3) },
-        crate::RemoteClient { name: "workstation".into(), fingerprint: "second-key".into(), connections: None },
+        crate::RemoteClient {
+            name: "laptop".into(),
+            fingerprint: "first-key".into(),
+            connections: Some(3),
+            key_changed: None,
+        },
+        crate::RemoteClient {
+            name: "workstation".into(),
+            fingerprint: "second-key".into(),
+            connections: None,
+            key_changed: None,
+        },
     ];
     update(&mut state, Msg::RemoteClients(clients.clone()), now);
     assert!(
@@ -170,12 +183,12 @@ fn alt_r_reloads_the_active_panel_and_its_menu_names_the_key() {
     assert!(matches!(&effects[..], [Effect::List { side: Side::Right, dir, .. }] if *dir == right), "{effects:?}");
     let rescan = |menu: &crate::menu::Menu| {
         menu.entries.iter().find_map(|entry| match entry {
-            crate::menu::MenuEntry::Item(item) if matches!(item.action, Action::Rescan(_)) => Some(item.hint),
+            crate::menu::MenuEntry::Item(item) if matches!(item.action, Action::Rescan(_)) => Some(item.hint.clone()),
             _ => None,
         })
     };
     let menus = menus(&state);
-    assert_eq!((rescan(&menus[0]), rescan(&menus[5])), (Some(""), Some("M-r")));
+    assert_eq!((rescan(&menus[0]).as_deref(), rescan(&menus[5]).as_deref()), (Some(""), Some("M-r")));
 }
 
 #[test]
@@ -195,6 +208,14 @@ fn remote_browser_opens_switches_and_mirrors_named_sessions() {
         ),
         Some(Action::BackResults)
     );
+    let panels = crate::keymap::Context { view: View::Panels, line_empty: true, at_prompt: false };
+    let alt_shift = KeyModifiers::ALT | KeyModifiers::SHIFT;
+    for (reported, action) in [('r', Action::BackResults), ('d', Action::FolderTree), ('D', Action::FolderTree)] {
+        let shifted = KeyEvent::new(KeyCode::Char(reported), alt_shift);
+        assert_eq!(crate::keymap::lookup(&shifted, panels), Some(action), "Alt-Shift with {reported}");
+    }
+    let plain = KeyEvent::new(KeyCode::Char('d'), KeyModifiers::ALT);
+    assert_eq!(crate::keymap::lookup(&plain, panels), Some(Action::AnalyzeSpace));
     assert_eq!(
         crate::keymap::lookup(
             &KeyEvent::new(KeyCode::Char('M'), KeyModifiers::ALT | KeyModifiers::SHIFT),
@@ -205,7 +226,8 @@ fn remote_browser_opens_switches_and_mirrors_named_sessions() {
     let menu = &menus(&state)[3];
     assert_eq!(menu.title, "Remote");
     assert_eq!(menu.item(0).map(|item| item.action), Some(Action::BrowseRemotes));
-    assert_eq!(menu.item(1).map(|item| item.enabled), Some(false));
+    assert_eq!(menu.item(1).map(|item| item.action), Some(Action::HostsOverview));
+    assert_eq!(menu.item(2).map(|item| item.enabled), Some(false));
     let host = state.panel(Side::Left).dir().to_path_buf();
     state.settings.preferences.docker_console = false;
     assert_eq!(
@@ -254,6 +276,8 @@ fn remote_browser_opens_switches_and_mirrors_named_sessions() {
         client_selected: 0,
         deleting: None,
         forgetting: None,
+        updating: None,
+        from_overview: false,
     }));
     assert_eq!(
         update(&mut state, Msg::Key(key(KeyCode::Enter)), now),
@@ -278,6 +302,8 @@ fn remote_browser_opens_switches_and_mirrors_named_sessions() {
         client_selected: 0,
         deleting: None,
         forgetting: None,
+        updating: None,
+        from_overview: false,
     }));
     assert_eq!(
         update(&mut state, Msg::Key(key(KeyCode::Char('m'))), now),
@@ -381,6 +407,13 @@ fn shell_exit_defaults_to_no_and_only_yes_closes_borg() {
     update(&mut state, request(), now);
     assert_eq!(press(&mut state, now, key(KeyCode::Esc)), vec![Effect::CancelShellExit { token: "42-77".into() }]);
     update(&mut state, request(), now);
+    let other_key = press(&mut state, now, key(KeyCode::Char('x')));
+    assert!(
+        state.overlay.is_some() || other_key == vec![Effect::CancelShellExit { token: "42-77".into() }],
+        "a question that closes always answers the shell, which waits for it"
+    );
+    state.overlay = None;
+    update(&mut state, request(), now);
     assert!(press(&mut state, now, key(KeyCode::Char('y'))).contains(&Effect::Quit));
     crate::actions::perform(&mut state, Action::Quit, now);
     let before = state.overlay.clone();
@@ -474,6 +507,16 @@ fn setup_from(entries: Vec<Entry>, settings: Settings) -> (AppState, Instant) {
 
 fn setup() -> (AppState, Instant) {
     setup_with(vec![dir("me")])
+}
+
+/// What the finished job of `kind` says it did.
+fn ended_with(state: &AppState, kind: JobKind) -> Option<&str> {
+    let ended = state.jobs.iter().filter(|job| job.kind == kind).find_map(|job| job.ending());
+    ended.map(|ending| ending.summary.as_str())
+}
+
+fn runs(state: &AppState, kind: JobKind) -> bool {
+    state.jobs.iter().any(|job| job.kind == kind && job.running())
 }
 
 fn press(state: &mut AppState, now: Instant, event: KeyEvent) -> Vec<Effect> {
@@ -803,8 +846,10 @@ fn job_progress_conflicts_and_completion() {
 
     let done = Outcome::Done { done: Totals { files: 1, bytes: 200 }, skipped: 0 };
     let effects = update(&mut state, Msg::Job { id, event: Event::Finished(done) }, now);
-    assert!(state.jobs.is_empty());
-    assert_eq!(state.notice.as_deref(), Some("Copied 1 file"));
+    assert!(!runs(&state, JobKind::Copy));
+    assert_eq!(ended_with(&state, JobKind::Copy), Some("Copied 1 file"), "the finished job stays in the jobs panel");
+    assert!(state.toasts.iter().any(|toast| toast.job == id && toast.event == ToastEvent::Ended(How::Done)));
+    assert!(state.notice.is_none(), "the toast says it, so no notice does");
     assert_eq!(effects.iter().filter(|e| matches!(e, Effect::List { .. })).count(), 2);
 }
 
@@ -873,12 +918,17 @@ fn failed_operations_leave_a_notice() {
 }
 
 #[test]
-fn delete_confirms_and_can_be_cancelled() {
+fn delete_asks_first_starting_on_no_so_enter_alone_keeps_the_files() {
     let (mut state, now) = setup_with(vec![file("a")]);
     press(&mut state, now, key(KeyCode::Down));
     press(&mut state, now, key(KeyCode::F(8)));
     let Some(Overlay::Confirm(confirm)) = &state.overlay else { panic!("expected confirm") };
     assert_eq!(confirm.message, "Delete \"a\" permanently?");
+    assert!(!confirm.accept, "the question starts on No");
+    assert!(press(&mut state, now, key(KeyCode::Enter)).is_empty());
+    assert!(state.overlay.is_none() && !runs(&state, JobKind::Delete), "Enter took No");
+
+    press(&mut state, now, key(KeyCode::F(8)));
     assert!(press(&mut state, now, key(KeyCode::Char('n'))).is_empty());
 
     press(&mut state, now, key(KeyCode::F(8)));
@@ -906,6 +956,41 @@ fn mkdir_focuses_the_new_directory_after_it_is_created() {
     update(&mut state, Msg::Listed { side, generation, error: None }, now);
     state.settle();
     assert_eq!(hovered(&state), Some("fresh"));
+}
+
+fn list_from(state: &mut AppState, now: Instant, effects: Vec<Effect>, entries: &[Entry]) {
+    let Some(Effect::List { side, generation, .. }) = effects.into_iter().find(|e| matches!(e, Effect::List { .. }))
+    else {
+        panic!("expected a listing")
+    };
+    update(state, Msg::Batch { side, generation, entries: entries.to_vec() }, now);
+    update(state, Msg::Listed { side, generation, error: None }, now);
+}
+
+#[test]
+fn leaving_a_folder_shows_its_parent_scrolled_as_it_was() {
+    const FOLDERS: usize = 60;
+    let folders: Vec<Entry> = (0..FOLDERS).map(|i| dir(&format!("d{i:02}"))).collect();
+    let (mut state, now) = setup_with(folders.clone());
+    let rows = state.active_panel().rows();
+    for _ in 0..rows * 2 {
+        press(&mut state, now, key(KeyCode::Down));
+    }
+    for _ in 0..rows / 2 {
+        press(&mut state, now, key(KeyCode::Up));
+    }
+    let view = |state: &AppState| (hovered(state).map(str::to_owned), state.active_panel().scroll());
+    let before = view(&state);
+    assert!(before.1 > 0, "the listing is scrolled with the cursor mid-screen");
+
+    for leave in [key(KeyCode::Enter), key(KeyCode::Left), KeyEvent::new(KeyCode::PageUp, KeyModifiers::CONTROL)] {
+        let effects = press(&mut state, now, key(KeyCode::Enter));
+        list_from(&mut state, now, effects, &folders);
+        assert_eq!(state.active_panel().scroll(), 0, "a folder entered opens at the top");
+        let effects = press(&mut state, now, leave);
+        list_from(&mut state, now, effects, &folders);
+        assert_eq!(view(&state), before, "{leave:?} returns to the same screen");
+    }
 }
 
 #[test]
@@ -944,7 +1029,7 @@ fn menu_bar_navigates_and_runs_actions() {
 
     press(&mut state, now, key(KeyCode::F(9)));
     press(&mut state, now, key(KeyCode::Left));
-    assert!(matches!(state.overlay, Some(Overlay::Menu(cursor)) if menus(&state)[cursor.menu].title == "Search"));
+    assert!(matches!(state.overlay, Some(Overlay::Menu(cursor)) if menus(&state)[cursor.menu].title == "Encryption"));
     press(&mut state, now, key(KeyCode::Esc));
     assert!(state.overlay.is_none());
 }
@@ -1039,6 +1124,7 @@ fn alt_o_goes_to_the_shell_while_a_command_is_typed() {
 fn alt_o_from_search_results_opens_the_folder_the_search_started_from() {
     let (mut state, now) = setup();
     let request = crate::SearchRequest {
+        typos: false,
         root: "/var/log".into(),
         query: "*.log".into(),
         hidden: false,
@@ -1210,12 +1296,11 @@ fn ctrl_v_pastes_borg_copies_into_its_fields_but_stays_the_shells_at_the_prompt(
     assert_eq!(prompt.input.text(), "notes.txt");
 }
 
-/// Runs the viewer's search as the app does, and hands back what it found.
-fn run_viewer_search(state: &mut AppState, now: Instant, effects: &[Effect]) {
-    let [Effect::FindInViewer { id, query, from, direction, count }] = effects else { panic!("{effects:?}") };
-    let crate::Content::Text(pager) = &state.viewer.as_ref().unwrap().content else { panic!() };
+fn run_search(state: &mut AppState, now: Instant, effects: &[Effect]) {
+    let [Effect::FindInPager { id, slot, query, from, direction, count }] = effects else { panic!("{effects:?}") };
+    let pager = state.pager(*slot).unwrap();
     let found = crate::find_in(&*pager.source(), query, *from, *direction, *count, &|_| true);
-    update(state, Msg::FoundInViewer { id: *id, found: found.map_err(|error| error.to_string()) }, now);
+    update(state, Msg::FoundInPager { id: *id, slot: *slot, found: found.map_err(|error| error.to_string()) }, now);
 }
 
 #[test]
@@ -1229,7 +1314,7 @@ fn the_viewer_finds_in_the_background_marks_matches_and_steps_both_ways() {
     state.opening = Some(PathBuf::from("/home/log"));
     update(&mut state, Msg::Opened(crate::Viewer::new(PathBuf::from("/home/log"), crate::Content::Text(pager))), now);
     let current = |state: &AppState| text(state.viewer.as_ref().unwrap()).current_match();
-    let summary = |state: &AppState| crate::find_bar_summary(&state.viewer.as_ref().unwrap().find);
+    let summary = |state: &AppState| crate::find_bar_summary(&state.viewer.as_ref().unwrap().find.bar);
 
     press(&mut state, now, key(KeyCode::Char('/')));
     let mut effects = Vec::new();
@@ -1240,42 +1325,271 @@ fn the_viewer_finds_in_the_background_marks_matches_and_steps_both_ways() {
         text(state.viewer.as_ref().unwrap()).rich_rows()[4].iter().any(|run| run.mark == borg_view::Mark::Match),
         "the page marks row 5 while the search runs"
     );
-    run_viewer_search(&mut state, now, &effects);
+    run_search(&mut state, now, &effects);
     assert_eq!(current(&state), Some(24..29));
     assert_eq!(summary(&state).as_deref(), Some("1 of 11"), "row 5 and rows 50 to 59");
     let effects = press(&mut state, now, key(KeyCode::Enter));
-    run_viewer_search(&mut state, now, &effects);
+    run_search(&mut state, now, &effects);
     let top = format!("row {}", 50 - height / 3);
     assert_eq!(text(state.viewer.as_ref().unwrap()).rows()[0], top, "row 50 shows a third of the page down");
     assert_eq!(summary(&state).as_deref(), Some("2 of 11"));
     let effects = press(&mut state, now, key(KeyCode::Up));
-    run_viewer_search(&mut state, now, &effects);
+    run_search(&mut state, now, &effects);
     assert_eq!(current(&state), Some(24..29), "Up steps back");
     let effects = press(&mut state, now, key(KeyCode::Up));
-    run_viewer_search(&mut state, now, &effects);
+    run_search(&mut state, now, &effects);
     assert_eq!(summary(&state).as_deref(), Some("11 of 11 · from the other end"));
 
     assert!(press(&mut state, now, key(KeyCode::Esc)).is_empty());
     let viewer = state.viewer.as_ref().unwrap();
-    assert!(!viewer.find.open && !text(viewer).shows_matches(), "Esc closes the bar and takes the marks away");
+    assert!(!viewer.find.bar.open && !text(viewer).shows_matches(), "Esc closes the bar and takes the marks away");
     assert_eq!(state.find_recent, ["row 5"]);
     assert_eq!(current(&state), Some(397..402), "the match stepped to, row 59, stays marked");
     let effects = press(&mut state, now, key(KeyCode::Char('n')));
     assert!(text(state.viewer.as_ref().unwrap()).shows_matches(), "n marks the matches again");
     let stale = effects.clone();
-    run_viewer_search(&mut state, now, &effects);
+    run_search(&mut state, now, &effects);
     assert_eq!(summary(&state).as_deref(), Some("1 of 11 · from the other end"), "n goes on from row 59");
-    run_viewer_search(&mut state, now, &stale);
+    run_search(&mut state, now, &stale);
     assert_eq!(current(&state), Some(24..29), "an answer the viewer no longer waits for changes nothing");
 
     let effects = press(&mut state, now, shift(KeyCode::Char('N')));
-    assert!(matches!(effects[..], [Effect::FindInViewer { direction: crate::Direction::Backward, .. }]));
-    assert_eq!(press(&mut state, now, key(KeyCode::Esc)), [Effect::StopFindInViewer]);
+    assert!(matches!(effects[..], [Effect::FindInPager { direction: crate::Direction::Backward, .. }]));
+    assert_eq!(press(&mut state, now, key(KeyCode::Esc)), [Effect::StopFindInPager(crate::PagerSlot::Viewer)]);
     assert!(state.viewer.is_some(), "Esc stops a running search before it closes the viewer");
     press(&mut state, now, key(KeyCode::Down));
     assert_eq!(summary(&state), None, "a key that moves the page clears what the last step said");
     assert!(press(&mut state, now, key(KeyCode::Esc)).is_empty());
     assert!(state.viewer.is_none());
+}
+
+#[test]
+fn h_shows_the_viewers_file_as_hex_rows_that_scroll_and_find_and_the_preview_keeps_them() {
+    use borg_view::Mark;
+    use std::sync::Arc;
+
+    let (mut state, now) = setup_with(vec![file("log")]);
+    let content: Vec<u8> = (1..=200).flat_map(|i| format!("row {i}\n").into_bytes()).collect();
+    press(&mut state, now, key(KeyCode::Down));
+    let effects = press(&mut state, now, ctrl('q'));
+    let Some((path, at)) = peeked_at(&effects) else { panic!("{effects:?}") };
+    let (width, height) = crate::viewer_size(state.cols, state.rows);
+    let pager = borg_view::Pager::new(Arc::new(content), width, height).unwrap();
+    let peeked = crate::Peeked { aside: crate::Aside::QuickView, path, at, peek: crate::Peek::Text(pager) };
+    update(&mut state, Msg::Peeked(peeked), now);
+    press(&mut state, now, key(KeyCode::F(3)));
+    let shown = |state: &AppState| text(state.viewer.as_ref().unwrap()).clone();
+
+    press(&mut state, now, key(KeyCode::Char('h')));
+    assert!(shown(&state).hex());
+    assert_eq!(shown(&state).rows()[0], "0000  72 6f 77 20 31 0a 72 6f  77 20 32 0a 72 6f 77 20  row 1.row 2.row ");
+    press(&mut state, now, key(KeyCode::Down));
+    assert_eq!(shown(&state).offset(), 16, "a row is 16 bytes in 80 columns");
+    press(&mut state, now, key(KeyCode::PageDown));
+    assert_eq!(shown(&state).offset(), 16 * height as u64);
+    press(&mut state, now, key(KeyCode::End));
+    assert_eq!(shown(&state).percent(), 100);
+    press(&mut state, now, key(KeyCode::Home));
+    press(&mut state, now, key(KeyCode::Char('w')));
+    assert!(shown(&state).hex() && shown(&state).offset() == 0, "w leaves the hex rows");
+
+    press(&mut state, now, key(KeyCode::Char('/')));
+    let mut effects = Vec::new();
+    for c in "row 150".chars() {
+        effects = press(&mut state, now, key(KeyCode::Char(c)));
+    }
+    run_search(&mut state, now, &effects);
+    let found = shown(&state);
+    assert_eq!(found.current_match(), Some(1084..1091));
+    assert_eq!(found.offset(), 1072 - 16 * (height as u64 / 3), "a third of the page shows above the match's row");
+    let current: String = found
+        .rich_rows()
+        .iter()
+        .flatten()
+        .filter(|run| run.mark == Mark::Current)
+        .map(|run| run.text.as_str())
+        .collect();
+    assert_eq!(current, "72 6f 77 20row 31 35 30150", "the match is marked in hex and in text, over two rows");
+    assert_eq!(crate::find_bar_summary(&state.viewer.as_ref().unwrap().find.bar).as_deref(), Some("1 of 1"));
+    press(&mut state, now, key(KeyCode::Esc));
+
+    press(&mut state, now, shift(KeyCode::Char('H')));
+    assert!(!shown(&state).hex());
+    assert_eq!(shown(&state).rows()[0], "row 134", "the line the top row starts in, at byte 960");
+    press(&mut state, now, key(KeyCode::Char('р')));
+    assert!(shown(&state).hex(), "the key in the same place on a Russian keyboard");
+    press(&mut state, now, key(KeyCode::Esc));
+    assert!(state.viewer.is_none());
+    let Some(crate::Peeked { peek: crate::Peek::Text(preview), .. }) = &state.peeked else { panic!("preview") };
+    assert!(preview.hex(), "the quick view keeps the hex rows");
+    assert_eq!(preview.offset(), 944);
+}
+
+#[test]
+fn a_decrypted_file_closing_leaves_the_quick_view_as_it_was() {
+    use std::sync::Arc;
+
+    let (mut state, now) = setup_with(vec![file("log")]);
+    press(&mut state, now, key(KeyCode::Down));
+    let effects = press(&mut state, now, ctrl('q'));
+    let Some((path, at)) = peeked_at(&effects) else { panic!("{effects:?}") };
+    let (width, height) = crate::viewer_size(state.cols, state.rows);
+    let preview = borg_view::Pager::new(Arc::new(b"sealed bytes\n".to_vec()), width, height).unwrap();
+    let peeked =
+        crate::Peeked { aside: crate::Aside::QuickView, path: path.clone(), at, peek: crate::Peek::Text(preview) };
+    update(&mut state, Msg::Peeked(peeked), now);
+    let plain = borg_view::Pager::new(Arc::new(b"meet at noon\n".to_vec()), width, height).unwrap();
+    state.opening = Some(path.clone());
+    update(&mut state, Msg::Opened(crate::Viewer::sealed(path, crate::Content::Text(plain))), now);
+    assert!(state.secret_on_screen());
+    press(&mut state, now, key(KeyCode::Esc));
+    assert!(state.viewer.is_none() && !state.secret_on_screen());
+    let Some(crate::Peeked { peek: crate::Peek::Text(shown), .. }) = &state.peeked else { panic!("preview") };
+    assert_eq!(shown.rows()[0], "sealed bytes", "the quick view never keeps the decrypted text");
+}
+
+#[test]
+fn a_binary_file_opens_as_hex_rows_and_h_shows_its_text() {
+    use std::sync::Arc;
+
+    let (mut state, now) = setup();
+    let path = PathBuf::from("/home/app.bin");
+    let (width, height) = crate::viewer_size(state.cols, state.rows);
+    let bytes = b"\x7fELF\x02\x01\x01\x00\x00\x00text\n".to_vec();
+    let pager = borg_view::Pager::for_path(Arc::new(bytes), &path, width, height).unwrap_or_else(|e| panic!("{e}"));
+    state.opening = Some(path.clone());
+    update(&mut state, Msg::Opened(crate::Viewer::new(path, crate::Content::Text(pager))), now);
+    let shown = |state: &AppState| text(state.viewer.as_ref().unwrap()).clone();
+
+    assert!(shown(&state).hex(), "a zero byte near the start opens the file as hex rows");
+    let row = format!("0000  7f 45 4c 46 02 01 01 00  00 00 74 65 78 74 0a{:5}.ELF......text.", "");
+    assert_eq!(shown(&state).rows()[0], row);
+    press(&mut state, now, key(KeyCode::Char('h')));
+    assert!(!shown(&state).hex(), "h shows the text");
+    press(&mut state, now, key(KeyCode::Char('h')));
+    assert_eq!(shown(&state).rows()[0], row);
+}
+
+/// A binary file of zeros with random blocks at `high`, of `blocks` blocks, as the viewer opens it.
+fn packed_file(state: &mut AppState, now: Instant, blocks: u64, high: &[u64]) -> (Vec<u8>, Vec<Effect>) {
+    use borg_view::entropy::BLOCK;
+    let mut noise = 0x2545_f491_4f6c_dd1du64;
+    let bytes: Vec<u8> = (0..blocks * BLOCK)
+        .map(|at| {
+            noise ^= noise << 13;
+            noise ^= noise >> 7;
+            noise ^= noise << 17;
+            if high.contains(&(at / BLOCK)) { noise as u8 } else { 0 }
+        })
+        .collect();
+    let path = PathBuf::from("/home/packed.bin");
+    let (width, height) = crate::viewer_size(state.cols, state.rows);
+    let source = std::sync::Arc::new(bytes.clone());
+    let pager = borg_view::Pager::for_path(source, &path, width, height).unwrap_or_else(|e| panic!("{e}"));
+    state.opening = Some(path.clone());
+    let effects = update(state, Msg::Opened(crate::Viewer::new(path, crate::Content::Text(pager))), now);
+    (bytes, effects)
+}
+
+#[test]
+fn hex_rows_read_the_entropy_of_the_whole_file_and_jump_between_its_high_runs() {
+    use borg_view::{
+        HexLayout,
+        entropy::{BLOCK, Profile},
+    };
+
+    let (mut state, now) = setup();
+    let len = 13 * BLOCK;
+    state.resize(HexLayout::full(len).width() as u16, 30, now);
+    let (bytes, effects) = packed_file(&mut state, now, 13, &[1, 4, 5]);
+    let [Effect::ProfileViewer { id }] = effects[..] else { panic!("{effects:?}") };
+    let shown = |state: &AppState| text(state.viewer.as_ref().unwrap()).clone();
+    assert!(shown(&state).hex());
+    assert!(
+        shown(&state).rows()[0].starts_with("0000  00 00 00 00 00 00 00 00  "),
+        "the strip takes a column, so 16 bytes no longer fit: {:?}",
+        shown(&state).rows()[0]
+    );
+    press(&mut state, now, key(KeyCode::Char(']')));
+    assert_eq!(shown(&state).offset(), 0, "nothing to jump to before the entropy was read");
+
+    let profile = Profile::read(&bytes, &|| true).unwrap().unwrap();
+    update(&mut state, Msg::ViewerProfiled { id: id + 1, profile: Ok(profile.clone()) }, now);
+    assert_eq!(state.viewer.as_ref().unwrap().profile(), None, "a read the viewer did not ask for is dropped");
+    update(&mut state, Msg::ViewerProfiled { id, profile: Ok(profile.clone()) }, now);
+    assert_eq!(state.viewer.as_ref().unwrap().profile(), Some(&profile));
+
+    press(&mut state, now, key(KeyCode::Char(']')));
+    assert_eq!(shown(&state).offset(), BLOCK);
+    press(&mut state, now, key(KeyCode::Char(']')));
+    assert_eq!(shown(&state).offset(), 4 * BLOCK, "the run of two blocks starts at the fifth");
+    press(&mut state, now, key(KeyCode::Char(']')));
+    assert_eq!(shown(&state).offset(), 4 * BLOCK, "no run after the last");
+    press(&mut state, now, key(KeyCode::Char('[')));
+    assert_eq!(shown(&state).offset(), BLOCK);
+
+    let effects = update(&mut state, Msg::Pointer(crate::Pointer::EntropyStrip { cell: 1, cells: 4 }), now);
+    assert!(effects.is_empty());
+    assert_eq!(shown(&state).offset(), len / 4, "a click on the strip scrolls to where its cell starts");
+
+    assert!(press(&mut state, now, key(KeyCode::Char('h'))).is_empty());
+    assert!(!shown(&state).hex());
+    assert!(press(&mut state, now, key(KeyCode::Char('h'))).is_empty(), "the entropy is read once");
+    assert!(press(&mut state, now, key(KeyCode::Esc)).is_empty());
+}
+
+#[test]
+fn closing_the_viewer_stops_reading_entropy_and_a_failed_read_says_why() {
+    let (mut state, now) = setup();
+    let (_, effects) = packed_file(&mut state, now, 2, &[1]);
+    assert!(matches!(effects[..], [Effect::ProfileViewer { .. }]));
+    assert_eq!(press(&mut state, now, key(KeyCode::Esc)), [Effect::StopProfileViewer]);
+
+    let (_, effects) = packed_file(&mut state, now, 2, &[1]);
+    let [Effect::ProfileViewer { id }] = effects[..] else { panic!("{effects:?}") };
+    update(&mut state, Msg::ViewerProfiled { id, profile: Err("Input/output error".into()) }, now);
+    assert_eq!(state.notice.as_deref(), Some("viewer: Input/output error"));
+    assert!(state.viewer.is_some(), "the hex rows stay");
+    assert!(press(&mut state, now, key(KeyCode::Char('h'))).is_empty());
+    assert!(press(&mut state, now, key(KeyCode::Char('h'))).is_empty(), "a read that failed is not tried again");
+}
+
+#[test]
+fn a_binary_file_previews_as_hex_rows_and_h_switches_the_quick_view_and_the_viewer_it_opens() {
+    use std::sync::Arc;
+
+    let (mut state, now) = setup_with(vec![file("app.bin")]);
+    press(&mut state, now, key(KeyCode::Down));
+    let effects = press(&mut state, now, ctrl('q'));
+    let Some((path, at)) = peeked_at(&effects) else { panic!("{effects:?}") };
+    let Some(Effect::Peek { size: (width, height), .. }) = effects.iter().find(|e| matches!(e, Effect::Peek { .. }))
+    else {
+        panic!("{effects:?}")
+    };
+    let bytes = b"\x7fELF\x02\x01\x01\x00\x00\x00text\n".to_vec();
+    let pager = borg_view::Pager::for_path(Arc::new(bytes), &path, *width, *height).unwrap_or_else(|e| panic!("{e}"));
+    let peeked = crate::Peeked { aside: crate::Aside::QuickView, path, at, peek: crate::Peek::Text(pager) };
+    update(&mut state, Msg::Peeked(peeked), now);
+    let preview = |state: &AppState| match &state.peeked {
+        Some(crate::Peeked { peek: crate::Peek::Text(pager), .. }) => pager.clone(),
+        peeked => panic!("{peeked:?}"),
+    };
+
+    assert!(preview(&state).hex(), "a zero byte near the start previews the file as hex rows");
+    assert!(preview(&state).rows()[0].starts_with("0000  7f 45 4c 46"));
+    press(&mut state, now, key(KeyCode::Tab));
+    press(&mut state, now, key(KeyCode::Char('h')));
+    assert!(!preview(&state).hex(), "h in the quick view shows the text");
+    press(&mut state, now, key(KeyCode::Char('р')));
+    assert!(preview(&state).hex(), "the key in the same place on a Russian keyboard");
+    press(&mut state, now, key(KeyCode::Char('h')));
+
+    press(&mut state, now, key(KeyCode::F(3)));
+    assert!(!text(state.viewer.as_ref().unwrap()).hex(), "the viewer opens on the text the quick view showed");
+    press(&mut state, now, key(KeyCode::Char('h')));
+    press(&mut state, now, key(KeyCode::Esc));
+    assert!(state.viewer.is_none());
+    assert!(preview(&state).hex(), "the quick view gets the hex rows the viewer showed");
 }
 
 /// A contents search for `query` that found its first match in `/home/log` at `line`.
@@ -1286,6 +1600,7 @@ fn found_in_log(state: &mut AppState, now: Instant, query: &borg_view::Query, li
 /// A contents search for `query` that found its first match in each file of `/home` named, at its line.
 fn found_in(state: &mut AppState, now: Instant, query: &borg_view::Query, files: Vec<(&str, crate::LineMatch)>) {
     let request = crate::SearchRequest {
+        typos: false,
         root: "/home".into(),
         query: "*".into(),
         hidden: false,
@@ -1308,6 +1623,99 @@ fn found_in(state: &mut AppState, now: Instant, query: &borg_view::Query, files:
         .collect();
     update(state, Msg::Found { side, generation, found }, now);
     update(state, Msg::Listed { side, generation, error: None }, now);
+}
+
+fn port_found_in_three_files(state: &mut AppState, now: Instant) -> borg_view::Query {
+    let query = borg_view::Query { text: "port".into(), words: true, ..Default::default() };
+    let line =
+        crate::LineMatch { line: 1, offset: 0, before: String::new(), found: "port".into(), after: String::new() };
+    found_in(state, now, &query, vec![("a.conf", line.clone()), ("b.conf", line.clone()), ("c.conf", line)]);
+    query
+}
+
+fn replace_question(state: &AppState) -> (&str, bool) {
+    let Some(Overlay::Confirm(confirm)) = &state.overlay else { panic!("Enter asks once more: {:?}", state.overlay) };
+    (confirm.message.as_str(), confirm.accept)
+}
+
+#[test]
+fn ctrl_r_in_a_contents_search_replaces_in_every_file_it_found_or_in_the_marked_ones() {
+    let (mut state, now) = setup();
+    let query = port_found_in_three_files(&mut state, now);
+    assert!(press(&mut state, now, ctrl('r')).is_empty());
+    let Some(Overlay::Prompt(prompt)) = &state.overlay else { panic!("Ctrl-R asks what to put in place") };
+    assert_eq!(prompt.label, "Replace \"port\" in 3 files with:");
+    type_text(&mut state, now, " listen ");
+    assert!(press(&mut state, now, key(KeyCode::Enter)).is_empty());
+    let asked = "Replace every match of \"port\" with \" listen \" in 3 files? Borg keeps no copy of the old text.";
+    assert_eq!(replace_question(&state), (asked, false), "the question starts on No");
+    let id = state.next_job;
+    let effects = press(&mut state, now, key(KeyCode::Char('y')));
+    let files: Vec<PathBuf> = ["a.conf", "b.conf", "c.conf"].map(|name| Path::new("/home").join(name)).to_vec();
+    let request = crate::ReplaceRequest { query: query.clone(), with: " listen ".into(), files };
+    assert!(effects.contains(&Effect::StartReplace { id, request }), "{effects:?}");
+    assert!(state.overlay.is_none());
+    assert!(runs(&state, JobKind::Replace));
+
+    press(&mut state, now, key(KeyCode::Insert));
+    press(&mut state, now, ctrl('r'));
+    press(&mut state, now, key(KeyCode::Enter));
+    let (asked, _) = replace_question(&state);
+    assert!(asked.starts_with("Remove every match of \"port\" from \""), "nothing typed removes the text: {asked}");
+    assert!(asked.contains("a.conf\"?"), "one file is named: {asked}");
+    let only = crate::ReplaceRequest { query, with: String::new(), files: vec![PathBuf::from("/home/a.conf")] };
+    let id = state.next_job;
+    let effects = press(&mut state, now, key(KeyCode::Char('y')));
+    assert!(effects.contains(&Effect::StartReplace { id, request: only }), "{effects:?}");
+}
+
+#[test]
+fn enter_or_esc_on_the_replace_question_changes_no_file() {
+    let (mut state, now) = setup();
+    port_found_in_three_files(&mut state, now);
+    for answer in [KeyCode::Enter, KeyCode::Esc, KeyCode::Char('n')] {
+        press(&mut state, now, ctrl('r'));
+        press(&mut state, now, key(KeyCode::Enter));
+        replace_question(&state);
+        let effects = press(&mut state, now, key(answer));
+        assert!(!effects.iter().any(|effect| matches!(effect, Effect::StartReplace { .. })), "{answer:?}: {effects:?}");
+        assert!(state.overlay.is_none() && !runs(&state, JobKind::Replace), "{answer:?} replaces nothing");
+    }
+}
+
+#[test]
+fn a_finished_replace_says_how_many_files_changed_and_searches_again() {
+    let (mut state, now) = setup();
+    port_found_in_three_files(&mut state, now);
+    press(&mut state, now, ctrl('r'));
+    type_text(&mut state, now, "listen");
+    press(&mut state, now, key(KeyCode::Enter));
+    let id = state.next_job;
+    press(&mut state, now, key(KeyCode::Char('y')));
+    let outcome = Outcome::Done { done: Totals { files: 2, bytes: 0 }, skipped: 1 };
+    let effects = update(&mut state, Msg::Job { id, event: Event::Finished(outcome) }, now);
+    assert_eq!(ended_with(&state, JobKind::Replace), Some("Replaced text in 2 files · 1 skipped"));
+    let reveal = state.jobs.iter().find(|job| job.id == id).and_then(|job| job.reveal.as_ref());
+    assert!(matches!(reveal, Some(crate::Reveal::Results { side: Side::Left, .. })), "Open brings back the results");
+    let again = effects
+        .iter()
+        .any(|effect| matches!(effect, Effect::Search { side: Side::Left, request, .. } if request.options.refresh));
+    assert!(again, "the results show what the files hold now: {effects:?}");
+}
+
+#[test]
+fn ctrl_r_replaces_only_where_a_search_looked_for_text() {
+    let (mut state, now) = setup();
+    port_found_in_three_files(&mut state, now);
+    press(&mut state, now, ctrl('r'));
+    assert!(press(&mut state, now, key(KeyCode::Esc)).is_empty());
+    assert!(state.overlay.is_none() && !runs(&state, JobKind::Replace), "Esc replaces nothing");
+
+    let (mut state, now) = setup();
+    crate::results::collection(&mut state, "Bundle", Side::Left);
+    assert!(crate::actions::perform(&mut state, Action::ReplaceInFiles, now).is_empty());
+    assert_eq!(state.notice.as_deref(), Some("Replacing needs the results of a search for text in files."));
+    assert!(state.overlay.is_none());
 }
 
 #[test]
@@ -1334,15 +1742,116 @@ fn a_contents_search_lists_files_with_their_first_match_and_f3_lands_on_it_with_
         Msg::Opened(crate::Viewer::new(PathBuf::from("/home/log"), crate::Content::Text(pager))),
         now,
     );
-    assert!(matches!(&effects[..], [Effect::FindInViewer { query: asked, from: 24, .. }] if *asked == query));
+    assert!(matches!(&effects[..], [Effect::FindInPager { query: asked, from: 24, .. }] if *asked == query));
     let viewer = state.viewer.as_ref().unwrap();
-    assert!(viewer.find.open && viewer.find.input.text() == "row 5", "the find bar is ready on the query");
-    run_viewer_search(&mut state, now, &effects);
+    assert!(viewer.find.bar.open && viewer.find.bar.input.text() == "row 5", "the find bar is ready on the query");
+    run_search(&mut state, now, &effects);
     assert_eq!(text(state.viewer.as_ref().unwrap()).current_match(), Some(24..29));
-    assert_eq!(crate::find_bar_summary(&state.viewer.as_ref().unwrap().find).as_deref(), Some("1 of 11"));
+    assert_eq!(crate::find_bar_summary(&state.viewer.as_ref().unwrap().find.bar).as_deref(), Some("1 of 11"));
     let effects = press(&mut state, now, key(KeyCode::Enter));
-    run_viewer_search(&mut state, now, &effects);
+    run_search(&mut state, now, &effects);
     assert_eq!(text(state.viewer.as_ref().unwrap()).current_match(), Some(334..339), "Enter steps on to row 50");
+}
+
+#[test]
+fn a_rules_search_lists_files_with_the_rules_they_match_and_f3_lands_on_the_evidence() {
+    use borg_rules::{Evidence, Level, Problem, RuleMatch};
+
+    let (mut state, now) = setup();
+    let request = crate::SearchRequest {
+        typos: false,
+        root: "/home".into(),
+        query: "*".into(),
+        hidden: false,
+        options: crate::SearchOptions { kind: crate::SearchKind::Rules, ..Default::default() },
+        skip: None,
+    };
+    let effects = crate::results::start_search(&mut state, request);
+    let [Effect::Search { side, generation, .. }] = effects[..] else { panic!("{effects:?}") };
+    let hit = |rule: &str, bytes: &[u8]| RuleMatch {
+        rule: rule.into(),
+        namespace: borg_rules::BUILT_IN.into(),
+        level: Level::Warning,
+        description: None,
+        false_positives: None,
+        evidence: Some(Evidence { string: "$a".into(), offset: 40, length: bytes.len() as u64, bytes: bytes.to_vec() }),
+    };
+    let mut script = file("install.sh");
+    script.source = Some(PathBuf::from("/home/install.sh"));
+    let mut packed = file("tool");
+    packed.source = Some(PathBuf::from("/home/tool"));
+    let found = vec![
+        (script, vec![hit("decode_and_run", b"base64 -d | sh\nrm -f x")]),
+        (packed, vec![hit("upx_packed", b"UPX!\x00\x01")]),
+    ];
+    update(&mut state, Msg::RuleHits { side, generation, found }, now);
+    let left_out = vec![Problem { file: "/rules/broken.yar".into(), message: "syntax error".into() }];
+    let progress = crate::SearchProgress { rules: 16, left_out, ..Default::default() };
+    update(&mut state, Msg::SearchProgress { side, generation, progress }, now);
+    assert_eq!(state.notice.as_deref(), Some("Left out /rules/broken.yar: syntax error"));
+    update(&mut state, Msg::Listed { side, generation, error: None }, now);
+
+    let results = state.active_panel().results.as_ref().unwrap();
+    assert!(results.by_rules());
+    assert_eq!(results.title(), "Rule matches: *");
+    let at = results.first_match(Path::new("/home/install.sh"));
+    let text = borg_view::Query { text: "base64 -d | sh".into(), case: true, words: false, regex: false };
+    assert_eq!(at, Some(crate::FirstMatch { query: text, offset: 40 }), "text up to its line break");
+    let bytes = results.first_match(Path::new("/home/tool")).map(|at| at.query).unwrap();
+    assert_eq!(
+        (bytes.text.as_str(), bytes.regex),
+        (r"(?-u:\x55\x50\x58\x21\x00\x01)", true),
+        "bytes that are not text"
+    );
+    let search = bytes.compile().unwrap().unwrap();
+    assert_eq!(search.in_line(b"..UPX!\x00\x01.."), [std::ops::Range { start: 2, end: 8 }]);
+
+    let at = results.first_match(Path::new("/home/install.sh"));
+    assert_eq!(
+        press(&mut state, now, key(KeyCode::F(3))),
+        [Effect::View { path: PathBuf::from("/home/install.sh"), at }]
+    );
+}
+
+#[test]
+fn a_search_for_packed_programs_shows_their_code_entropy_and_f3_opens_the_first_high_block_as_hex() {
+    use borg_view::entropy::{BLOCK, Entropy, Tally};
+
+    let (mut state, now) = setup();
+    let request = crate::SearchRequest {
+        typos: false,
+        root: "/home".into(),
+        query: "*".into(),
+        hidden: false,
+        options: crate::SearchOptions { kind: crate::SearchKind::Packed, ..Default::default() },
+        skip: None,
+    };
+    let effects = crate::results::start_search(&mut state, request);
+    let [Effect::Search { side, generation, .. }] = effects[..] else { panic!("{effects:?}") };
+    let noise = borg_view::entropy::Entropy::of(&(0..=255u8).cycle().take(4096).collect::<Vec<_>>());
+    let mut tally = Tally::default();
+    (1..5).for_each(|block| tally.add(block * BLOCK, if block == 1 { Entropy::default() } else { noise }));
+    assert!(crate::looks_packed(&tally));
+    let mut tool = file("tool");
+    tool.source = Some(PathBuf::from("/home/tool"));
+    update(&mut state, Msg::PackedHits { side, generation, found: vec![(tool, tally)] }, now);
+    update(&mut state, Msg::Listed { side, generation, error: None }, now);
+
+    let results = state.active_panel().results.as_ref().unwrap();
+    assert!(results.by_entropy() && !results.by_rules());
+    assert_eq!(results.title(), "Packed executables: *");
+    assert_eq!(results.first_high(Path::new("/home/tool")), Some(2 * BLOCK));
+    assert_eq!(results.first_match(Path::new("/home/tool")), None, "no query to find");
+
+    let path = PathBuf::from("/home/tool");
+    assert_eq!(press(&mut state, now, key(KeyCode::F(3))), [Effect::View { path: path.clone(), at: None }]);
+    let bytes: Vec<u8> = (0..BLOCK * 6).map(|at| (at % 7) as u8).collect();
+    let (width, height) = crate::viewer_size(state.cols, state.rows);
+    let pager = borg_view::Pager::new(std::sync::Arc::new(bytes), width, height).unwrap();
+    update(&mut state, Msg::Opened(crate::Viewer::new(path, crate::Content::Text(pager))), now);
+    let viewer = state.viewer.as_ref().unwrap();
+    assert!(text(viewer).hex(), "shown as hex rows");
+    assert_eq!(text(viewer).offset(), 2 * BLOCK, "from the first high block");
 }
 
 #[test]
@@ -1401,8 +1910,8 @@ fn a_contents_match_the_editor_leaves_to_the_viewer_opens_there_on_the_match() {
     let (width, height) = crate::viewer_size(state.cols, state.rows);
     let pager = borg_view::Pager::new(Arc::new(b"haystack\nneedle\n".to_vec()), width, height).unwrap();
     let effects = update(&mut state, Msg::Opened(crate::Viewer::new(path, crate::Content::Text(pager))), now);
-    assert!(matches!(&effects[..], [Effect::FindInViewer { query: asked, from: 9, .. }] if *asked == query));
-    run_viewer_search(&mut state, now, &effects);
+    assert!(matches!(&effects[..], [Effect::FindInPager { query: asked, from: 9, .. }] if *asked == query));
+    run_search(&mut state, now, &effects);
     assert_eq!(text(state.viewer.as_ref().unwrap()).current_match(), Some(9..15));
 }
 
@@ -1466,7 +1975,7 @@ fn ctrl_q_on_contents_results_previews_each_file_on_its_match_with_the_query_mar
     assert!(peeked_at(&update(&mut state, Msg::Tick, now)).is_none() && state.peeked.is_some());
 
     press(&mut state, now, key(KeyCode::F(3)));
-    assert!(state.viewer.as_ref().is_some_and(|viewer| viewer.find.open), "F3 takes the preview to the viewer");
+    assert!(state.viewer.as_ref().is_some_and(|viewer| viewer.find.bar.open), "F3 takes the preview to the viewer");
     press(&mut state, now, key(KeyCode::Esc));
     press(&mut state, now, key(KeyCode::Esc));
     let Some(crate::Peeked { at: back, peek: crate::Peek::Text(pager), .. }) = &state.peeked else { panic!("preview") };
@@ -1592,11 +2101,11 @@ fn landing_on_a_contents_match_in_markdown_shows_the_source_where_the_offset_was
     let pager = borg_view::Pager::for_path(std::sync::Arc::new(source), &path, width, height).unwrap();
     assert!(pager.formatted());
     let effects = update(&mut state, Msg::Opened(crate::Viewer::new(path, crate::Content::Text(pager))), now);
-    run_viewer_search(&mut state, now, &effects);
+    run_search(&mut state, now, &effects);
     let viewer = state.viewer.as_ref().unwrap();
     assert!(!text(viewer).formatted());
     assert_eq!(text(viewer).current_match(), Some(17..24));
-    assert_eq!(crate::find_bar_summary(&viewer.find).as_deref(), Some("1 of 2"));
+    assert_eq!(crate::find_bar_summary(&viewer.find.bar).as_deref(), Some("1 of 2"));
 }
 
 #[test]
@@ -1765,7 +2274,7 @@ fn image_viewer_steps_through_pictures_in_the_folder() {
 fn a_picture_loaded_after_the_viewer_gave_it_up_stays_away() {
     let (mut state, now) = setup_with(vec![file("a.png"), file("b.jpg"), file("c.gif")]);
     let path = |name: &str| PathBuf::from("/home").join(name);
-    let shown = |state: &AppState| state.viewer.as_ref().map(|viewer| viewer.path.clone());
+    let shown = |state: &AppState| state.viewer.as_ref().and_then(|viewer| viewer.path().map(PathBuf::from));
     image_viewer(&mut state, "a.png", now);
 
     press(&mut state, now, key(KeyCode::Down));
@@ -1829,6 +2338,27 @@ fn quick_find_jumps_cycles_marks_and_remembers() {
     press(&mut state, now, ctrl_key('s'));
     let Some(Overlay::Find(find)) = state.overlay.clone() else { panic!("find closed") };
     assert_eq!(find.input.text(), "js");
+}
+
+#[test]
+fn quick_find_goes_to_the_best_close_match_when_nothing_matches_as_typed() {
+    let names = ["budget.xlsx", "receipts-2023.pdf", "recital.txt", "the receipt.pdf"];
+    let (mut state, now) = setup_with(names.into_iter().map(file).collect());
+    press(&mut state, now, ctrl_key('s'));
+    type_text(&mut state, now, "reciept");
+    assert_eq!(hovered_name(&state).as_deref(), Some("the receipt.pdf"), "a whole word beats the start of one");
+    let Some(Overlay::Find(find)) = state.overlay.clone() else { panic!("find closed") };
+    assert!(find.close);
+    assert_eq!(crate::find_summary(&state, &find), (2, 2));
+    press(&mut state, now, key(KeyCode::Down));
+    assert_eq!(hovered_name(&state).as_deref(), Some("receipts-2023.pdf"));
+    press(&mut state, now, key(KeyCode::Esc));
+
+    state.settings.search.typos = false;
+    press(&mut state, now, ctrl_key('s'));
+    type_text(&mut state, now, "reciept");
+    let Some(Overlay::Find(find)) = state.overlay.clone() else { panic!("find closed") };
+    assert!(!find.close && crate::find_summary(&state, &find) == (0, 0), "close matches wait for the setting");
 }
 
 #[test]
@@ -2061,15 +2591,14 @@ fn escape_reaches_the_shell_when_the_line_has_text() {
 }
 
 #[test]
-fn mouse_selects_marks_and_opens_panel_rows() {
+fn mouse_selects_and_opens_panel_rows() {
     use crate::Pointer;
     let (mut state, now) = setup_with(vec![dir("me"), file("log.txt")]);
-    update(&mut state, Msg::Pointer(Pointer::Panel { side: Side::Right, index: 2, open: false, mark: true }), now);
+    update(&mut state, Msg::Pointer(Pointer::Panel { side: Side::Right, index: 2, open: false }), now);
     assert_eq!(state.active, Side::Right);
     assert_eq!(state.active_panel().hovered_entry().unwrap().name, "log.txt");
-    assert_eq!(state.active_panel().marked_count(), 1);
-    let effects =
-        update(&mut state, Msg::Pointer(Pointer::Panel { side: Side::Right, index: 1, open: true, mark: false }), now);
+    assert_eq!(state.active_panel().marked_count(), 0);
+    let effects = update(&mut state, Msg::Pointer(Pointer::Panel { side: Side::Right, index: 1, open: true }), now);
     assert!(
         effects
             .iter()
@@ -2077,13 +2606,162 @@ fn mouse_selects_marks_and_opens_panel_rows() {
     );
 }
 
+fn context_menu(state: &AppState) -> &crate::ContextMenu {
+    match &state.overlay {
+        Some(Overlay::ContextMenu(menu)) => menu,
+        other => panic!("no context menu: {other:?}"),
+    }
+}
+
+fn context_labels(state: &AppState) -> Vec<&'static str> {
+    let entries = &context_menu(state).menu.entries;
+    entries
+        .iter()
+        .filter_map(|entry| match entry {
+            crate::MenuEntry::Item(item) => Some(item.label),
+            crate::MenuEntry::Separator => None,
+        })
+        .collect()
+}
+
+fn choose_context(state: &mut AppState, now: Instant, label: &str) -> Vec<Effect> {
+    crate::context_menu::choose_labelled(state, label, now)
+}
+
+fn copied(effects: &[Effect]) -> Option<&str> {
+    effects.iter().find_map(|effect| match effect {
+        Effect::Copy(text) => Some(text.as_str()),
+        _ => None,
+    })
+}
+
+#[test]
+fn shift_f10_opens_a_menu_on_the_file_under_the_cursor_that_copies_its_path() {
+    let (mut state, now) = setup_with(vec![dir("me"), file("notes.txt")]);
+    press(&mut state, now, key(KeyCode::Down));
+    press(&mut state, now, key(KeyCode::Down));
+    press(&mut state, now, shift(KeyCode::F(10)));
+    assert_eq!((context_menu(&state).menu.title.as_str(), context_menu(&state).at), ("notes.txt", None));
+    assert_eq!(context_labels(&state)[..3], ["Copy path", "Copy name", "Copy folder path"]);
+    let effects = press(&mut state, now, key(KeyCode::Enter));
+    assert_eq!(copied(&effects), Some("/home/notes.txt"));
+    assert_eq!(state.notice.as_deref(), Some("Copied /home/notes.txt"));
+    assert!(state.overlay.is_none());
+}
+
+#[test]
+fn a_right_click_puts_the_cursor_on_the_row_and_opens_the_menu_there_without_marking_it() {
+    let (mut state, now) = setup_with(vec![dir("me"), file("log.txt")]);
+    let pick = crate::Pointer::Panel { side: Side::Right, index: 2, open: false };
+    update(&mut state, Msg::ContextMenu { pick, column: 50, row: 4 }, now);
+    assert_eq!((state.active, hovered(&state)), (Side::Right, Some("log.txt")));
+    assert!(marked(&state).is_empty());
+    assert_eq!(context_menu(&state).at, Some((50, 4)));
+    choose_context(&mut state, now, "Mark");
+    assert_eq!(marked(&state), ["log.txt"]);
+}
+
+#[test]
+fn with_files_marked_the_menu_copies_every_path_and_says_how_many_it_acts_on() {
+    let (mut state, now) = setup_with(vec![file("a.txt"), file("b.txt")]);
+    press(&mut state, now, key(KeyCode::Down));
+    press(&mut state, now, key(KeyCode::Insert));
+    press(&mut state, now, key(KeyCode::Insert));
+    press(&mut state, now, shift(KeyCode::F(10)));
+    assert_eq!(context_menu(&state).menu.title, "2 items");
+    let effects = choose_context(&mut state, now, "Copy path");
+    assert_eq!(copied(&effects), Some("/home/a.txt\n/home/b.txt"));
+    assert_eq!(state.notice.as_deref(), Some("Paths copied"));
+}
+
+#[test]
+fn delete_in_the_context_menu_asks_first_and_deletes_nothing() {
+    let (mut state, now) = setup_with(vec![file("keep.txt")]);
+    press(&mut state, now, key(KeyCode::Down));
+    press(&mut state, now, shift(KeyCode::F(10)));
+    let effects = choose_context(&mut state, now, "Delete");
+    assert!(effects.iter().all(|effect| matches!(effect, Effect::CheckDelete { .. })), "{effects:?}");
+    assert!(matches!(
+        &state.overlay,
+        Some(Overlay::Confirm(confirm)) if !confirm.accept && matches!(&confirm.purpose, crate::ConfirmPurpose::Delete { sources, .. } if sources == &[Path::new("/home/keep.txt")])
+    ));
+    press(&mut state, now, key(KeyCode::Esc));
+    assert!(state.overlay.is_none());
+}
+
+#[test]
+fn a_menu_whose_item_moved_away_while_it_was_open_does_nothing() {
+    let (mut state, now) = setup_with(vec![file("a.txt"), file("b.txt")]);
+    press(&mut state, now, key(KeyCode::Down));
+    press(&mut state, now, shift(KeyCode::F(10)));
+    assert_eq!(context_menu(&state).menu.title, "a.txt");
+    state.panel_mut(Side::Left).move_by(1);
+    let effects = choose_context(&mut state, now, "Delete");
+    assert!(effects.is_empty() && state.overlay.is_none(), "nothing may act on b.txt: {:?}", state.overlay);
+    assert_eq!(
+        state.notice.as_deref(),
+        Some("The item changed while the menu was open, so nothing was done. Open the menu again.")
+    );
+}
+
+#[test]
+fn a_folder_cannot_be_edited_from_the_menu_and_esc_closes_it() {
+    let (mut state, now) = setup_with(vec![dir("me")]);
+    press(&mut state, now, key(KeyCode::Down));
+    press(&mut state, now, shift(KeyCode::F(10)));
+    let effects = choose_context(&mut state, now, "Edit");
+    assert!(effects.is_empty());
+    assert!(matches!(state.overlay, Some(Overlay::ContextMenu(_))), "a disabled entry keeps the menu open");
+    press(&mut state, now, key(KeyCode::Esc));
+    assert!(state.overlay.is_none());
+}
+
+#[test]
+fn shift_f10_on_the_parent_row_with_nothing_marked_says_nothing_is_selected() {
+    let (mut state, now) = setup_with(vec![dir("me")]);
+    press(&mut state, now, shift(KeyCode::F(10)));
+    assert!(state.overlay.is_none());
+    assert_eq!(state.notice.as_deref(), Some("Nothing selected"));
+}
+
+#[test]
+fn the_menu_on_a_contents_result_copies_its_path_with_the_line_the_search_found() {
+    let (mut state, now) = setup_with(vec![dir("me")]);
+    let query = borg_view::Query { text: "port".into(), ..Default::default() };
+    let line =
+        crate::LineMatch { line: 12, offset: 0, before: String::new(), found: "port".into(), after: String::new() };
+    found_in_log(&mut state, now, &query, line);
+    while hovered(&state) != Some("log") {
+        press(&mut state, now, key(KeyCode::Down));
+    }
+    press(&mut state, now, shift(KeyCode::F(10)));
+    assert!(context_labels(&state).contains(&"Reveal original"));
+    let effects = choose_context(&mut state, now, "Copy path and line");
+    assert_eq!(copied(&effects), Some("/home/log:12"));
+}
+
+#[test]
+fn the_wheel_moves_through_a_context_menu() {
+    use crate::Pointer;
+    let (mut state, now) = setup_with(vec![file("notes.txt")]);
+    press(&mut state, now, key(KeyCode::Down));
+    press(&mut state, now, shift(KeyCode::F(10)));
+    let Some(Overlay::ContextMenu(context)) = &state.overlay else { panic!("a context menu") };
+    let first = context.selected;
+    let next = context.menu.scroll(first, 1);
+    assert_ne!(first, next);
+    update(&mut state, Msg::Pointer(Pointer::DialogScroll(1)), now);
+    let Some(Overlay::ContextMenu(context)) = &state.overlay else { panic!("a context menu") };
+    assert_eq!(context.selected, next);
+}
+
 #[test]
 fn mouse_menus_respect_disabled_items_and_modal_dialogs() {
     use crate::Pointer;
     let (mut state, now) = setup();
     update(&mut state, Msg::Pointer(Pointer::Menu(1)), now);
-    update(&mut state, Msg::Pointer(Pointer::MenuItem(0)), now);
-    assert!(matches!(state.overlay, Some(Overlay::Menu(_))), "View is disabled on the parent row");
+    update(&mut state, Msg::Pointer(Pointer::MenuItem(1)), now);
+    assert!(matches!(state.overlay, Some(Overlay::Menu(_))), "Edit is disabled on the parent row");
     update(&mut state, Msg::Pointer(Pointer::MenuItem(6)), now);
     assert!(matches!(state.overlay, Some(Overlay::Prompt(_))), "Make directory opens its prompt");
     update(&mut state, Msg::Pointer(Pointer::Action(Action::Quit)), now);
@@ -2183,6 +2861,178 @@ fn preview_and_viewer_share_position_wrap_and_markdown_mode() {
         assert!(!pager.formatted());
         assert!(!pager.wrapped());
     }
+}
+
+fn preview(state: &mut AppState, now: Instant, content: Vec<u8>) -> (usize, usize) {
+    let effects = press(state, now, ctrl('q'));
+    let Some(Effect::Peek { aside, path, at, size }) =
+        effects.into_iter().find(|effect| matches!(effect, Effect::Peek { .. }))
+    else {
+        panic!("the quick view asks for the file")
+    };
+    let mut pager = borg_view::Pager::new(std::sync::Arc::new(content), size.0, size.1).unwrap();
+    if let Some(at) = &at {
+        crate::land_on_match(&mut pager, at, &|_| true).unwrap();
+    }
+    update(state, Msg::Peeked(crate::Peeked { aside, path, at, peek: crate::Peek::Text(pager) }), now);
+    size
+}
+
+fn previewed(state: &AppState) -> &borg_view::Pager {
+    state.pager(crate::PagerSlot::QuickView).expect("the quick view shows text")
+}
+
+fn numbered_rows() -> Vec<u8> {
+    (1..=100).flat_map(|i| format!("row {i}\n").into_bytes()).collect()
+}
+
+#[test]
+fn the_focused_quick_view_finds_with_the_viewers_keys_and_steps_both_ways() {
+    let (mut state, now) = setup_with(vec![file("log"), file("notes")]);
+    press(&mut state, now, key(KeyCode::Down));
+    let (_, height) = preview(&mut state, now, numbered_rows());
+    let summary = |state: &AppState| crate::find_bar_summary(&state.preview_find.bar);
+
+    press(&mut state, now, key(KeyCode::F(7)));
+    assert!(matches!(state.overlay, Some(Overlay::Prompt(_))), "F7 in the file panel still makes a folder");
+    assert!(!state.preview_find.bar.open);
+    press(&mut state, now, key(KeyCode::Esc));
+
+    press(&mut state, now, key(KeyCode::Tab));
+    assert!(state.preview_focused);
+    press(&mut state, now, key(KeyCode::Char('/')));
+    assert!(state.preview_find.bar.open);
+    assert_eq!(previewed(&state).rows().len(), height - usize::from(crate::FIND_ROWS), "the bar takes a row");
+    let mut effects = Vec::new();
+    for c in "row 5".chars() {
+        effects = press(&mut state, now, key(KeyCode::Char(c)));
+    }
+    assert!(matches!(effects[..], [Effect::FindInPager { slot: crate::PagerSlot::QuickView, from: 0, .. }]));
+    assert!(
+        previewed(&state).rich_rows()[4].iter().any(|run| run.mark == borg_view::Mark::Match),
+        "the preview marks row 5 while the search runs"
+    );
+    run_search(&mut state, now, &effects);
+    assert_eq!(previewed(&state).current_match(), Some(24..29));
+    assert_eq!(summary(&state).as_deref(), Some("1 of 11"), "row 5 and rows 50 to 59");
+
+    let effects = press(&mut state, now, key(KeyCode::Enter));
+    run_search(&mut state, now, &effects);
+    assert_eq!(summary(&state).as_deref(), Some("2 of 11"));
+    let shown = height - usize::from(crate::FIND_ROWS);
+    assert_eq!(previewed(&state).rows()[0], format!("row {}", 50 - shown / 3), "row 50 shows a third down");
+    let effects = press(&mut state, now, key(KeyCode::Up));
+    run_search(&mut state, now, &effects);
+    assert_eq!(previewed(&state).current_match(), Some(24..29), "Up steps back");
+
+    assert!(press(&mut state, now, key(KeyCode::Esc)).is_empty());
+    assert!(state.preview_focused && !state.preview_find.bar.open, "Esc closes the bar and keeps the focus");
+    assert!(!previewed(&state).shows_matches() && previewed(&state).current_match() == Some(24..29));
+    assert_eq!(previewed(&state).rows().len(), height, "the preview takes its row back");
+    assert_eq!(state.find_recent, ["row 5"]);
+    let effects = press(&mut state, now, key(KeyCode::Char('n')));
+    assert!(previewed(&state).shows_matches(), "n marks the matches again");
+    run_search(&mut state, now, &effects);
+    assert_eq!(summary(&state).as_deref(), Some("2 of 11"), "n goes on from row 5");
+    let effects = press(&mut state, now, shift(KeyCode::Char('N')));
+    assert!(matches!(effects[..], [Effect::FindInPager { direction: crate::Direction::Backward, .. }]));
+    assert_eq!(press(&mut state, now, key(KeyCode::Esc)), [Effect::StopFindInPager(crate::PagerSlot::QuickView)]);
+    assert!(state.preview_focused, "Esc stops a running search before it gives the focus back");
+    press(&mut state, now, key(KeyCode::Down));
+    assert_eq!(summary(&state), None, "a key that moves the page clears what the last step said");
+    press(&mut state, now, key(KeyCode::Esc));
+    assert!(!state.preview_focused);
+}
+
+#[test]
+fn the_quick_views_search_ends_when_the_cursor_leaves_its_file() {
+    let (mut state, now) = setup_with(vec![file("log"), file("notes")]);
+    press(&mut state, now, key(KeyCode::Down));
+    preview(&mut state, now, numbered_rows());
+    press(&mut state, now, key(KeyCode::Tab));
+    press(&mut state, now, key(KeyCode::Char('/')));
+    type_text(&mut state, now, "row 7");
+    assert!(state.preview_find.searching.is_some());
+
+    press(&mut state, now, key(KeyCode::Tab));
+    assert!(!state.preview_focused && state.preview_find.bar.open, "the bar stays while the panel has the keys");
+    let effects = press(&mut state, now, key(KeyCode::Down));
+    assert!(effects.contains(&Effect::StopFindInPager(crate::PagerSlot::QuickView)), "{effects:?}");
+    assert_eq!(peeked_at(&effects).map(|(path, _)| path), Some(PathBuf::from("/home/notes")));
+    assert!(!state.preview_find.bar.open && state.preview_find.bar.input.text().is_empty());
+    assert!(state.preview_find.searching.is_none());
+    assert_eq!(state.find_recent, Vec::<String>::new(), "a query never stepped to is not kept");
+}
+
+#[test]
+fn a_key_that_shows_the_preview_another_source_stops_its_search() {
+    let (mut state, now) = setup_with(vec![file("log")]);
+    press(&mut state, now, key(KeyCode::Down));
+    preview(&mut state, now, numbered_rows());
+    press(&mut state, now, key(KeyCode::Tab));
+    press(&mut state, now, key(KeyCode::Char('/')));
+    type_text(&mut state, now, "row");
+    assert!(state.preview_find.searching.is_some());
+    let effects = press(&mut state, now, key(KeyCode::F(4)));
+    assert_eq!(effects, [Effect::StopFindInPager(crate::PagerSlot::QuickView)], "F4 in the bar switches the source");
+    assert!(state.preview_find.bar.open);
+}
+
+#[test]
+fn f3_takes_the_quick_views_search_to_the_viewer() {
+    let (mut state, now) = setup_with(vec![file("log")]);
+    press(&mut state, now, key(KeyCode::Down));
+    preview(&mut state, now, numbered_rows());
+    press(&mut state, now, key(KeyCode::Tab));
+    press(&mut state, now, key(KeyCode::Char('/')));
+    let mut effects = Vec::new();
+    for c in "row 5".chars() {
+        effects = press(&mut state, now, key(KeyCode::Char(c)));
+    }
+    run_search(&mut state, now, &effects);
+    press(&mut state, now, key(KeyCode::Esc));
+
+    let effects = press(&mut state, now, key(KeyCode::F(3)));
+    assert!(!effects.iter().any(|effect| matches!(effect, Effect::View { .. })), "F3 reuses the loaded file");
+    let viewer = state.viewer.as_ref().unwrap();
+    assert_eq!(viewer.find.bar.input.text(), "row 5");
+    assert_eq!(crate::find_bar_summary(&viewer.find.bar).as_deref(), Some("1 of 11"));
+    assert_eq!(text(viewer).current_match(), Some(24..29));
+    let effects = press(&mut state, now, key(KeyCode::Char('n')));
+    assert!(matches!(effects[..], [Effect::FindInPager { slot: crate::PagerSlot::Viewer, from: 29, .. }]));
+    run_search(&mut state, now, &effects);
+    assert_eq!(crate::find_bar_summary(&state.viewer.as_ref().unwrap().find.bar).as_deref(), Some("2 of 11"));
+
+    press(&mut state, now, key(KeyCode::Esc));
+    assert!(state.viewer.is_none());
+    assert!(state.preview_find.bar.input.text().is_empty(), "the viewer's search stays with the viewer");
+    assert!(previewed(&state).current_match().is_none());
+}
+
+#[test]
+fn the_quick_view_of_a_contents_result_steps_on_through_the_searchs_matches() {
+    let (mut state, now) = setup();
+    let query = borg_view::Query { text: "needle".into(), ..Default::default() };
+    let hay = "hay\nneedle one\nhay\nneedle two\n";
+    let [first, second] = [0, 1].map(|n| hay.match_indices("needle").nth(n).unwrap().0 as u64);
+    let line = crate::LineMatch {
+        line: 2,
+        offset: first,
+        before: String::new(),
+        found: "needle".into(),
+        after: " one".into(),
+    };
+    found_in(&mut state, now, &query, vec![("log", line)]);
+    preview(&mut state, now, hay.as_bytes().to_vec());
+    press(&mut state, now, key(KeyCode::Tab));
+    assert!(state.preview_find.bar.input.text() == "needle" && !state.preview_find.bar.open, "n is ready to step");
+
+    let effects = press(&mut state, now, key(KeyCode::Char('n')));
+    assert!(
+        matches!(&effects[..], [Effect::FindInPager { query: asked, from, .. }] if *asked == query && *from == first + 6)
+    );
+    run_search(&mut state, now, &effects);
+    assert_eq!(previewed(&state).current_match(), Some(second..second + 6));
 }
 
 #[test]
@@ -2427,7 +3277,7 @@ fn background_sizes_update_real_paths_without_changing_panels_cursor_or_marks() 
     assert!(state.sizing.is_none());
     assert_eq!(state.active, Side::Right);
     assert!(effects.iter().all(|e| matches!(e, Effect::List { .. })));
-    assert!(state.notice.as_ref().unwrap().contains("80 scanned"));
+    assert!(ended_with(&state, JobKind::Sizes).is_some_and(|summary| summary.contains("80 scanned")));
 }
 
 #[test]
@@ -2627,7 +3477,7 @@ fn a_container_panel_copies_with_the_host_panel_and_leaves_through_its_root() {
     assert!(state.jobs.iter().any(|job| job.id == id && job.shown_on == Side::Right), "a copy job, shown on the host");
     let done = borg_jobs::Outcome::Done { done: borg_jobs::Totals { files: 1, bytes: 0 }, skipped: 0 };
     let effects = update(&mut state, Msg::Job { id, event: borg_jobs::Event::Finished(done) }, now);
-    assert_eq!(state.notice.as_deref(), Some("Copied 1 file"));
+    assert_eq!(ended_with(&state, JobKind::Copy), Some("Copied 1 file"));
     assert!(effects.iter().any(|e| matches!(e, Effect::List { side: Side::Right, .. })), "both panels refresh");
 
     let effects = crate::actions::perform(&mut state, Action::View, now);
@@ -2639,7 +3489,7 @@ fn a_container_panel_copies_with_the_host_panel_and_leaves_through_its_root() {
     assert_eq!(effects, [Effect::View { path: "/run/motd".into(), at: None }]);
 
     crate::actions::perform(&mut state, Action::Delete, now);
-    let effects = press(&mut state, now, key(KeyCode::Enter));
+    let effects = press(&mut state, now, key(KeyCode::Char('y')));
     assert_eq!(file_request(&effects).map(|(_, op)| op), Some(FileOp::Delete { paths: vec!["/motd".into()] }));
     crate::actions::perform(&mut state, Action::Mkdir, now);
     type_text(&mut state, now, "cache");
@@ -2812,19 +3662,54 @@ fn the_command_line_waits_for_a_host_panel_unless_it_follows_containers() {
 }
 
 #[test]
-fn the_claude_log_is_kept_in_memory_and_goes_when_it_is_turned_off() {
+fn disk_cleanup_goes_to_the_host_shell_while_the_command_line_follows_a_container() {
+    use crate::Console;
+    let now = Instant::now();
+    let mut state = browsing_container(now);
+    assert_eq!(state.console, Console::Container("c1".into()));
+    let effects = crate::actions::perform(&mut state, Action::DockerDisk, now);
+    let id = effects
+        .iter()
+        .find_map(|e| match e {
+            Effect::Docker { id, request: crate::DockerRequest::DiskUse } => Some(*id),
+            _ => None,
+        })
+        .expect("opening disk use measures it");
+    let usage = borg_docker::DiskUse { networks: vec!["shop_backend".into()], ..Default::default() };
+    let measured = crate::DockerData::DiskUse {
+        usage: Box::new(usage),
+        context: None,
+        contexts: None,
+        folders: Default::default(),
+    };
+    let effects = update(&mut state, Msg::Docker { id, result: Ok(measured) }, now);
+    assert!(effects.contains(&Effect::UseConsole(Console::Host)), "the Docker view keeps the host's: {effects:?}");
+    press(&mut state, now, key(KeyCode::End));
+    let effects = press(&mut state, now, key(KeyCode::F(8)));
+    assert_eq!(writes(&effects), "docker network prune");
+    assert_eq!((&state.console, state.view), (&Console::Host, View::Shell));
+}
+
+#[test]
+fn the_claude_log_is_saved_and_goes_from_memory_and_disk_when_it_is_turned_off() {
     use crate::AgentEvent;
     let (mut state, now) = setup_with(Vec::new());
     crate::actions::perform(&mut state, Action::AgentLog, now);
     assert!(state.notice.as_deref().is_some_and(|n| n.starts_with("Nothing remote has happened")));
-    update(&mut state, Msg::Agent(AgentEvent::Note("14:00:00  read /srv/app".into())), now);
+    let read = "2026-11-09 14:00:00  read /srv/app";
+    let effects = update(&mut state, Msg::Agent(AgentEvent::Note(read.into())), now);
+    assert_eq!(effects, vec![Effect::SaveAgentNote(read.into())]);
     crate::actions::perform(&mut state, Action::AgentLog, now);
     assert_eq!(state.overlay, Some(Overlay::AgentLog { scroll: None }));
     state.overlay = None;
 
-    assert_eq!(crate::actions::perform(&mut state, Action::ToggleAgentLog, now), vec![Effect::SaveConfig]);
+    assert_eq!(
+        crate::actions::perform(&mut state, Action::ToggleAgentLog, now),
+        vec![Effect::SaveConfig, Effect::ForgetAgentLog]
+    );
     assert!(state.agent.log.is_empty(), "turning the log off forgets it");
-    update(&mut state, Msg::Agent(AgentEvent::Note("14:00:01  showed /srv".into())), now);
+    let effects = update(&mut state, Msg::Agent(AgentEvent::Note("2026-11-09 14:00:01  showed /srv".into())), now);
+    assert!(effects.is_empty(), "nothing is saved while the log is off");
     assert!(state.agent.log.is_empty());
     crate::actions::perform(&mut state, Action::AgentLog, now);
     assert!(state.notice.as_deref().is_some_and(|n| n.starts_with("The remote log is off")));
@@ -2834,17 +3719,17 @@ fn the_claude_log_is_kept_in_memory_and_goes_when_it_is_turned_off() {
 fn an_approval_scrolls_and_answers_and_a_host_command_is_typed_out_of_history() {
     use crate::{AgentEvent, Ask, AskKind, DiffLine};
     let (mut state, now) = setup_with(Vec::new());
-    let body = (1..=200).map(|n| DiffLine::plain(format!("echo {n}"))).collect();
-    let ask = Ask { kind: AskKind::Run, summary: "echo 1".into(), place: "~/app".into(), body };
+    let body = (1..=200).map(|n| DiffLine::code(format!("echo {n}"))).collect();
+    let ask = Ask { kind: AskKind::Run, summary: "echo 1".into(), place: "~/app".into(), origin: None, body };
     update(&mut state, Msg::Agent(AgentEvent::Ask { id: 7, ask }), now);
-    let Some(Overlay::Approval(approval)) = state.overlay.clone() else { panic!("{:?}", state.overlay) };
+    let Some(approval) = state.approval.clone() else { panic!("{:?}", state.overlay) };
     assert!(!approval.accept, "No is chosen until the user picks Yes");
     press(&mut state, now, key(KeyCode::PageDown));
     press(&mut state, now, key(KeyCode::End));
-    let Some(Overlay::Approval(scrolled)) = state.overlay.clone() else { panic!() };
+    let Some(scrolled) = state.approval.clone() else { panic!() };
     assert!(scrolled.scroll > 100, "End shows the last lines: {}", scrolled.scroll);
     press(&mut state, now, key(KeyCode::Down));
-    assert_eq!(state.overlay, Some(Overlay::Approval(scrolled.clone())), "it stops at the end");
+    assert_eq!(state.approval, Some(scrolled.clone()), "it stops at the end");
 
     // Asked as the test starts, which counts as typing: Yes counts after the grace.
     let effects = press(&mut state, now + crate::agent::APPROVAL_GRACE, key(KeyCode::Char('y')));
@@ -2860,7 +3745,7 @@ fn approving_a_pairing_a_read_or_an_upload_leaves_nothing_running() {
     use crate::{AgentEvent, Ask, AskKind};
     let (mut state, now) = setup_with(Vec::new());
     for (id, kind) in [(1, AskKind::Pair), (2, AskKind::Read), (3, AskKind::Upload)] {
-        let ask = Ask { kind, summary: "me@laptop".into(), place: String::new(), body: Vec::new() };
+        let ask = Ask { kind, summary: "me@laptop".into(), place: String::new(), origin: None, body: Vec::new() };
         update(&mut state, Msg::Agent(AgentEvent::Ask { id, ask }), now);
         let effects = press(&mut state, now + crate::agent::APPROVAL_GRACE, key(KeyCode::Char('y')));
         assert_eq!(effects, vec![Effect::AgentAnswer { id, approved: true }]);
@@ -2868,12 +3753,115 @@ fn approving_a_pairing_a_read_or_an_upload_leaves_nothing_running() {
     }
 }
 
+fn pairing_ask() -> crate::Ask {
+    crate::Ask {
+        kind: crate::AskKind::Pair,
+        summary: "me@laptop".into(),
+        place: String::new(),
+        origin: None,
+        body: Vec::new(),
+    }
+}
+
+#[test]
+fn a_pairing_approval_shows_over_the_command_shown_plainly_and_the_connect_dialog_comes_back() {
+    use crate::AgentEvent;
+    use std::time::Duration;
+    let (mut state, now) = setup_with(Vec::new());
+    crate::actions::perform(&mut state, Action::ConnectClaude, now);
+    update(&mut state, Msg::Agent(AgentEvent::Pairing(Ok("borg://relay.example.com/ab#cd".into()))), now);
+    let shown = press(&mut state, now, key(KeyCode::F(3)));
+    assert_eq!(shown, vec![Effect::ShowPlain("borg pair 'borg://relay.example.com/ab#cd'".into())]);
+
+    let asked = now + Duration::from_secs(5);
+    update(&mut state, Msg::Agent(AgentEvent::Ask { id: 7, ask: pairing_ask() }), asked);
+    assert!(state.approval.is_some(), "the approval shows at once, over the Connect dialog");
+    assert!(matches!(state.overlay, Some(Overlay::Connect(_))));
+    let read = asked + crate::agent::APPROVAL_GRACE;
+    assert_eq!(press(&mut state, read, key(KeyCode::Char('y'))), vec![Effect::AgentAnswer { id: 7, approved: true }]);
+    assert!(state.approval.is_none());
+    assert!(matches!(state.overlay, Some(Overlay::Connect(_))), "the Connect dialog comes back");
+
+    let again = asked + Duration::from_secs(5);
+    update(&mut state, Msg::Agent(AgentEvent::Ask { id: 8, ask: pairing_ask() }), again);
+    assert!(update(&mut state, Msg::Pointer(crate::Pointer::Confirm(true)), again).is_empty(), "nor a click at once");
+    let clicked = update(&mut state, Msg::Pointer(crate::Pointer::Confirm(true)), again + crate::agent::APPROVAL_GRACE);
+    assert_eq!(clicked, vec![Effect::AgentAnswer { id: 8, approved: true }], "a click on Yes answers it too");
+}
+
+#[test]
+fn an_approval_shows_over_any_dialog_and_takes_every_key_until_answered() {
+    use crate::AgentEvent;
+    use std::time::Duration;
+    for opener in [KeyCode::F(9), KeyCode::F(1), KeyCode::F(7)] {
+        let (mut state, now) = setup();
+        press(&mut state, now, key(opener));
+        type_text(&mut state, now, "ab");
+        let open = state.overlay.clone();
+        assert!(open.is_some(), "{opener:?} opens a dialog");
+
+        let asked = now + Duration::from_secs(5);
+        update(&mut state, Msg::Agent(AgentEvent::Ask { id: 1, ask: pairing_ask() }), asked);
+        assert!(state.approval.is_some(), "the approval shows over {opener:?}");
+        assert!(press(&mut state, asked, key(KeyCode::Char('x'))).is_empty());
+        assert!(update(&mut state, Msg::Paste("pasted".into()), asked).is_empty());
+        assert_eq!(state.overlay, open, "keys and pastes for the approval leave {opener:?} as it was");
+        assert_eq!(press(&mut state, asked, key(KeyCode::Esc)), vec![Effect::AgentAnswer { id: 1, approved: false }]);
+        assert_eq!(state.overlay, open, "{opener:?} comes back");
+    }
+}
+
+#[test]
+fn an_approval_ends_the_screensaver_and_the_intro() {
+    use crate::AgentEvent;
+    let mut settings = quiet();
+    settings.preferences.screensaver = true;
+    let (mut state, now) = setup_from(vec![dir("me")], settings);
+    let due = now + state.settings.screensaver_after;
+    update(&mut state, Msg::Tick, due);
+    assert!(state.screensaver);
+    update(&mut state, Msg::Agent(AgentEvent::Ask { id: 1, ask: pairing_ask() }), due);
+    assert!(!state.screensaver, "the approval wakes the screen");
+    assert!(state.approval.is_some());
+    assert!(!state.can_screensave(), "no screensaver starts over it");
+    let read = due + crate::agent::APPROVAL_GRACE;
+    assert_eq!(press(&mut state, read, key(KeyCode::Char('y'))), vec![Effect::AgentAnswer { id: 1, approved: true }]);
+
+    state.intro = Some(due);
+    update(&mut state, Msg::Agent(AgentEvent::Ask { id: 2, ask: pairing_ask() }), due);
+    assert_eq!(state.intro, None);
+    assert!(state.approval.is_some());
+}
+
+#[test]
+fn a_withdrawn_ask_closes_its_approval_with_a_notice_and_a_queued_one_never_shows() {
+    use crate::{AgentEvent, Ask, AskKind, DiffLine};
+    let (mut state, now) = setup_with(Vec::new());
+    let run = Ask {
+        kind: AskKind::Run,
+        summary: "make".into(),
+        place: "~".into(),
+        origin: None,
+        body: vec![DiffLine::code("make")],
+    };
+    update(&mut state, Msg::Agent(AgentEvent::Ask { id: 1, ask: pairing_ask() }), now);
+    update(&mut state, Msg::Agent(AgentEvent::Ask { id: 2, ask: run }), now);
+    update(&mut state, Msg::Agent(AgentEvent::Withdrawn { id: 2 }), now);
+    assert_eq!(state.approval.as_ref().map(|approval| approval.id), Some(1));
+    assert_eq!(state.notice, None, "the queued ask goes without a word");
+
+    update(&mut state, Msg::Agent(AgentEvent::Withdrawn { id: 1 }), now);
+    assert_eq!(state.approval, None, "nothing else waits");
+    assert_eq!(state.notice, Some(borg_i18n::tr!(agent_withdrawn, summary = "me@laptop")));
+}
+
 #[test]
 fn an_approved_capture_shows_in_the_footer_until_it_is_done() {
     use crate::{AgentEvent, Ask, AskKind};
     let (mut state, now) = setup_with(Vec::new());
     let summary = "capture on en0, 10 s";
-    let ask = Ask { kind: AskKind::Capture, summary: summary.into(), place: String::new(), body: Vec::new() };
+    let ask =
+        Ask { kind: AskKind::Capture, summary: summary.into(), place: String::new(), origin: None, body: Vec::new() };
     update(&mut state, Msg::Agent(AgentEvent::Ask { id: 4, ask }), now);
     let effects = press(&mut state, now + crate::agent::APPROVAL_GRACE, key(KeyCode::Char('y')));
     assert_eq!(effects, vec![Effect::AgentAnswer { id: 4, approved: true }]);
@@ -2972,22 +3960,33 @@ fn an_approval_over_the_console_takes_the_keys_but_not_a_yes_typed_as_it_appears
         kind: AskKind::Run,
         summary: command.into(),
         place: "~".into(),
-        body: vec![DiffLine::plain(command)],
+        origin: None,
+        body: vec![DiffLine::code(command)],
     };
     // The user is typing in a full-screen editor when Claude asks.
     press(&mut state, now, key(KeyCode::Char('i')));
     update(&mut state, Msg::Agent(AgentEvent::Ask { id: 1, ask: ask("make") }), now);
-    assert!(matches!(state.overlay, Some(Overlay::Approval(_))));
+    assert!(state.approval.is_some());
     let typed_on = press(&mut state, now + Duration::from_millis(100), key(KeyCode::Char('y')));
     assert!(typed_on.is_empty(), "a y typed as the dialog appears neither approves nor reaches the editor");
-    assert!(matches!(state.overlay, Some(Overlay::Approval(_))));
+    assert!(state.approval.is_some());
     let approved = press(&mut state, now + APPROVAL_GRACE, key(KeyCode::Char('y')));
     assert_eq!(approved, vec![Effect::AgentAnswer { id: 1, approved: true }]);
 
-    // Asked while the user is idle, Yes counts at once.
+    // Asked while the user is idle, Yes waits out the grace too, and so does the ask behind it.
     let later = now + Duration::from_secs(5);
     update(&mut state, Msg::Agent(AgentEvent::Ask { id: 2, ask: ask("ls") }), later);
-    assert_eq!(press(&mut state, later, key(KeyCode::Char('y'))), vec![Effect::AgentAnswer { id: 2, approved: true }]);
+    update(&mut state, Msg::Agent(AgentEvent::Ask { id: 3, ask: ask("make clean") }), later);
+    assert!(press(&mut state, later, key(KeyCode::Char('y'))).is_empty());
+    let answered = later + APPROVAL_GRACE;
+    assert_eq!(
+        press(&mut state, answered, key(KeyCode::Char('y'))),
+        vec![Effect::AgentAnswer { id: 2, approved: true }]
+    );
+    assert_eq!(state.approval.as_ref().map(|approval| approval.id), Some(3));
+    assert!(press(&mut state, answered, key(KeyCode::Char('y'))).is_empty(), "a second y meant for the first ask");
+    let next = answered + APPROVAL_GRACE;
+    assert_eq!(press(&mut state, next, key(KeyCode::Char('y'))), vec![Effect::AgentAnswer { id: 3, approved: true }]);
 }
 
 #[test]
@@ -3105,6 +4104,59 @@ fn raw_foreground_program_captures_keys_without_an_alternate_screen() {
     assert!(state.overlay.is_none());
     update(&mut state, Msg::Observe(idle_prompt()), now);
     assert_eq!(state.effective_view(), View::Panels);
+}
+
+fn resized_prompt() -> ShellView {
+    ShellView { prompt: PromptState::Unknown, ..idle_prompt() }
+}
+
+fn typed_prompt() -> ShellView {
+    ShellView { prompt: PromptState::Typed, ..idle_prompt() }
+}
+
+#[test]
+fn a_command_line_typed_and_erased_stays_empty_after_a_resize() {
+    let (mut state, now) = setup();
+    update(&mut state, Msg::ShellOutput(idle_prompt()), now);
+    update(&mut state, Msg::Key(key(KeyCode::Char('a'))), now);
+    update(&mut state, Msg::ShellOutput(typed_prompt()), now);
+    update(&mut state, Msg::Key(key(KeyCode::Backspace)), now);
+    update(&mut state, Msg::ShellOutput(idle_prompt()), now);
+    update(&mut state, Msg::Observe(resized_prompt()), now);
+    assert!(state.shell.line_empty());
+    assert!(crate::update::shell_ready(&state));
+}
+
+#[test]
+fn a_command_line_with_text_stays_typed_after_a_resize() {
+    let (mut state, now) = setup();
+    update(&mut state, Msg::ShellOutput(idle_prompt()), now);
+    update(&mut state, Msg::Key(key(KeyCode::Char('a'))), now);
+    update(&mut state, Msg::ShellOutput(typed_prompt()), now);
+    update(&mut state, Msg::Observe(resized_prompt()), now);
+    assert!(!state.shell.line_empty());
+}
+
+#[test]
+fn a_key_not_echoed_yet_keeps_the_line_typed_at_an_empty_prompt() {
+    let (mut state, now) = setup();
+    update(&mut state, Msg::ShellOutput(idle_prompt()), now);
+    update(&mut state, Msg::Key(key(KeyCode::Char('a'))), now);
+    update(&mut state, Msg::Observe(idle_prompt()), now);
+    update(&mut state, Msg::Observe(resized_prompt()), now);
+    assert!(!state.shell.line_empty());
+}
+
+#[test]
+fn an_alt_key_the_shell_takes_without_output_leaves_tab_to_the_panels() {
+    let (mut state, now) = setup();
+    update(&mut state, Msg::ShellOutput(idle_prompt()), now);
+    let effects = press(&mut state, now, KeyEvent::new(KeyCode::Char('f'), KeyModifiers::ALT));
+    assert_eq!(writes(&effects), "\x1bf");
+    update(&mut state, Msg::Observe(idle_prompt()), now);
+    let effects = press(&mut state, now, key(KeyCode::Tab));
+    assert_eq!(writes(&effects), "");
+    assert_eq!(state.active, Side::Right);
 }
 
 #[test]
@@ -3385,6 +4437,74 @@ fn forgetting_an_offline_host_confirms_locally_and_restores_its_panels_and_conso
 }
 
 #[test]
+fn u_updates_the_chosen_host_after_asking_and_reports_how_it_came_back() {
+    let (mut state, now) = setup();
+    crate::actions::perform(&mut state, Action::BrowseRemotes, now);
+    let host = |machine: &str, session: Option<&str>| crate::RemoteChoice {
+        machine: machine.into(),
+        session: session.map(Into::into),
+        name: "Default".into(),
+        ..Default::default()
+    };
+    update(
+        &mut state,
+        Msg::RemoteCatalog { choices: vec![host("server", Some("default")), host("gone", None)], complete: true },
+        now,
+    );
+    update(&mut state, Msg::Key(key(KeyCode::Char('u'))), now);
+    assert!(
+        matches!(&state.overlay, Some(Overlay::Confirm(confirm)) if !confirm.accept && confirm.message.contains("server") && matches!(&confirm.purpose, crate::ConfirmPurpose::RemoteHostUpdate { machine, .. } if machine == "server"))
+    );
+    assert!(update(&mut state, Msg::Key(key(KeyCode::Enter)), now).is_empty(), "No is the default");
+    assert!(matches!(&state.overlay, Some(Overlay::Remotes(browser)) if browser.updating.is_none()));
+    update(&mut state, Msg::Key(key(KeyCode::Char('u'))), now);
+    assert_eq!(
+        update(&mut state, Msg::Key(key(KeyCode::Char('y'))), now),
+        vec![Effect::UpdateRemoteHost { machine: "server".into() }]
+    );
+    assert!(matches!(&state.overlay, Some(Overlay::Remotes(browser)) if browser.updating.as_deref() == Some("server")));
+    assert!(update(&mut state, Msg::Key(key(KeyCode::Char('u'))), now).is_empty(), "one update at a time");
+    let effects = update(
+        &mut state,
+        Msg::RemoteHostUpdated { machine: "server".into(), result: Ok(crate::HostUpdate::Moved("0.12.0".into())) },
+        now,
+    );
+    assert_eq!(effects, vec![Effect::OpenRemotes]);
+    assert!(state.notice.as_deref().is_some_and(|notice| notice.contains("server") && notice.contains("0.12.0")));
+    assert!(matches!(&state.overlay, Some(Overlay::Remotes(browser)) if browser.updating.is_none() && browser.loading));
+
+    update(
+        &mut state,
+        Msg::RemoteCatalog { choices: vec![host("server", Some("default")), host("gone", None)], complete: true },
+        now,
+    );
+    update(&mut state, Msg::Key(key(KeyCode::Char('u'))), now);
+    update(&mut state, Msg::Key(key(KeyCode::Char('y'))), now);
+    update(&mut state, Msg::RemoteHostUpdated { machine: "server".into(), result: Err("no network".into()) }, now);
+    assert!(
+        matches!(&state.overlay, Some(Overlay::Remotes(browser)) if browser.updating.is_none() && browser.error.as_deref() == Some("no network"))
+    );
+
+    update(&mut state, Msg::Key(key(KeyCode::Down)), now);
+    update(&mut state, Msg::Key(key(KeyCode::Char('u'))), now);
+    assert!(
+        matches!(&state.overlay, Some(Overlay::Remotes(browser)) if browser.error.as_deref().is_some_and(|error| error.contains("gone"))),
+        "a host with no session cannot be reached to update"
+    );
+
+    state.overlay = None;
+    update(
+        &mut state,
+        Msg::RemoteHostUpdated { machine: "server".into(), result: Ok(crate::HostUpdate::Current("0.12.0".into())) },
+        now,
+    );
+    assert!(
+        state.notice.as_deref().is_some_and(|notice| notice.contains("already")),
+        "the result still shows once the list is closed"
+    );
+}
+
+#[test]
 fn shift_f8_forgets_a_host_even_when_its_default_session_is_available() {
     let (mut state, now) = setup();
     crate::actions::perform(&mut state, Action::BrowseRemotes, now);
@@ -3484,6 +4604,75 @@ fn a_question_answers_to_the_letters_its_buttons_show() {
     );
 }
 
+fn delete_check(state: &AppState) -> &crate::DeleteCheck {
+    match &state.overlay {
+        Some(Overlay::Confirm(crate::Confirm {
+            purpose: crate::ConfirmPurpose::Delete { check: Some(check), .. },
+            ..
+        })) => check,
+        other => panic!("a delete dialog that checks its files: {other:?}"),
+    }
+}
+
+/// Opens the delete dialog on "a" and gives back the number of its check.
+fn ask_to_delete(state: &mut AppState, now: Instant) -> u64 {
+    press(state, now, key(KeyCode::Down));
+    let effects = press(state, now, key(KeyCode::F(8)));
+    let [Effect::CheckDelete { id, sources }] = &effects[..] else { panic!("F8 checks the files: {effects:?}") };
+    assert_eq!(sources, &[PathBuf::from("/home/a")]);
+    *id
+}
+
+#[test]
+fn the_delete_dialog_takes_the_size_and_the_programs_using_the_files() {
+    use crate::{DeleteFound, DeleteSize, FileHolder};
+    let (mut state, now) = setup_with(vec![file("a")]);
+    let id = ask_to_delete(&mut state, now);
+    let size = DeleteSize { bytes: 5, files: 1, complete: true };
+    update(&mut state, Msg::DeleteChecked { id: id + 1, found: DeleteFound::Size(size) }, now);
+    assert_eq!(delete_check(&state).size, None, "an answer for another dialog is dropped");
+
+    update(&mut state, Msg::DeleteChecked { id, found: DeleteFound::Size(size) }, now);
+    let postgres = FileHolder { pid: 812, name: "postgres".into() };
+    update(&mut state, Msg::DeleteChecked { id, found: DeleteFound::Holders(Ok(vec![postgres.clone()])) }, now);
+    let check = delete_check(&state);
+    assert_eq!((check.size, check.holders.clone()), (Some(size), Some(Ok(vec![postgres]))));
+
+    press(&mut state, now, key(KeyCode::Esc));
+    update(&mut state, Msg::DeleteChecked { id, found: DeleteFound::Size(size) }, now);
+    assert!(state.overlay.is_none(), "an answer after the dialog closed opens nothing");
+}
+
+#[test]
+fn k_in_the_delete_dialog_signals_the_program_using_the_files_and_deletes_nothing() {
+    use crate::{DeleteFound, FileHolder};
+    let (mut state, now) = setup_with(vec![file("a")]);
+    let id = ask_to_delete(&mut state, now);
+    let effects = press(&mut state, now, key(KeyCode::Char('k')));
+    assert!(effects.is_empty() && state.overlay.is_none(), "with no program found, K only closes: {effects:?}");
+
+    let id_again = ask_to_delete(&mut state, now);
+    assert_ne!(id, id_again);
+    let holders = vec![FileHolder { pid: 812, name: "postgres".into() }, FileHolder { pid: 40, name: "tail".into() }];
+    update(&mut state, Msg::DeleteChecked { id: id_again, found: DeleteFound::Holders(Ok(holders)) }, now);
+    let effects = press(&mut state, now, key(KeyCode::Char('k')));
+    assert!(!effects.iter().any(|effect| matches!(effect, Effect::StartJob { .. })));
+    assert!(state.overlay.is_none());
+    assert_eq!(state.activity.side, Some(Side::Left));
+    assert!(state.activity.reveals(812), "the monitor opens on the first program, with its signals");
+}
+
+#[test]
+fn deleting_in_a_container_checks_nothing_on_this_computer() {
+    let (mut state, now) = setup_with(vec![file("a")]);
+    let host = PathBuf::from("/home");
+    state.panel_mut(Side::Left).mount = Some(crate::Mount { id: "c0ffee".into(), name: "web".into(), host });
+    press(&mut state, now, key(KeyCode::Down));
+    assert!(press(&mut state, now, key(KeyCode::F(8))).is_empty());
+    let Some(Overlay::Confirm(confirm)) = &state.overlay else { panic!("F8 still asks") };
+    assert!(matches!(confirm.purpose, crate::ConfirmPurpose::Delete { check: None, .. }));
+}
+
 #[test]
 fn f3_on_a_capture_file_opens_the_traffic_viewer() {
     let (mut state, now) = setup_with(vec![file("notes.txt"), file("trace.pcapng")]);
@@ -3495,4 +4684,336 @@ fn f3_on_a_capture_file_opens_the_traffic_viewer() {
     state.settings.preferences.system_plugin = false;
     let effects = press(&mut state, now, key(KeyCode::F(3)));
     assert!(!effects.iter().any(|effect| matches!(effect, Effect::OpenCapture(_))), "without the plugin it is a file");
+}
+
+fn run_ask(command: &str) -> crate::Ask {
+    crate::Ask {
+        kind: crate::AskKind::Run,
+        summary: command.into(),
+        place: "in ~".into(),
+        origin: None,
+        body: vec![crate::DiffLine::code(command)],
+    }
+}
+
+/// A host borg with one ask in its dialog and one behind it, and the board its viewers read.
+fn host_with_two_asks() -> (AppState, Instant, crate::AskBoard) {
+    use crate::AgentEvent;
+    let (mut state, now) = setup_with(Vec::new());
+    update(&mut state, Msg::Agent(AgentEvent::Ask { id: 1, ask: run_ask("make") }), now);
+    update(&mut state, Msg::Agent(AgentEvent::Ask { id: 2, ask: run_ask("make test") }), now);
+    let mut board = crate::AskBoard::default();
+    assert!(board.refresh(&state, None));
+    (state, now, board)
+}
+
+const LAPTOP: &str = "laptop [873dd93b]";
+const DESKTOP: &str = "desktop [1f00aa21]";
+const RUN: &str = "run-1";
+
+#[test]
+fn a_host_shows_its_viewers_every_waiting_ask_and_the_first_answer_wins() {
+    use crate::{AgentEvent, End, HostAnswer, Refusal, check_answer};
+    let (mut state, now, mut board) = host_with_two_asks();
+    let feed = board.feed(RUN, LAPTOP);
+    let waiting: Vec<_> = feed.waiting.iter().map(|waiting| (waiting.id, waiting.ask.summary.as_str())).collect();
+    assert_eq!(waiting, [(1, "make"), (2, "make test")], "the dialog's ask first, then the one behind it");
+    assert!(!board.refresh(&state, None), "nothing changed, so viewers wait on");
+
+    let answer = HostAnswer { run: RUN.into(), id: 1, approved: true };
+    assert_eq!(check_answer(&state, &answer, RUN, LAPTOP, None), Ok(()));
+    let effects =
+        update(&mut state, Msg::Agent(AgentEvent::AnsweredFrom { id: 1, approved: true, by: LAPTOP.into() }), now);
+    assert_eq!(effects, vec![Effect::AgentAnswer { id: 1, approved: true }]);
+    assert_eq!(state.notice, Some(borg_i18n::tr!(agent_answered_from, computer = "laptop", summary = "make")));
+    assert_eq!(state.agent.running, Some((1, "make".into())), "the footer shows the command as for an answer here");
+    assert_eq!(state.approval.as_ref().map(|approval| approval.id), Some(2), "the next ask shows");
+
+    assert_eq!(
+        check_answer(&state, &HostAnswer { approved: false, ..answer.clone() }, RUN, DESKTOP, None),
+        Err(Refusal::Ended),
+        "a second answer to the same ask, from anywhere, is refused"
+    );
+    assert!(board.refresh(&state, None));
+    let feed = board.feed(RUN, DESKTOP);
+    assert_eq!(feed.waiting.iter().map(|waiting| waiting.id).collect::<Vec<_>>(), [2]);
+    assert_eq!(
+        feed.ended.last().map(|ended| (ended.id, ended.end.clone())),
+        Some((1, End::Answered { approved: true, by: Some(LAPTOP.into()) }))
+    );
+
+    let effects = press(&mut state, now + crate::agent::APPROVAL_GRACE, key(KeyCode::Char('n')));
+    assert_eq!(effects, vec![Effect::AgentAnswer { id: 2, approved: false }], "the host's own screen answers too");
+    assert_eq!(
+        check_answer(&state, &HostAnswer { run: RUN.into(), id: 2, approved: true }, RUN, LAPTOP, None),
+        Err(Refusal::Ended)
+    );
+    assert!(board.refresh(&state, None));
+    assert_eq!(
+        board.feed(RUN, LAPTOP).ended.last().map(|ended| ended.end.clone()),
+        Some(End::Answered { approved: false, by: None })
+    );
+}
+
+#[test]
+fn a_host_refuses_answers_for_another_run_or_from_a_viewer_another_computer_outranks() {
+    use crate::{HostAnswer, Refusal, check_answer};
+    let (state, _, mut board) = host_with_two_asks();
+    let answer = HostAnswer { run: "run-0".into(), id: 1, approved: true };
+    assert_eq!(check_answer(&state, &answer, RUN, LAPTOP, None), Err(Refusal::OtherRun));
+    let answer = HostAnswer { run: RUN.into(), id: 9, approved: true };
+    assert_eq!(check_answer(&state, &answer, RUN, LAPTOP, None), Err(Refusal::Ended), "no ask has that number");
+
+    let answer = HostAnswer { run: RUN.into(), id: 2, approved: true };
+    assert_eq!(check_answer(&state, &answer, RUN, LAPTOP, Some(DESKTOP)), Err(Refusal::ViewOnly));
+    assert_eq!(check_answer(&state, &answer, RUN, DESKTOP, Some(DESKTOP)), Ok(()), "the controlling computer answers");
+    assert!(board.refresh(&state, Some(DESKTOP)));
+    assert_eq!(board.feed(RUN, LAPTOP).view_only.as_deref(), Some(DESKTOP));
+    assert_eq!(board.feed(RUN, DESKTOP).view_only, None);
+}
+
+#[test]
+fn a_withdrawn_or_timed_out_ask_ends_for_the_viewers_too() {
+    use crate::{AgentEvent, End, HostAnswer, Refusal, check_answer};
+    let (mut state, now, mut board) = host_with_two_asks();
+    update(&mut state, Msg::Agent(AgentEvent::Withdrawn { id: 2 }), now);
+    update(&mut state, Msg::Agent(AgentEvent::Withdrawn { id: 1 }), now);
+    assert_eq!(state.approval, None);
+    assert!(board.refresh(&state, None));
+    let feed = board.feed(RUN, LAPTOP);
+    assert!(feed.waiting.is_empty());
+    let ended: Vec<_> = feed.ended.iter().map(|ended| (ended.id, ended.end.clone())).collect();
+    assert_eq!(ended, [(2, End::Withdrawn), (1, End::Withdrawn)]);
+    let answer = HostAnswer { run: RUN.into(), id: 1, approved: true };
+    assert_eq!(check_answer(&state, &answer, RUN, LAPTOP, None), Err(Refusal::Ended));
+    let effects =
+        update(&mut state, Msg::Agent(AgentEvent::AnsweredFrom { id: 1, approved: true, by: LAPTOP.into() }), now);
+    assert!(effects.is_empty(), "an ask that ended is never carried out");
+}
+
+/// A viewer borg whose panel shows `web1`'s session, which waits for the asks in `waiting`.
+fn viewer_feed(version: u64, waiting: &[(u64, &str)], ended: Vec<crate::Ended>) -> Msg {
+    let feed = crate::AskFeed {
+        run: RUN.into(),
+        version,
+        waiting: waiting.iter().map(|(id, command)| crate::Waiting { id: *id, ask: run_ask(command) }).collect(),
+        ended,
+        approve_all: Vec::new(),
+        view_only: None,
+    };
+    Msg::HostAsks { machine: "web1".into(), session: "default".into(), event: crate::HostEvent::Feed(feed) }
+}
+
+#[test]
+fn a_viewer_shows_a_host_ask_over_everything_and_sends_the_answer_back() {
+    use crate::HostAnswer;
+    let (mut state, now) = setup_with(Vec::new());
+    state.screensaver = true;
+    update(&mut state, viewer_feed(1, &[(7, "systemctl restart nginx")], Vec::new()), now);
+    let approval = state.approval.clone().expect("the host's ask shows");
+    assert!(!state.screensaver, "the ask wakes the screen");
+    assert_eq!((approval.id, approval.accept), (7, false), "No stays selected");
+    assert_eq!(approval.host.as_ref().map(|host| (host.server.as_str(), host.run.as_str())), Some(("web1", RUN)));
+
+    let effects = press(&mut state, now + crate::agent::APPROVAL_GRACE, key(KeyCode::Char('y')));
+    let answer = HostAnswer { run: RUN.into(), id: 7, approved: true };
+    assert_eq!(
+        effects,
+        vec![Effect::AnswerHost { machine: "web1".into(), session: "default".into(), answer }],
+        "the answer goes to the host, and nothing runs here"
+    );
+    assert_eq!(state.agent.running, None);
+    assert_eq!(state.approval, None);
+    update(&mut state, viewer_feed(1, &[(7, "systemctl restart nginx")], Vec::new()), now);
+    assert_eq!(state.approval, None, "an ask answered here does not show again while the host takes it");
+}
+
+#[test]
+fn a_viewer_closes_the_dialog_with_a_notice_when_the_host_answered_or_lost_the_ask() {
+    use crate::{End, Ended, HostEvent};
+    let (mut state, now) = setup_with(Vec::new());
+    update(&mut state, viewer_feed(1, &[(7, "make"), (8, "make test")], Vec::new()), now);
+    let answered = Ended { id: 7, end: End::Answered { approved: true, by: None } };
+    update(&mut state, viewer_feed(2, &[(8, "make test")], vec![answered]), now);
+    assert_eq!(state.notice, Some(borg_i18n::tr!(agent_host_answered, server = "web1", summary = "make")));
+    assert_eq!(state.approval.as_ref().map(|approval| approval.id), Some(8), "the next one shows");
+
+    let by_desktop = Ended { id: 8, end: End::Answered { approved: false, by: Some(DESKTOP.into()) } };
+    update(&mut state, viewer_feed(3, &[(9, "ls")], vec![by_desktop]), now);
+    assert_eq!(state.notice, Some(borg_i18n::tr!(agent_answered_from, computer = "desktop", summary = "make test")));
+
+    update(&mut state, viewer_feed(4, &[(9, "ls")], Vec::new()), now);
+    update(
+        &mut state,
+        Msg::HostAsks { machine: "web1".into(), session: "default".into(), event: HostEvent::Lost },
+        now,
+    );
+    assert_eq!(state.approval, None);
+    assert_eq!(state.notice, Some(borg_i18n::tr!(agent_host_lost, server = "web1")));
+    update(&mut state, viewer_feed(5, &[(9, "ls")], Vec::new()), now);
+    assert_eq!(state.approval.as_ref().map(|approval| approval.id), Some(9), "it comes back with the connection");
+
+    update(&mut state, viewer_feed(6, &[], vec![Ended { id: 9, end: End::Withdrawn }]), now);
+    assert_eq!(state.notice, Some(borg_i18n::tr!(agent_withdrawn, summary = "ls")));
+    update(&mut state, viewer_feed(7, &[(10, "pwd")], Vec::new()), now);
+    update(
+        &mut state,
+        Msg::HostAsks { machine: "web1".into(), session: "default".into(), event: HostEvent::Unwatched },
+        now,
+    );
+    assert_eq!(state.approval, None, "a panel that stops showing the session takes its asks along");
+    assert!(state.agent.hosts.is_empty());
+}
+
+#[test]
+fn an_ask_answered_here_does_not_hide_the_one_with_its_number_after_the_host_restarts() {
+    let (mut state, now) = setup_with(Vec::new());
+    update(&mut state, viewer_feed(1, &[(1, "make")], Vec::new()), now);
+    press(&mut state, now + crate::agent::APPROVAL_GRACE, key(KeyCode::Char('y')));
+    update(
+        &mut state,
+        Msg::HostAsks { machine: "web1".into(), session: "default".into(), event: crate::HostEvent::Lost },
+        now,
+    );
+    let Msg::HostAsks { machine, session, event: crate::HostEvent::Feed(mut feed) } =
+        viewer_feed(1, &[(1, "make test")], Vec::new())
+    else {
+        unreachable!()
+    };
+    feed.run = "run-2".into();
+    update(&mut state, Msg::HostAsks { machine, session, event: crate::HostEvent::Feed(feed) }, now);
+    let shown = state.approval.as_ref().map(|approval| (approval.id, approval.ask.summary.as_str()));
+    assert_eq!(shown, Some((1, "make test")), "the restarted host's first ask shows");
+}
+
+#[test]
+fn a_view_only_viewer_shows_the_ask_takes_no_answer_and_esc_closes_it_here() {
+    let (mut state, now) = setup_with(Vec::new());
+    let Msg::HostAsks { machine, session, event: crate::HostEvent::Feed(mut feed) } =
+        viewer_feed(1, &[(7, "make")], Vec::new())
+    else {
+        unreachable!()
+    };
+    feed.view_only = Some(DESKTOP.into());
+    update(&mut state, Msg::HostAsks { machine, session, event: crate::HostEvent::Feed(feed) }, now);
+    let later = now + crate::agent::APPROVAL_GRACE;
+    for answer in [key(KeyCode::Char('y')), key(KeyCode::Enter), key(KeyCode::Char('n'))] {
+        assert!(press(&mut state, later, answer).is_empty());
+        assert!(state.approval.is_some(), "a view-only dialog takes no answer");
+    }
+    assert!(press(&mut state, later, key(KeyCode::Esc)).is_empty(), "Esc sends nothing to the host");
+    assert_eq!(state.approval, None);
+    update(&mut state, viewer_feed(2, &[(7, "make")], Vec::new()), now);
+    assert_eq!(state.approval, None, "closed here, it stays closed while the host waits");
+}
+
+#[test]
+fn ctrl_alt_a_turns_off_approve_all_in_every_host_session_that_has_it() {
+    let (mut state, now) = setup_with(Vec::new());
+    let Msg::HostAsks { machine, session, event: crate::HostEvent::Feed(mut feed) } = viewer_feed(1, &[], Vec::new())
+    else {
+        unreachable!()
+    };
+    feed.approve_all = vec![LAPTOP.into()];
+    update(&mut state, Msg::HostAsks { machine, session, event: crate::HostEvent::Feed(feed) }, now);
+    assert_eq!(
+        crate::actions::perform(&mut state, crate::Action::ApprovalModeOff, now),
+        vec![Effect::StopHostApproveAll { machine: "web1".into(), session: "default".into() }]
+    );
+    state.agent.auto_approve = vec![DESKTOP.into()];
+    assert_eq!(crate::actions::perform(&mut state, crate::Action::ApprovalModeOff, now).len(), 2, "and here too");
+}
+
+#[test]
+fn a_locked_computer_key_asks_for_its_password_and_hands_it_to_the_app() {
+    let (mut state, now) = setup();
+    update(&mut state, Msg::ComputerKeyLocked { wrong: false }, now);
+    let Some(Overlay::Prompt(prompt)) = &state.overlay else { panic!("a password prompt") };
+    assert!(prompt.purpose.masked());
+    assert_eq!(prompt.label, borg_i18n::tr!(cloud_unlock_label));
+    assert!(press(&mut state, now, key(KeyCode::Enter)).is_empty(), "an empty password waits");
+
+    type_text(&mut state, now, "rain cobalt");
+    let effects = press(&mut state, now, key(KeyCode::Enter));
+    assert_eq!(effects, vec![Effect::UnlockComputerKey(crate::Password::new("rain cobalt"))]);
+    assert!(state.overlay.is_none());
+    assert_eq!(state.notice, Some(borg_i18n::tr!(cloud_unlock_working).into()));
+
+    update(&mut state, Msg::ComputerKeyLocked { wrong: true }, now);
+    let Some(Overlay::Prompt(prompt)) = &state.overlay else { panic!("the prompt asks again") };
+    assert_eq!(prompt.label, borg_i18n::tr!(cloud_unlock_wrong));
+    assert!(press(&mut state, now, key(KeyCode::Esc)).is_empty());
+    assert!(state.overlay.is_none());
+
+    crate::actions::perform(&mut state, Action::Mkdir, now);
+    update(&mut state, Msg::ComputerKeyLocked { wrong: false }, now);
+    assert!(
+        matches!(&state.overlay, Some(Overlay::Prompt(prompt)) if !prompt.purpose.masked()),
+        "an open dialog stays"
+    );
+    assert_eq!(state.notice, Some(borg_i18n::tr!(cloud_key_locked).into()));
+}
+
+/// A remote panel on the other side leaves the local panel its own work: a new folder there
+/// touches nothing remote. Moving into the remote panel is still refused, and so is a new folder
+/// in the remote panel itself.
+#[test]
+fn a_remote_panel_on_the_other_side_does_not_take_the_local_panels_own_actions() {
+    let (mut state, now) = setup();
+    let unavailable = Some(borg_i18n::tr!(remote_operation_unavailable).to_owned());
+    let remote = crate::RemoteMount {
+        machine: "machine".into(),
+        session: "session".into(),
+        name: "server".into(),
+        host: PathBuf::from("/"),
+    };
+    let other = state.active.other();
+    state.panel_mut(other).remote_mount = Some(remote.clone());
+
+    crate::actions::perform(&mut state, Action::Mkdir, now);
+    assert_ne!(state.notice, unavailable);
+    state.overlay = None;
+    crate::actions::perform(&mut state, Action::Move, now);
+    assert_eq!(state.notice, unavailable);
+
+    state.notice = None;
+    state.panel_mut(other).remote_mount = None;
+    let here = state.active;
+    state.panel_mut(here).remote_mount = Some(remote);
+    crate::actions::perform(&mut state, Action::Mkdir, now);
+    assert_eq!(state.notice, unavailable);
+}
+
+/// A paste goes to the dialog that is open, not to the activity monitor's filter behind it,
+/// and the filter takes what fits of a paste, without control characters.
+#[test]
+fn a_paste_over_the_activity_monitor_goes_to_the_dialog_that_is_open() {
+    let (mut state, now) = setup();
+    crate::actions::perform(&mut state, Action::Activity, now);
+    assert!(state.activity.side.is_some());
+    state.activity.filtering = true;
+    crate::actions::perform(&mut state, Action::Quit, now);
+    assert!(state.overlay.is_some());
+    update(&mut state, Msg::Paste("for the dialog".into()), now);
+    assert_eq!(state.activity.filter, "");
+
+    state.overlay = None;
+    update(&mut state, Msg::Paste(format!("a\nb{}", "x".repeat(500))), now);
+    assert!(state.activity.filter.starts_with("abx"));
+    assert_eq!(state.activity.filter.chars().count(), 128);
+}
+
+/// A menu names the key the key table binds, so the two cannot drift apart.
+#[test]
+fn menu_hints_are_the_keys_the_key_table_binds() {
+    use crate::keymap::hint;
+    assert_eq!(hint(Action::Copy).as_deref(), Some("F5"));
+    assert_eq!(hint(Action::ToggleShell).as_deref(), Some("C-o"));
+    assert_eq!(hint(Action::EditInPanel).as_deref(), Some("M-e"));
+    assert_eq!(hint(Action::FolderTree).as_deref(), Some("M-S-d"));
+    assert_eq!(hint(Action::MirrorRemote).as_deref(), Some("M-S-m"));
+    assert_eq!(hint(Action::InsertNewline).as_deref(), Some("S-Enter"));
+    assert_eq!(hint(Action::CopyPaths).as_deref(), Some("M-S-Ins"));
+    assert_eq!(hint(Action::NudgeSplit(2)).as_deref(), Some("M-S-→"));
+    assert_eq!(hint(Action::Compress), None);
 }

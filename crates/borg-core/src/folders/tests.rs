@@ -21,12 +21,15 @@ fn the_hotlist_comes_first_and_recent_folders_follow_without_repeats() {
 }
 
 #[test]
-fn every_word_must_match_the_folder_as_shown_or_in_full() {
+fn every_word_must_match_the_folder_as_shown_and_a_full_path_in_full() {
     let folders = folders();
     let paths = |query| folders.choices(query, None).into_iter().map(|c| c.path).collect::<Vec<_>>();
     assert_eq!(paths("~/pro"), [PathBuf::from("/home/me/Projects")]);
-    assert_eq!(paths("home down"), [PathBuf::from("/home/me/Downloads")]);
+    assert_eq!(paths("pro ~"), [PathBuf::from("/home/me/Projects")]);
     assert_eq!(paths("LOG"), [PathBuf::from("/var/log")]);
+    assert!(paths("me").is_empty(), "the home folder's own path matches none of the folders in it");
+    assert!(paths("home down").is_empty());
+    assert_eq!(paths("/home/me/down"), [PathBuf::from("/home/me/Downloads")]);
     assert!(paths("nowhere").is_empty());
     assert_eq!(folders.choices("", Some(Path::new("/srv/www"))).len(), 3, "the panel's own folder is left out");
 }

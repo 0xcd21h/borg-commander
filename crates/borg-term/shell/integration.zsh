@@ -32,8 +32,9 @@ __borg_line_init() {
 
 # Changes folder without a command line: nothing is echoed or added to history, and
 # the prompt is redrawn in place. Prompt hooks run again so themes show the new folder.
+# The redrawn prompt can be longer or shorter, so where typing starts is marked again.
 __borg_cd() {
-    local target hook
+    local target hook cursor=$CURSOR
     [[ -r $BORG_CD_FILE ]] || return 0
     target=$(<$BORG_CD_FILE)
     [[ -n $target ]] || return 0
@@ -42,11 +43,18 @@ __borg_cd() {
     for hook in $precmd_functions; do
         [[ $hook == __borg_precmd ]] || "$hook"
     done
+    CURSOR=0
     zle reset-prompt
+    zle -R
+    __borg_line_init
+    CURSOR=$cursor
 }
 
+# add-zle-hook-widget does nothing until zsh/zle is loaded, which only a bindkey or
+# zle command in the user's or the system's startup files would have done by now.
 __borg_install() {
     local keymap
+    zmodload zsh/zle
     add-zsh-hook -d precmd __borg_install
     precmd_functions=(__borg_precmd $precmd_functions)
     add-zsh-hook preexec __borg_preexec

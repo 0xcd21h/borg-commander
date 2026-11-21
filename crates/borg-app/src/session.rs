@@ -1,14 +1,15 @@
 use std::{
     env, fs, io,
     path::{Path, PathBuf},
-    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::{Context, Result};
 use borg_core::{AppState, ListingMode, PanelSetup, Side, Sort, SortKey, Startup};
 use serde::{Deserialize, Serialize};
 
-use crate::store::{write_atomically, write_privately};
+use crate::{store::write_privately, update::UpdateCheck};
+
+mod agent_log;
 
 const ENV_STATE_DIR: &str = "BORG_STATE_DIR";
 const ENV_XDG_STATE: &str = "XDG_STATE_HOME";
@@ -26,9 +27,18 @@ const RECENT_FOLDERS_FORMAT: u8 = 1;
 const MAX_RECENT_FOLDERS_BYTES: u64 = 1024 * 1024;
 const GAME2048_FILE: &str = "2048.json";
 const MAX_GAME_BYTES: u64 = 4096;
+const NEIGHBORS_FILE: &str = "neighbors.json";
+const MAX_NEIGHBORS_BYTES: u64 = 4 * 1024 * 1024;
+const PORT_SCANS_FILE: &str = "port-scans.json";
+const MAX_PORT_SCANS_BYTES: u64 = 4 * 1024 * 1024;
 const SESSION_FILE: &str = "session.toml";
 const TERMINAL_FILE: &str = "terminal.ansi";
 const UPDATE_CHECK_FILE: &str = "update-check";
+const AGENT_LOG_FILE: &str = "remote-log.jsonl";
+const MAX_AGENT_LOG_BYTES: u64 = 1024 * 1024;
+const TRIMMED_AGENT_LOG_BYTES: usize = MAX_AGENT_LOG_BYTES as usize / 2;
+const PRIVATE_FILE: u32 = 0o600;
+const OPEN_TO_OTHERS: u32 = 0o077;
 pub const RESTORED_LINES: usize = 2000;
 pub const RESTORED_MARKER: &[u8] = b"\r\n\x1b[2m-- restored from the previous session --\x1b[0m\r\n";
 
@@ -80,18 +90,28 @@ impl Session {
     pub fn capture(state: &AppState) -> Self {
         let panel = |side: Side| {
             let panel = state.panel(side);
-            // A remote or container panel comes back as the host folder it replaced.
+            // A remote, container or volume panel comes back as the host folder it replaced, and
+            // an archive as the folder that holds it, on the archive.
             PanelState {
                 dir: panel
                     .remote_mount
                     .as_ref()
                     .map(|mount| mount.host.clone())
                     .or_else(|| panel.mount.as_ref().map(|mount| mount.host.clone()))
+                    .or_else(|| panel.archive.as_ref().map(|archive| archive.host.clone()))
+                    .or_else(|| panel.volume.as_ref().map(|volume| volume.host.clone()))
                     .unwrap_or_else(|| panel.dir().to_path_buf()),
                 focus: panel
-                    .hovered_entry()
-                    .filter(|_| panel.mount.is_none() && panel.remote_mount.is_none())
-                    .map(|entry| entry.name.clone()),
+                    .archive
+                    .as_ref()
+                    .and_then(|archive| archive.archive.file_name())
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .or_else(|| {
+                        panel
+                            .hovered_entry()
+                            .filter(|_| !panel.foreign() && panel.volume.is_none())
+                            .map(|entry| entry.name.clone())
+                    }),
                 mode: panel.mode().into(),
                 sort: panel.sort().key.into(),
                 reverse: panel.sort().reverse,
@@ -125,13 +145,16 @@ pub struct StateDir {
 
 impl StateDir {
     pub fn locate() -> Option<Self> {
-        let explicit = env::var_os(ENV_STATE_DIR).map(PathBuf::from);
+        env::var_os(ENV_STATE_DIR).map(PathBuf::from).or_else(Self::default_root).map(Self::at)
+    }
+
+    pub fn default_root() -> Option<PathBuf> {
         let xdg = || env::var_os(ENV_XDG_STATE).map(|dir| PathBuf::from(dir).join(APP_DIR));
         let home = || {
             env::var_os(ENV_HOME)
                 .map(|home| DOT_STATE.iter().fold(PathBuf::from(home), |p, part| p.join(part)).join(APP_DIR))
         };
-        explicit.or_else(xdg).or_else(home).map(Self::at)
+        xdg().or_else(home)
     }
 
     pub fn at(root: PathBuf) -> Self {
@@ -165,7 +188,7 @@ impl StateDir {
 
     pub fn save_session(&self, session: &Session) -> Result<()> {
         self.ensure()?;
-        write_atomically(&self.session_path(SESSION_FILE), toml::to_string(session)?.as_bytes())
+        write_privately(&self.session_path(SESSION_FILE), toml::to_string(session)?.as_bytes())
     }
 
     pub fn load_game2048(&self) -> Result<Option<borg_core::Game2048>> {
@@ -184,7 +207,47 @@ impl StateDir {
 
     pub fn save_game2048(&self, game: &borg_core::Game2048) -> Result<()> {
         self.ensure()?;
-        write_atomically(&self.root.join(GAME2048_FILE), &serde_json::to_vec(&game.saved())?)
+        write_privately(&self.root.join(GAME2048_FILE), &serde_json::to_vec(&game.saved())?)
+    }
+
+    /// The hosts Borg remembers on the networks this machine joined; none when the file is new.
+    pub fn load_neighbors(&self) -> Result<borg_core::NeighborMemory> {
+        let Some(bytes) = self.read_capped(NEIGHBORS_FILE, MAX_NEIGHBORS_BYTES)? else {
+            return Ok(borg_core::NeighborMemory::default());
+        };
+        borg_core::NeighborMemory::restore(serde_json::from_slice(&bytes)?).map_err(anyhow::Error::msg)
+    }
+
+    /// The last port scan of each host Borg scanned; none when the file is new.
+    pub fn load_port_scans(&self) -> Result<borg_core::PortScanMemory> {
+        let Some(bytes) = self.read_capped(PORT_SCANS_FILE, MAX_PORT_SCANS_BYTES)? else {
+            return Ok(borg_core::PortScanMemory::default());
+        };
+        borg_core::PortScanMemory::restore(serde_json::from_slice(&bytes)?).map_err(anyhow::Error::msg)
+    }
+
+    pub fn save_port_scans(&self, saved: &borg_core::SavedPortScans) -> Result<()> {
+        self.ensure()?;
+        write_privately(&self.root.join(PORT_SCANS_FILE), &serde_json::to_vec(saved)?)
+    }
+
+    /// A state file's bytes, refused past `limit`; none when there is no such file.
+    fn read_capped(&self, name: &str, limit: u64) -> Result<Option<Vec<u8>>> {
+        use std::io::Read;
+        let file = match fs::File::open(self.root.join(name)) {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error.into()),
+        };
+        let mut bytes = Vec::new();
+        file.take(limit + 1).read_to_end(&mut bytes)?;
+        anyhow::ensure!(bytes.len() as u64 <= limit, "{name} exceeds its size limit");
+        Ok(Some(bytes))
+    }
+
+    pub fn save_neighbors(&self, saved: &borg_core::SavedNeighbors) -> Result<()> {
+        self.ensure()?;
+        write_privately(&self.root.join(NEIGHBORS_FILE), &serde_json::to_vec(saved)?)
     }
 
     pub fn load_collections(&self) -> Result<Vec<borg_core::Collection>> {
@@ -235,7 +298,7 @@ impl StateDir {
         let bytes = serde_json::to_vec(&saved)?;
         anyhow::ensure!(bytes.len() as u64 <= MAX_COLLECTION_BYTES, "collections exceed storage limit");
         self.ensure()?;
-        write_atomically(&self.root.join(COLLECTIONS_FILE), &bytes)
+        write_privately(&self.root.join(COLLECTIONS_FILE), &bytes)
     }
 
     pub fn load_search_history(&self) -> Result<borg_core::SearchHistory> {
@@ -326,7 +389,7 @@ impl StateDir {
 
     pub fn save_terminal(&self, bytes: &[u8]) -> Result<()> {
         self.ensure()?;
-        write_atomically(&self.session_path(TERMINAL_FILE), bytes)
+        write_privately(&self.session_path(TERMINAL_FILE), bytes)
     }
 
     pub fn forget_terminal(&self) -> Result<()> {
@@ -336,18 +399,61 @@ impl StateDir {
         }
     }
 
-    pub fn update_check_due(&self, now: SystemTime, every: Duration) -> bool {
-        let last = fs::read_to_string(self.root.join(UPDATE_CHECK_FILE))
-            .ok()
-            .and_then(|text| text.trim().parse::<u64>().ok())
-            .map(|secs| UNIX_EPOCH + Duration::from_secs(secs));
-        last.is_none_or(|last| now.duration_since(last).is_ok_and(|age| age >= every))
+    /// The newest entries of the session's log of what agents did, oldest first.
+    pub fn load_agent_log(&self) -> Result<Vec<String>> {
+        use std::io::{Read, Seek, SeekFrom};
+        let mut file = match fs::File::open(self.session_path(AGENT_LOG_FILE)) {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => return Err(error.into()),
+        };
+        let skipped = file.metadata()?.len().saturating_sub(MAX_AGENT_LOG_BYTES);
+        file.seek(SeekFrom::Start(skipped))?;
+        let mut text = Vec::new();
+        file.read_to_end(&mut text)?;
+        Ok(agent_log::entries(&text, skipped > 0))
     }
 
-    pub fn record_update_check(&self, now: SystemTime) -> Result<()> {
+    /// Adds an entry to the session's log of what agents did, which only its owner can read;
+    /// past its limit, the log keeps its newest entries.
+    pub fn save_agent_note(&self, entry: &str) -> Result<()> {
+        use std::{
+            io::Write,
+            os::unix::fs::{OpenOptionsExt, PermissionsExt},
+        };
         self.ensure()?;
-        let secs = now.duration_since(UNIX_EPOCH).map(|age| age.as_secs()).unwrap_or_default();
-        write_atomically(&self.root.join(UPDATE_CHECK_FILE), secs.to_string().as_bytes())
+        let path = self.session_path(AGENT_LOG_FILE);
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .mode(PRIVATE_FILE)
+            .open(&path)
+            .with_context(|| format!("opening {}", path.display()))?;
+        if file.metadata()?.permissions().mode() & OPEN_TO_OTHERS != 0 {
+            file.set_permissions(fs::Permissions::from_mode(PRIVATE_FILE))?;
+        }
+        file.write_all(agent_log::line(entry).as_bytes()).with_context(|| format!("writing {}", path.display()))?;
+        if file.metadata()?.len() > MAX_AGENT_LOG_BYTES {
+            let text = fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
+            write_privately(&path, agent_log::newest(&text, TRIMMED_AGENT_LOG_BYTES))?;
+        }
+        Ok(())
+    }
+
+    pub fn forget_agent_log(&self) -> io::Result<()> {
+        match fs::remove_file(self.session_path(AGENT_LOG_FILE)) {
+            Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
+            _ => Ok(()),
+        }
+    }
+
+    pub fn update_check(&self) -> UpdateCheck {
+        fs::read_to_string(self.root.join(UPDATE_CHECK_FILE)).map(|text| UpdateCheck::parse(&text)).unwrap_or_default()
+    }
+
+    pub fn save_update_check(&self, check: &UpdateCheck) -> Result<()> {
+        self.ensure()?;
+        write_privately(&self.root.join(UPDATE_CHECK_FILE), check.text().as_bytes())
     }
 
     fn ensure(&self) -> Result<()> {
@@ -395,7 +501,7 @@ impl From<ModeName> for ListingMode {
 impl From<SortKey> for SortName {
     fn from(key: SortKey) -> Self {
         match key {
-            SortKey::Name => Self::Name,
+            SortKey::Name | SortKey::Match => Self::Name,
             SortKey::Extension => Self::Extension,
             SortKey::Size => Self::Size,
             SortKey::Modified => Self::Modified,

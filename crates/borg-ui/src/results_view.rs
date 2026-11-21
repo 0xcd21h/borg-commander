@@ -1,14 +1,14 @@
 //! A panel of results: a search's finds, the sizes of a folder's contents or a collection,
 //! with their columns, the controls on the frame and the line in the status bar.
 
-use borg_core::{Action, Listing, Panel, ResultSource, Results, Row, SearchProgress, SortKey};
+use borg_core::{Action, Listing, Panel, ResultSource, Results, Row, SearchOptions, SearchProgress, SortKey};
 use borg_i18n::tr;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
     style::Style,
     text::Line,
-    widgets::{Block, Widget},
+    widgets::{Block, Clear, Widget},
 };
 use unicode_width::UnicodeWidthStr;
 
@@ -106,7 +106,13 @@ pub(crate) fn columns(area: Rect, totals: bool, lines: bool) -> Vec<(SortKey, Re
 /// Where a contents search shows each file's first match, when the panel has room for it.
 pub(crate) fn match_column(panel: &Panel, area: Rect) -> Option<Rect> {
     let results = panel.results.as_ref()?;
-    (!panel.is_tree() && results.contents().is_some()).then(|| layout(area, has_totals(panel), true).1).flatten()
+    (!panel.is_tree() && shows_matches(results)).then(|| layout(area, has_totals(panel), true).1).flatten()
+}
+
+/// Whether the results show where each file matched: a contents search's line, the rules, or
+/// how packed a program's code looks.
+fn shows_matches(results: &Results) -> bool {
+    results.contents().is_some() || results.by_rules() || results.by_entropy()
 }
 
 pub(crate) fn has_totals(panel: &Panel) -> bool {
@@ -117,7 +123,7 @@ pub(crate) fn has_totals(panel: &Panel) -> bool {
 
 pub(crate) fn panel_columns(panel: &Panel, area: Rect) -> Vec<(SortKey, Rect)> {
     if !panel.is_tree() {
-        let lines = panel.results.as_ref().is_some_and(|results| results.contents().is_some());
+        let lines = panel.results.as_ref().is_some_and(shows_matches);
         return columns(area, has_totals(panel), lines);
     }
     let size = SIZE_WIDTH.min(area.width / 3);
@@ -163,7 +169,7 @@ pub(crate) fn draw(scene: &PanelScene<'_>, look: &Look<'_>, buf: &mut Buffer) {
     }
     let context = match panel.listing() {
         Listing::Failed(error) => tr!(search_failed, error = error),
-        _ => context(scene, &results.source, inner.width),
+        _ => context(scene, results, inner.width),
     };
     text(buf, Rect { height: 1, ..inner }, &context, styles.footer);
     let (header, body) = geometry(scene.area);
@@ -233,17 +239,22 @@ fn footer(panel: &Panel, results: &Results) -> String {
     )
 }
 
-/// The line above the columns: a collection's keys, or how a search went and in which folder.
-fn context(scene: &PanelScene<'_>, source: &ResultSource, width: u16) -> String {
+/// The line above the columns: a collection's keys, or how a search went, how many names it
+/// found only closely, and in which folder.
+fn context(scene: &PanelScene<'_>, results: &Results, width: u16) -> String {
     let panel = scene.panel;
-    match source {
+    match &results.source {
         ResultSource::Collection(_) => tr!(tab_switch_ins_ctrl_t_mark_ctrl).into(),
         ResultSource::Search { progress, .. } if panel.is_size_view() && progress.cached => {
             let cached = tr!(sizes_cached_at, time = format::modified(progress.measured, scene.clock));
             if progress.limited { tr!(sizes_limited, text = cached) } else { cached }
         }
         ResultSource::Search { request, progress } => {
-            let summary = search_summary(panel, progress, request.options.contents.is_some(), scene.clock);
+            let summary = search_summary(panel, progress, &request.options, scene.clock);
+            let summary = match results.close_matches {
+                0 => summary,
+                count => format!("{summary} · {}", tr!(close_matches_found, count = count)),
+            };
             let room = usize::from(width).saturating_sub(summary.chars().count() + 3);
             format!("{summary} · {}", format::truncate_start(&request.root.display().to_string(), room))
         }
@@ -251,8 +262,9 @@ fn context(scene: &PanelScene<'_>, source: &ResultSource, width: u16) -> String 
 }
 
 /// How a search went: whether it still runs, what it read or the index it used, and how many
-/// folders it left out. A contents search counts the files it read instead of the names.
-fn search_summary(panel: &Panel, progress: &SearchProgress, contents: bool, clock: &jiff::Zoned) -> String {
+/// folders and rule files it left out. A search that reads files counts those instead of the
+/// names, and a rules search the rules it ran.
+fn search_summary(panel: &Panel, progress: &SearchProgress, options: &SearchOptions, clock: &jiff::Zoned) -> String {
     let state = if progress.cancelled {
         tr!(cancelled)
     } else if progress.limited {
@@ -265,7 +277,22 @@ fn search_summary(panel: &Panel, progress: &SearchProgress, contents: bool, cloc
     let errors = format::count(progress.errors, format::Count::Error);
     let summary = match progress.indexed {
         Some(built) => format!("{state} · {}", tr!(indexed_at, time = format::modified(Some(built), clock))),
-        None if contents => tr!(
+        None if options.kind == borg_core::SearchKind::Rules => tr!(
+            rules_search_progress,
+            state = state,
+            files = format::count(progress.read, format::Count::File),
+            rules = progress.rules,
+            unread = progress.unread,
+            errors = errors
+        ),
+        None if options.kind == borg_core::SearchKind::Packed => tr!(
+            packed_search_progress,
+            state = state,
+            programs = format::count(progress.read, format::Count::Program),
+            others = progress.unread,
+            errors = errors
+        ),
+        None if options.contents.is_some() => tr!(
             contents_progress,
             state = state,
             files = format::count(progress.read, format::Count::File),
@@ -274,12 +301,10 @@ fn search_summary(panel: &Panel, progress: &SearchProgress, contents: bool, cloc
         ),
         None => tr!(scanned_skipped, progress.visited, errors, progress.skipped, state = state),
     };
-    if progress.excluded > 0 {
-        let folders = format::count(progress.excluded, format::Count::Folder);
-        format!("{summary} · {}", tr!(folders_left_out, folders = folders))
-    } else {
-        summary
-    }
+    let folders = (progress.excluded > 0)
+        .then(|| tr!(folders_left_out, folders = format::count(progress.excluded, format::Count::Folder)));
+    let rule_files = (!progress.left_out.is_empty()).then(|| tr!(rule_files_left_out, count = progress.left_out.len()));
+    [Some(summary), folders, rule_files].into_iter().flatten().collect::<Vec<_>>().join(" · ")
 }
 
 /// The columns' titles, the one the results are sorted by with an arrow for the order.
@@ -292,6 +317,7 @@ fn draw_header(panel: &Panel, header: Rect, styles: &Styles<Style>, buf: &mut Bu
             SortKey::Size => tr!(size),
             SortKey::Modified => tr!(modified),
             SortKey::Extension => tr!(type),
+            SortKey::Match => tr!(results_view_match),
         };
         let arrow = if panel.sort().key == key { if panel.sort().reverse { " ↓" } else { " ↑" } } else { "" };
         text(buf, cell, &format!("{label}{arrow}"), styles.menu);
@@ -330,4 +356,35 @@ pub(crate) fn status(panel: &Panel, width: usize, clock: &jiff::Zoned) -> String
         Some(Row::Group { label, count, .. }) => tr!(items_enter_folds_group, count = count, label = label),
         _ => String::new(),
     }
+}
+
+/// Draws a full-width screen's pane: its border, its title cut to fit before the controls, and
+/// the controls themselves. Gives the room inside.
+pub(crate) fn pane_frame(
+    expanded: bool,
+    look: &Look<'_>,
+    rect: Rect,
+    title: &str,
+    focused: bool,
+    buf: &mut Buffer,
+) -> Rect {
+    let theme = look.theme;
+    let styles = &theme.styles;
+    Clear.render(rect, buf);
+    let controls = controls(rect, expanded);
+    let room = controls.first().map_or(rect.width.saturating_sub(2), |(r, _, _)| r.x.saturating_sub(rect.x + 2));
+    let block = Block::bordered()
+        .border_type(theme.border.into())
+        .style(styles.overlay)
+        .border_style(if focused { styles.border_active } else { styles.border })
+        .title(Line::styled(
+            format::truncate_end(&format!(" {title} "), usize::from(room)),
+            if focused { styles.title_active } else { styles.title },
+        ));
+    let inner = block.inner(rect);
+    block.render(rect, buf);
+    for (r, label, _) in controls {
+        text(buf, r, label, styles.menu);
+    }
+    inner
 }

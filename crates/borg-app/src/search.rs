@@ -9,7 +9,9 @@ use std::{
 };
 
 use borg_core::{LineMatch, Msg, RESULT_LIMIT, Scan, SearchKind, SearchProgress, SearchQuery, SearchRequest, Side};
+use borg_rules::{RuleMatch, Rules};
 use borg_vfs::Entry;
+use borg_view::entropy::{Tally, code_tally};
 use tokio::{
     sync::{mpsc, watch},
     task::JoinHandle,
@@ -19,7 +21,7 @@ const CHANNEL_BATCHES: usize = 4;
 const BATCH_SIZE: usize = 128;
 const PROGRESS_EVERY: Duration = Duration::from_millis(150);
 const BACKPRESSURE_WAIT: Duration = Duration::from_millis(5);
-const MAX_DEPTH: usize = 256;
+pub(crate) const MAX_DEPTH: usize = 256;
 /// How deep a search looks first, so matches near its folder show before the whole tree is read.
 const NEAR_DEPTH: usize = 3;
 /// Borg's own ignore file, read like `.gitignore` where a search leaves ignored files out.
@@ -84,11 +86,13 @@ impl Drop for Worker {
     }
 }
 
-/// What searches read besides the filesystem: saved folder sizes and name indexes.
+/// What searches read besides the filesystem: saved folder sizes, name indexes, and the
+/// folder of the user's rules.
 #[derive(Clone)]
 struct Stores {
     cache: crate::size_cache::SizeCache,
     indexes: crate::index::Indexes,
+    rules: Option<PathBuf>,
 }
 
 pub struct Search {
@@ -100,17 +104,26 @@ pub struct Search {
 }
 
 impl Search {
-    pub fn new(refresh: Duration) -> Self {
+    pub fn new(refresh: Duration, rules: Option<PathBuf>) -> Self {
         let indexes = crate::index::Indexes::new(crate::size_cache::cache_dir(), refresh);
-        Self::with_stores(crate::size_cache::SizeCache::locate(), indexes)
+        Self::with_stores(crate::size_cache::SizeCache::locate(), indexes, rules)
     }
     #[cfg(test)]
     pub fn with_cache(cache: crate::size_cache::SizeCache) -> Self {
-        Self::with_stores(cache, crate::index::Indexes::new(None, Duration::from_secs(60)))
+        Self::with_stores(cache, crate::index::Indexes::new(None, Duration::from_secs(60)), None)
     }
-    fn with_stores(cache: crate::size_cache::SizeCache, indexes: crate::index::Indexes) -> Self {
+    #[cfg(test)]
+    pub fn with_rules(rules: &Path) -> Self {
+        let indexes = crate::index::Indexes::new(None, Duration::from_secs(60));
+        Self::with_stores(crate::size_cache::SizeCache::at(None), indexes, Some(rules.to_path_buf()))
+    }
+    fn with_stores(
+        cache: crate::size_cache::SizeCache,
+        indexes: crate::index::Indexes,
+        rules: Option<PathBuf>,
+    ) -> Self {
         let (messages, incoming) = mpsc::channel(CHANNEL_BATCHES);
-        let stores = Stores { cache: cache.clone(), indexes: indexes.clone() };
+        let stores = Stores { cache: cache.clone(), indexes: indexes.clone(), rules };
         Self {
             workers: Side::ALL.map(|side| Worker::new(side, messages.clone(), stores.clone(), false)),
             background: Worker::new(Side::Left, messages, stores, true),
@@ -123,6 +136,7 @@ impl Search {
         self.background.request(
             id,
             Work::Search(SearchRequest {
+                typos: false,
                 skip: None,
                 root,
                 query: "*".into(),
@@ -154,6 +168,8 @@ fn run(side: Side, request: Request, messages: &mpsc::Sender<Msg>, stores: &Stor
         cancelled: &request.cancelled,
         batch: Vec::with_capacity(BATCH_SIZE),
         found: Vec::new(),
+        rule_hits: Vec::new(),
+        packed: Vec::new(),
         background,
     };
     match request.work {
@@ -174,9 +190,9 @@ fn run(side: Side, request: Request, messages: &mpsc::Sender<Msg>, stores: &Stor
             return;
         }
         Work::Search(search) => {
-            let index = search.options.contents.is_none().then(|| stores.indexes.covering(&search)).flatten();
+            let index = (!search.options.reads_files()).then(|| stores.indexes.covering(&search)).flatten();
             let answered = index.and_then(|index| search_index(&index, &search, &mut stream));
-            if !answered.unwrap_or_else(|| search_names(&search, &mut stream)) {
+            if !answered.unwrap_or_else(|| search_names(&search, stores.rules.as_deref(), &mut stream)) {
                 return;
             }
         }
@@ -186,16 +202,26 @@ fn run(side: Side, request: Request, messages: &mpsc::Sender<Msg>, stores: &Stor
     }
 }
 
+/// What a search reads the files it finds for.
+enum Inspect {
+    Contents(borg_view::Search),
+    /// Borg's rules and those in the user's folder, with the bytes of the file being read.
+    Rules(Rules, Vec<u8>),
+    /// The entropy of each program's code.
+    Packed,
+}
+
 /// Streams the entries below the search folder whose names match, leaving out what the request
 /// skips. A left-out folder is still a result when it matches; only its contents are not read.
-/// False when the search stopped before finishing.
-fn search_names(search: &SearchRequest, stream: &mut Output<'_>) -> bool {
+/// A rules search reads Borg's rules and those in `rules`. False when the search stopped before
+/// finishing.
+fn search_names(search: &SearchRequest, rules: Option<&Path>, stream: &mut Output<'_>) -> bool {
     let failed = |stream: &Output<'_>, error: String| {
         stream.listed(Some(error));
         false
     };
     let query = match SearchQuery::parse(&search.query) {
-        Ok(query) => query,
+        Ok(query) => query.with_typos(search.typos),
         Err(error) => return failed(stream, error.message()),
     };
     let contents = match search.options.contents.as_deref().map(borg_view::Query::compile).transpose() {
@@ -209,7 +235,7 @@ fn search_names(search: &SearchRequest, stream: &mut Output<'_>) -> bool {
     let metadata = query.needs_metadata() || search.options.minimum > 0;
     let wanted = |entry: &Entry, path: &Path| {
         let kind = match search.options.kind {
-            SearchKind::Files => entry.kind == borg_vfs::EntryKind::File,
+            SearchKind::Files | SearchKind::Rules | SearchKind::Packed => entry.kind == borg_vfs::EntryKind::File,
             SearchKind::Folders => entry.kind == borg_vfs::EntryKind::Dir,
             _ => true,
         };
@@ -218,6 +244,16 @@ fn search_names(search: &SearchRequest, stream: &mut Output<'_>) -> bool {
     };
     let depth = |path: &Path| path.strip_prefix(&search.root).map_or(0, |rest| rest.components().count());
     let mut progress = SearchProgress::default();
+    let mut inspect = match search.options.kind {
+        SearchKind::Rules => {
+            let rules = crate::rule_scan::compile(rules);
+            progress.rules = rules.count();
+            progress.left_out = rules.problems().to_vec();
+            Some(Inspect::Rules(rules, Vec::new()))
+        }
+        SearchKind::Packed => Some(Inspect::Packed),
+        _ => contents.map(Inspect::Contents),
+    };
     let mut found = 0;
     let mut last = Instant::now();
     // A first pass reads only the folders near the search folder, so what lies close by shows at
@@ -279,19 +315,29 @@ fn search_names(search: &SearchRequest, stream: &mut Output<'_>) -> bool {
                         continue;
                     }
                 };
-                if cheap.is_none() && !wanted(&entry, &path) {
+                // The listing calls special files such as pipes files, and opening a pipe waits for
+                // a writer, so a search that reads files looks at what each one is.
+                if (cheap.is_none() || inspect.is_some()) && !wanted(&entry, &path) {
                     continue;
                 }
-                let line = match &contents {
-                    Some(contents) => match look_inside(&path, contents, stream, &mut progress) {
-                        Inside::Found(line) => Some(line),
+                let pushed = match inspect.as_mut() {
+                    Some(Inspect::Contents(contents)) => match look_inside(&path, contents, stream, &mut progress) {
+                        Inside::Found(line) => stream.push_found(entry, line),
                         Inside::Passed => continue,
                         Inside::Stopped => return false,
                     },
-                    None => None,
-                };
-                let pushed = match line {
-                    Some(line) => stream.push_found(entry, line),
+                    Some(Inspect::Rules(rules, buffer)) => {
+                        match read_with_rules(&path, rules, buffer, stream, &mut progress) {
+                            Inside::Found(hits) => stream.push_rule_hits(entry, hits),
+                            Inside::Passed => continue,
+                            Inside::Stopped => return false,
+                        }
+                    }
+                    Some(Inspect::Packed) => match judge_code(&path, stream, &mut progress) {
+                        Inside::Found(tally) => stream.push_packed(entry, tally),
+                        Inside::Passed => continue,
+                        Inside::Stopped => return false,
+                    },
                     None => stream.push(entry),
                 };
                 if !pushed {
@@ -320,9 +366,9 @@ fn search_names(search: &SearchRequest, stream: &mut Output<'_>) -> bool {
     stream.flush() && stream.progress(progress)
 }
 
-/// What reading a file for a contents search came to.
-enum Inside {
-    Found(LineMatch),
+/// What reading a file for a contents or rules search came to.
+enum Inside<T> {
+    Found(T),
     /// No match, or a file left unread or unreadable.
     Passed,
     Stopped,
@@ -334,7 +380,7 @@ fn look_inside(
     contents: &borg_view::Search,
     stream: &Output<'_>,
     progress: &mut SearchProgress,
-) -> Inside {
+) -> Inside<LineMatch> {
     let scanned = borg_view::FileSource::open(path)
         .and_then(|source| borg_core::scan_contents(&source, contents, &|_| !stream.stopped()));
     match scanned {
@@ -358,10 +404,56 @@ fn look_inside(
     }
 }
 
+/// Reads the file at `path` with `rules`, counting it as read, left unread as too large, or failed.
+fn read_with_rules(
+    path: &Path,
+    rules: &Rules,
+    buffer: &mut Vec<u8>,
+    stream: &Output<'_>,
+    progress: &mut SearchProgress,
+) -> Inside<Vec<RuleMatch>> {
+    match crate::rule_scan::scan_file(rules, path, buffer) {
+        Ok(Some(hits)) => {
+            progress.read += 1;
+            if hits.is_empty() { Inside::Passed } else { Inside::Found(hits) }
+        }
+        Ok(None) => {
+            progress.unread += 1;
+            Inside::Passed
+        }
+        Err(_) if stream.stopped() => Inside::Stopped,
+        Err(_) => {
+            progress.errors += 1;
+            Inside::Passed
+        }
+    }
+}
+
+/// Reads the code of the program at `path`, counting it as read, as another file when it is no
+/// program, or as failed. A program whose code looks packed is found.
+fn judge_code(path: &Path, stream: &Output<'_>, progress: &mut SearchProgress) -> Inside<Tally> {
+    let judged = borg_view::FileSource::open(path).and_then(|source| code_tally(&source, &|| !stream.stopped()));
+    match judged {
+        Ok(Some(tally)) => {
+            progress.read += 1;
+            if borg_core::looks_packed(&tally) { Inside::Found(tally) } else { Inside::Passed }
+        }
+        Ok(None) => {
+            progress.unread += 1;
+            Inside::Passed
+        }
+        Err(_) if stream.stopped() => Inside::Stopped,
+        Err(_) => {
+            progress.errors += 1;
+            Inside::Passed
+        }
+    }
+}
+
 /// Answers from an index: `None` when its folder is not in it, so a live search must answer;
 /// otherwise whether the search finished. Matches are read again, so deleted files drop out.
 fn search_index(index: &crate::index::Index, search: &SearchRequest, stream: &mut Output<'_>) -> Option<bool> {
-    let query = SearchQuery::parse(&search.query).ok()?;
+    let query = SearchQuery::parse(&search.query).ok()?.with_typos(search.typos);
     let found = index.search(search, &query, RESULT_LIMIT)?;
     let mut progress = SearchProgress {
         visited: index.entries(),
@@ -469,6 +561,10 @@ struct Output<'a> {
     batch: Vec<Entry>,
     /// Files a contents search found, sent apart from the batch so each keeps its match.
     found: Vec<(Entry, LineMatch)>,
+    /// Files a rules search found, with the rules each matched.
+    rule_hits: Vec<(Entry, Vec<RuleMatch>)>,
+    /// Programs a search for packed ones found, with the entropy of their code.
+    packed: Vec<(Entry, Tally)>,
     background: bool,
 }
 
@@ -515,7 +611,27 @@ impl Output<'_> {
         self.found.push((entry, line));
         self.found.len() < BATCH_SIZE || self.flush()
     }
+    fn push_rule_hits(&mut self, entry: Entry, hits: Vec<RuleMatch>) -> bool {
+        self.rule_hits.push((entry, hits));
+        self.rule_hits.len() < BATCH_SIZE || self.flush()
+    }
+    fn push_packed(&mut self, entry: Entry, tally: Tally) -> bool {
+        self.packed.push((entry, tally));
+        self.packed.len() < BATCH_SIZE || self.flush()
+    }
     fn flush(&mut self) -> bool {
+        if !self.packed.is_empty() {
+            let found = std::mem::take(&mut self.packed);
+            if !self.send(Msg::PackedHits { side: self.side, generation: self.generation, found }) {
+                return false;
+            }
+        }
+        if !self.rule_hits.is_empty() {
+            let found = std::mem::take(&mut self.rule_hits);
+            if !self.send(Msg::RuleHits { side: self.side, generation: self.generation, found }) {
+                return false;
+            }
+        }
         if !self.found.is_empty() {
             let found = std::mem::take(&mut self.found);
             if !self.send(Msg::Found { side: self.side, generation: self.generation, found }) {

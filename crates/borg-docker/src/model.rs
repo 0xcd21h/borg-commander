@@ -38,7 +38,7 @@ pub enum State {
 }
 
 impl State {
-    fn parse(value: &str) -> Self {
+    pub(crate) fn parse(value: &str) -> Self {
         match value {
             "running" => Self::Running,
             "paused" => Self::Paused,

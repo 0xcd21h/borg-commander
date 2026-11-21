@@ -1,0 +1,18 @@
+[package]
+name = "borg-rules"
+description = "Rule scanning for borg-commander: YARA rules over files and process memory"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+boreal    = { workspace = true }
+borg-i18n = { workspace = true }
+serde     = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

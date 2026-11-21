@@ -135,3 +135,37 @@ fn k_types_into_the_filter_while_it_is_open() {
     assert!(state.overlay.is_none());
     assert_eq!(state.activity.filter, "k");
 }
+
+#[test]
+fn the_context_menu_on_a_process_copies_its_pid_and_opens_its_signals() {
+    let (mut state, now) = state();
+    open(&mut state);
+    let mut worker = process(7, 10, 100);
+    worker.executable = Some(PathBuf::from("/usr/bin/worker"));
+    sample(&mut state, vec![worker], now);
+    let shift_f10 = KeyEvent::new(KeyCode::F(10), crossterm::event::KeyModifiers::SHIFT);
+    update(&mut state, Msg::Key(shift_f10), now);
+    let Some(crate::Overlay::ContextMenu(menu)) = &state.overlay else { panic!("no menu: {:?}", state.overlay) };
+    assert_eq!(menu.menu.title, "worker-7 7");
+    let effects = press(&mut state, KeyCode::Enter);
+    assert!(effects.iter().any(|effect| matches!(effect, Effect::Copy(text) if text == "7")));
+    update(&mut state, Msg::Key(shift_f10), now);
+    crate::context_menu::choose_labelled(&mut state, "Signal or priority…", now);
+    assert_eq!(dialog(&state).map(|opened| opened.process), Some(ProcessKey { pid: 7, start: 10 }));
+}
+
+#[test]
+fn k_in_the_process_window_signals_the_process_it_shows() {
+    let (mut state, now) = state();
+    open(&mut state);
+    sample(&mut state, vec![process(7, 10, 100), process(8, 10, 200)], now);
+    let shown = state.activity.selected.unwrap();
+    for (tab, page) in [('2', ActivityPage::Files), ('1', ActivityPage::Regions)] {
+        key(&mut state, KeyCode::Char(tab));
+        assert_eq!(state.activity.list, page);
+        key(&mut state, KeyCode::Char('k'));
+        assert_eq!(dialog(&state).map(|opened| opened.process), Some(shown), "{page:?}");
+        press(&mut state, KeyCode::Esc);
+        assert_eq!(state.activity.list, page, "Esc closes the dialog and keeps the window");
+    }
+}

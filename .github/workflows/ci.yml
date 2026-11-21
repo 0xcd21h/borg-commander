@@ -44,6 +44,10 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y zsh fish less
 
+      - name: Install the eBPF tools (Linux)
+        if: runner.os == 'Linux'
+        run: scripts/install-ebpf-tools.sh
+
       - name: Install shells (macOS)
         if: runner.os == 'macOS'
         run: brew install fish
@@ -56,6 +60,13 @@ jobs:
 
       - name: Test
         run: cargo nextest run --workspace --profile ci
+
+      - name: Load the watcher's eBPF programs (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          tests="$(cargo test --locked -p borg-app --bin borg --no-run --message-format=json \
+            | jq -r 'select(.target.name == "borg" and .profile.test == true) | .executable')"
+          sudo "${tests}" --ignored --exact watch::ebpf::tests::the_programs_load_and_report_a_command_that_ends_at_once
 
       - name: Report failed and flaky tests
         if: always()

@@ -14,7 +14,12 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 
-fn buttons(network: &Network, area: Rect) -> Vec<(Rect, &'static str, KeyCode)> {
+const SCAN_KEY: char = 's';
+const DISCOVER_KEY: char = 'd';
+const PORTS_KEY: char = 'p';
+const LISTEN_KEY: char = 'h';
+
+fn buttons(network: &Network, gives_back: bool, area: Rect) -> Vec<(Rect, &'static str, KeyCode)> {
     let filtering = network.viewer.as_deref().map_or(network.filtering, |view| view.filtering);
     let specs: Vec<(&'static str, KeyCode)> = if filtering {
         vec![(tr!(activity_filter_keep_button), KeyCode::Enter), (tr!(activity_filter_clear_button), KeyCode::Esc)]
@@ -38,19 +43,38 @@ fn buttons(network: &Network, area: Rect) -> Vec<(Rect, &'static str, KeyCode)> 
         let process = network.selected_pid().is_some();
         let capture =
             if network.recording.is_some() { tr!(network_stop_capture_button) } else { tr!(network_capture_button) };
+        let copy = network.recording.as_ref().filter(|recording| recording.key_log.is_some()).map(|recording| {
+            if recording.proxy.is_some() { tr!(network_copy_proxy_button) } else { tr!(network_copy_key_log_button) }
+        });
+        let listen =
+            if network.listening.is_some() { tr!(network_stop_listen_button) } else { tr!(network_listen_button) };
+        let scanning = network.scan.as_ref().is_some_and(|scan| !scan.stopping);
+        let ports = network.loaded && network.page == NetworkPage::Neighbors;
+        let scan = network.loaded && network.page == NetworkPage::Neighbors && network.scan.is_none();
+        let esc = if scanning && !network.details_focused {
+            (tr!(network_stop_scan_button), KeyCode::Esc)
+        } else {
+            back_button(network.details_focused || network.goes_back())
+        };
         [
+            ports.then_some((tr!(network_scan_ports_button), KeyCode::Char(PORTS_KEY))),
+            scan.then_some((tr!(network_scan_button), KeyCode::Char(SCAN_KEY))),
+            scan.then_some((tr!(network_discover_button), KeyCode::Char(DISCOVER_KEY))),
+            ports.then_some((listen, KeyCode::Char(LISTEN_KEY))),
             process.then_some((tr!(network_show_button), KeyCode::Enter)),
             process.then_some((tr!(activity_signal_button), KeyCode::Char('k'))),
             network.loaded.then_some((capture, KeyCode::Char('r'))),
+            copy.map(|copy| (copy, KeyCode::Char('l'))),
             Some((tr!(activity_filter_button), KeyCode::Char('/'))),
             Some((tr!(activity_pause_button), KeyCode::Char(' '))),
             Some(details_button(network)),
-            Some(back_button(network.details_focused || network.goes_back())),
+            Some(esc),
         ]
         .into_iter()
         .flatten()
         .collect()
     };
+    let specs = crate::keybar::lent_esc(specs, gives_back);
     let mut x = area.x;
     specs
         .into_iter()
@@ -80,11 +104,15 @@ fn traffic_hint(network: &Network, view: &TrafficView) -> &'static str {
         return tr!(traffic_filter_hint);
     }
     if network.details_focused {
-        return tr!(network_details_hint);
+        return match view.page {
+            TrafficPage::Connections => tr!(traffic_stream_hint),
+            _ => tr!(network_details_hint),
+        };
     }
     match view.page {
         TrafficPage::Processes => tr!(traffic_pid_hint),
-        TrafficPage::Hosts | TrafficPage::Connections => tr!(traffic_address_hint),
+        TrafficPage::Hosts => tr!(traffic_address_hint),
+        TrafficPage::Connections => tr!(traffic_connection_hint),
         TrafficPage::Packets => tr!(traffic_packets_hint),
     }
 }
@@ -92,6 +120,9 @@ fn traffic_hint(network: &Network, view: &TrafficView) -> &'static str {
 fn hint(network: &Network) -> &'static str {
     if let Some(view) = network.viewer.as_deref() {
         return traffic_hint(network, view);
+    }
+    if network.filtering && network.page == NetworkPage::Neighbors {
+        return tr!(network_neighbors_filter_hint);
     }
     if network.filtering {
         return tr!(network_filter_hint);
@@ -104,13 +135,14 @@ fn hint(network: &Network) -> &'static str {
         NetworkPage::Processes => tr!(network_processes_hint),
         NetworkPage::Connections => tr!(network_connections_hint),
         NetworkPage::Interfaces => tr!(network_interfaces_hint),
+        NetworkPage::Neighbors => tr!(network_neighbors_hint),
     }
 }
 
 pub(crate) fn keybar(state: &AppState, area: Rect, theme: &Theme, buf: &mut Buffer) {
     let network = &state.network;
     buf.set_style(area, theme.styles.key_label);
-    for (rect, label, _) in buttons(network, row(area, 0)) {
+    for (rect, label, _) in buttons(network, state.esc_gives_back(), row(area, 0)) {
         text(buf, rect, label, theme.styles.key);
     }
     text(buf, crate::branding::content(row(area, 1)), hint(network), theme.styles.key_label);
@@ -137,6 +169,13 @@ pub(crate) fn status(network: &Network) -> String {
         NetworkPage::Interfaces => network.interface().map_or_else(String::new, |(interface, _)| {
             format!("{} · {}", interface.name, borg_core::kind_label(interface.kind))
         }),
+        NetworkPage::Neighbors => match network.neighbor() {
+            Some((neighbor, _)) => {
+                let parts = [Some(neighbor.address.to_string()), neighbor.mac.map(|mac| mac.to_string())];
+                parts.into_iter().flatten().chain([neighbor.interface.clone()]).collect::<Vec<_>>().join(" · ")
+            }
+            None => network.entry().map_or_else(String::new, |_| super::map::status(network)),
+        },
     }
 }
 
@@ -153,7 +192,7 @@ pub(crate) fn panel_mouse(
         if !left_click {
             return None;
         }
-        return buttons(network, row(layout.keybar, 0))
+        return buttons(network, state.esc_gives_back(), row(layout.keybar, 0))
             .into_iter()
             .find(|(rect, _, _)| rect.contains(point))
             .map(|(_, _, code)| Msg::Pointer(Pointer::NetworkControl { details: network.details_focused, code }));

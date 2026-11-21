@@ -1,0 +1,4 @@
+SHELL=/bin/sh
+START_HOURS_RANGE=3-22
+1	5	cron.daily	run-parts --report /etc/cron.daily
+@monthly	15	cron.monthly	run-parts --report /etc/cron.monthly

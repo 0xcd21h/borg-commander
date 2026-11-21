@@ -81,6 +81,14 @@ impl App {
         });
     }
 
+    pub(super) fn update_remote_host(&self, machine: String) {
+        let messages = self.messages.clone();
+        tokio::spawn(async move {
+            let result = crate::remote::update_host(&machine).await.map_err(|error| format!("{error:#}"));
+            let _ = messages.send(Msg::RemoteHostUpdated { machine, result });
+        });
+    }
+
     pub(super) fn save_remote_name(&self, identity: String, session: Option<String>, name: String) {
         let messages = self.messages.clone();
         tokio::task::spawn_blocking(move || {

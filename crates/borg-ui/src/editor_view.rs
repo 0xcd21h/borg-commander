@@ -205,7 +205,7 @@ pub(crate) fn draw_docked(
     let modified = if editor.buffer.modified() { format!(" · {}", tr!(editor_modified)) } else { String::new() };
     let facts = format!(" {} ", facts(editor));
     let room = usize::from(top.width).saturating_sub(facts.width() + modified.width() + 3);
-    let path = format::truncate_start(&editor.path.display().to_string(), room);
+    let path = format::truncate_start(&editor.shown_path().display().to_string(), room);
     Line::from(Span::styled(format!(" {path}{modified} "), title)).render(top, buf);
     Line::from(Span::styled(facts, border)).right_aligned().render(top, buf);
     draw_inside(editor, theme, area, (title, border), None, buf)
@@ -287,7 +287,7 @@ fn draw_title(editor: &Editor, style: Style, area: Rect, buf: &mut Buffer) {
     let facts = format!("{} ", facts(editor));
     let modified = if editor.buffer.modified() { format!(" · {}", tr!(editor_modified)) } else { String::new() };
     let room = usize::from(area.width).saturating_sub(facts.chars().count() + modified.chars().count() + 2);
-    let path = format::truncate_start(&editor.path.display().to_string(), room);
+    let path = format::truncate_start(&editor.shown_path().display().to_string(), room);
     Line::styled(format!(" {path}{modified}"), style).render(area, buf);
     Line::styled(facts, style).right_aligned().render(area, buf);
 }

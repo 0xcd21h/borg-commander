@@ -18,6 +18,10 @@ Requirements:
 - For the end-to-end tests: `bash`, and optionally `zsh`, `fish` and `less` (tests for shells
   that are not installed are skipped).
 - macOS or Linux. borg is Unix-only: it relies on PTYs and `termios`.
+- On Linux, the process watcher's eBPF programs build with a pinned nightly compiler and
+  `bpf-linker`. `scripts/install-ebpf-tools.sh` installs both, and checks `bpf-linker` against its
+  SHA-256 before it runs. Build with `BORG_NO_EBPF=1` to leave the programs out: the watcher then
+  hears the kernel's process events instead.
 
 Before pushing, run what CI runs:
 
@@ -28,6 +32,8 @@ cargo test --workspace
 ```
 
 CI runs the same tests with [cargo-nextest](https://nexte.st), as [On CI](#on-ci) describes.
+When you add, bump or update a dependency, also run the checks in
+[Dependencies](#dependencies).
 
 Dev builds carry line tables only: panics and backtraces still name the file and line, and
 `target/` grows much more slowly. Build with `CARGO_PROFILE_DEV_DEBUG=full` when you need
@@ -43,7 +49,8 @@ busy machine.
 
 ```
 crates/
-  borg-app      the `borg` binary: terminal setup, event loop, effects, config, session
+  borg-app      the `borg` binary: terminal setup, event loop, effects, config, session, and an
+                allocator that zeroes every block it frees
   borg-i18n     shared UI labels, message templates and plural forms
   borg-core     pure state and logic: update(state, msg, now) -> effects
   borg-ui       rendering: panels, dialogs, themes, effects, art (ratatui buffers in, nothing out)
@@ -54,9 +61,19 @@ crates/
   borg-gfx      terminal graphics: protocol detection, Kitty / Sixel / iTerm2, half blocks
   borg-git      bundled Git plugin: status parsing and bounded background Git commands
   borg-docker   bundled Docker plugin: containers, stats, files and shells through the docker CLI
+  borg-drives   the kind of drive a path lies on, its typical and measured speeds, and the
+                answers that stop Borg asking before long jobs
   borg-jobs     the copy / move / delete engine with progress, conflicts, pause and cancel
+  borg-archive  archives as folders: zip, 7z and tar read and changed in process, RAR through
+                7-Zip or bsdtar, and unpacking that cannot write outside its destination
+  borg-crypt    encrypted files: age files with a passphrase and Paranoia Text Encryption texts,
+                with decrypted text kept in buffers that are wiped
+  borg-rules    YARA rules through boreal: Borg's own rules and the user's, compiled file by file,
+                and what they match with its evidence, severity and caveat
   borg-link     the end-to-end encrypted channel between two borgs through a relay (Noise IK)
   borg-relay    the relay borgs meet through: it forwards traffic it cannot read
+  borg-local-auth  Touch ID or the password from LocalAuthentication before a key leaves the
+                macOS keychain
   borg-update   release checks and self-update
   borg-testkit  test harness: fixtures, PTY sessions, screenshots, the demo recorder
 ```
@@ -88,18 +105,62 @@ other dialog is open; answers, pause and cancel travel back as `Effect::JobContr
 `Control`. The engine is synchronous and fully tested on temporary folders
 (`crates/borg-jobs/tests/engine.rs`).
 
+Every long piece of work is a `borg_core::Job` in `state.jobs`: a `JobKind`, a `Phase` (preparing,
+running, asking, ended), a `Gauge`, `Detail` rows, and a `Reveal` that says what opening the
+finished job shows. A new kind only fills its gauge and details; the jobs sheet
+(`borg_ui::jobs_sheet`), the toasts (`borg_ui::toast_view`), the panel footers and the shortcut bar
+draw every kind the same way. File jobs (`jobs/files.rs`) follow `Msg::Job` events. Watched jobs
+(`jobs/watched.rs`) stand for work other state runs, such as a search filling a results panel,
+background sizes, the entropy scan and the first index build: `jobs::sync`, called from
+`update::follow` after every update, starts, advances and ends them. `jobs/toasts.rs` queues a toast
+per start, end or question with its own timing and closes them for Alt-X and `Pointer::CloseToast`,
+which the app asks `borg_ui::toast_mouse` for before any other mouse handling. A closed question
+sets `Job::put_off`, so it waits for Alt-J. `jobs/sheet.rs` handles the sheet's keys.
+
 Before the shell receives input, `sync_cwd` moves it to the active panel's folder. Shells
 whose integration announces `OSC 6633;silent-cd` at each prompt (zsh) get
 `Effect::ChangeShellDir`: the app writes the folder to a private per-process request file
 (`BORG_CD_FILE`) and sends `SILENT_CD_KEY`, which a ZLE widget binds to `builtin cd`, the
-prompt hooks and `zle reset-prompt`. Nothing is echoed and no command markers are emitted.
+prompt hooks and `zle reset-prompt`. The redrawn prompt can be longer or shorter than the old
+one, so the widget draws it at once and sends `OSC 133;B` again from where typing now starts.
+Nothing is echoed and no other markers are sent. The zsh integration loads `zsh/zle` itself
+before it adds its line-init hook, since `add-zle-hook-widget` does nothing until something has
+loaded it, and only a `bindkey` in the system's or the user's startup files would have.
 Other shells receive a typed ` cd '…'` that skips history. Once a shell announces its prompts,
 the emulator conceals that command and its output (`Effect::WriteConcealed`) until the next prompt
 marker, which is drawn where the previous prompt began, so nothing flashes or stays in the console.
 
-Mkdir and archive actions are built by `borg_core::command::CommandLine` (with shell quoting)
+Mkdir and Compress are built by `borg_core::command::CommandLine` (with shell quoting)
 and run in the embedded shell, hidden at first. If a command takes longer than 600 ms the shell
 is revealed, and the panels come back when it finishes.
+
+An archive panel's folder is the archive's path followed by the folder inside it, and
+`Panel::archive` holds the `ArchiveMount`. `borg-app` lists such a folder through `borg-archive`
+and keeps the indexes of the last 4 archives while their size and time stay the same. Copying
+out (F5, Extract here, Extract to other panel) runs as `JobKind::Unpack`, and F3 inside an
+archive runs `JobKind::View`, which unpacks into `archive-view` in the runtime folder and drops
+the file once the viewer opened it. The bomb and free space checks in
+`borg-archive/src/unpack/guard.rs` ask through the job's questions before the first write.
+
+Changes to an archive go out as `Effect::StartRewrite` with a `RewriteRequest`: F5 into an
+archive runs as `JobKind::Pack`, F6 as `JobKind::Move`, F7 as `JobKind::ArchiveFolder`, F8 as
+`JobKind::Delete` and an editor save as `JobKind::Save`. `borg_archive::Rewrite` locks the
+archive, plans the change and writes `.name.borg-partial` beside it, either as a copy with the new
+entries appended (a cloning filesystem makes the copy at once) or as a new archive with the kept
+entries copied as stored. It reads a zip's or 7z's entries back and then renames the partial over
+the original. A move deletes its originals from the `kept` list of the job's `Report`, so a file
+left out stays. F4 inside an archive unpacks into `archive-view/edit-…`, and the file stays while
+the editor has it.
+
+Before a job writes, `borg_jobs::Pace` adds up its `borg_drives::Work`, the bytes read and written
+on each drive plus the time spent compressing, and asks `Ask::Slow` when the estimate passes the
+job's patience: 2 minutes for copies and unpacks, 20 seconds for archive changes. `borg-drives`
+finds the drive kind with statfs, `diskutil` and `hdiutil` on macOS and `/proc/self/mountinfo`
+and `/sys` on Linux. It learns measured speeds from jobs of at least 2 seconds and 64 MiB and keeps
+them with the Always answers in `drives.json` in the state folder. Every Borg on the machine writes
+that file, so each change reads it again first and applies itself to what is there, and each write
+stages under a name of its own (the process ID and a count) with mode 0600 before it renames the
+file into place.
 
 ### Rendering pipeline
 
@@ -125,7 +186,11 @@ first bundled plugin; there is no external plugin loader yet.
 ### System monitor
 
 `borg-core::activity` owns process selection, bounded memory history, sorting,
-inspection requests, search state, and snapshots. The monitor uses the regular
+inspection requests, search state, and snapshots. CPU is averaged per process and for the
+system (`activity::cpu::CpuAverage`): each sample's weight fades over `CPU_WINDOW` by the time
+it covers, and the list shows, sorts and hides idle processes by the average rounded to
+`CPU_STEP`. The Docker view averages container CPU the same way and shows the latest reading
+beside it when the list has room. The monitor uses the regular
 split layout with a list pane and preview pane. Enter opens a process in an inspection
 window over the monitor; `AppState::layout` returns the window's two panes, so keys,
 scrolling and mouse hits follow it, while the renderer draws the monitor beneath from
@@ -143,7 +208,9 @@ administrator retry as memory inspection. It never reads the contents of descrip
 Region and match selection schedule a 120 ms debounced bounded preview read, while
 Tab switches focus for scrolling. Late replies cannot replace another selection's
 bytes; unreadable regions do not request a capture. `borg-app::activity` samples through sysinfo
-and executes on-demand memory-map and memory-read requests on background workers.
+and executes on-demand memory-map and memory-read requests on background workers. On Linux the
+sample leaves out each process's threads: `/proc/PID/stat` and `/proc/PID/io` already count every
+thread, and reading each thread's files every second costs more than the rest of the sample.
 macOS maps come from vmmap; Linux maps come from smaps. Process identity combines
 PID and start time and is checked before and after inspection. Captures read at
 most 64 KiB through the safe read-process-memory API. No target is suspended.
@@ -156,7 +223,12 @@ The page map (`borg-app::memory_census`) reads one page per entry, at most 16,38
 spread evenly over the region, and classifies each from its bytes alone (`PageClass`).
 Executable mappings count as code; pointers are 8-byte words inside the readable mappings,
 which the UI sends with the request and the administrator helper looks up itself. On Linux
-`/proc/PID/pagemap` says which pages are present, and absent ones are not read.
+`/proc/PID/pagemap` says which pages are present, and absent ones are not read. Each page read
+also carries its Shannon entropy (`borg_view::entropy::Entropy`, hundredths of a bit per byte),
+and the renderer draws pages from `Entropy::HIGH` on in the high-entropy style whatever their
+class. The F3 viewer uses the same measure: once hex rows show, `Effect::ProfileViewer` reads a
+`Profile` of the source on a blocking thread, one 4 KiB block per entry and at most 65,536
+entries, sampled evenly beyond that, for the strip beside the rows.
 
 Administrator retry launches the same binary's internal inspection command through
 macOS authorization or Linux pkexec. It accepts only numeric process identity and
@@ -182,7 +254,29 @@ their header flag. Only pages that can differ are read: on Linux those pagemap m
 copies or swapped, on macOS regions with dirty pages. Unbacked memory is searched for image
 headers at page starts, executable regions first. The report counts compared, uncompared,
 scanned and unreadable bytes and says whether a byte, time or finding limit stopped it; findings
-carry a severity, the evidence's address and length, and a caveat. The renderer shares a reserved branding area across UI modes.
+carry a severity, the evidence's address and length, and a caveat.
+Rule scans (`borg-app::rule_scan`) compile `borg-rules` once per scan from the built-in rules and
+the `rules` folder beside the configuration. A memory scan reads the regions the process owns
+through the same `integrity::Access`, in 16 MiB reads that take in the page before them again,
+skips regions and pages that were never touched, keeps one finding per rule and region, and stops
+after 1 GiB, 45 seconds or 2,000 findings, like the integrity report. The admin helper runs it as
+`rules <pid> <start> [folder]`. Findings reuse the integrity view with the kinds `RuleMatch` and
+`RuleProblem`. The renderer shares a reserved branding area across UI modes.
+The entropy scan of every process (`borg-core::activity::entropy`, `borg-app::activity::entropy`,
+`borg-app::entropy_scan`) runs in its own `EntropyScanner` beside the monitor's single request
+slot, so opening a hit's memory map does not stop it. `Effect::EntropyScan` names the processes of
+the last sample. The worker reads four at a time, leaves out the ones `code_signature::protection`
+marks and the ones `Memory::open` refuses before it runs vmmap, and sends `Msg::EntropyScan` parts
+every 250 ms, which `EntropyReport::merge` ranks (code, then own memory, then mapped files; share
+of high pages; highest page) and cuts to 2,000 hits. Per process, `entropy_scan::scan_process`
+skips shared caches (vmmap's names, the `MH_DYLIB_IN_CACHE` header flag, Linux kernel pages),
+untouched regions and absent pages, and file mappings another process already had read
+unchanged, and samples up to 1,024 pages a region and 32,768 a process. A run stops after 90
+seconds and reports the processes it did not reach, for N. The admin helper runs it as
+`entropy <json>` with the scope and the process keys, for 60 seconds, and answers with
+`ActivityData::Entropy`. Enter on a hit leaves a landing that the regions and census answers
+use: the region's group and file open, the page map turns on, and the census cursor goes to the
+first high page sampled.
 
 ### Network screen
 
@@ -197,19 +291,161 @@ on Linux; interfaces come from sysinfo, with kinds from `networksetup` or `/sys/
 Reverse lookups run in batches of 32 with a 2 second timeout each, and only for addresses the
 screen has not asked about before. Closing the screen cancels the sampler.
 
+Neighbors: `borg-core::network::neighbors` holds the pure parts. It parses MAC addresses and reads
+their flags, finds vendors, builds the rows with their notes, keeps the `GatewayWatch` that
+remembers each gateway's first MAC address for the session, and picks a `SubnetScan`'s addresses. The
+vendor table `neighbors/vendors.tsv` is the IEEE MA-L registry, one `OUI<TAB>name` line per
+prefix sorted by prefix, compiled in with `include_str!` and searched by binary search.
+`scripts/update-mac-vendors.py` regenerates it from the IEEE's `oui.csv`, either a file you pass or
+a fresh download; run it with `python3 -I`. `borg-app::network::neighbors` reads the tables. On
+macOS it parses `/usr/sbin/arp -anl`, `/usr/sbin/ndp -an` and `/usr/sbin/netstat -rn`. On Linux it
+dumps the neighbor table over netlink (`RTM_GETNEIGH`) through rustix, falls back to
+`/proc/net/arp`, and reads the gateways from `/proc/net/route` and `/proc/net/ipv6_route`. The
+same route tables give `Neighborhood::routes`, every IPv4 route other than a default or host one:
+macOS's classful destinations such as `192.0.2` or `10.20/16` are widened to a network and prefix,
+and Linux's hex fields are read in native byte order with the prefix from the mask. The sampler
+reads the tables on every sample while Neighbors shows and on every fifth otherwise. A failed read
+lands in `Neighborhood::error` and shows on the page without failing the sample.
+
+The map: `neighbors::routes` turns the routes into `Routed` networks (table routes from /8 to /30
+on an interface that is up, minus attached, special and covered ones) and `InternetRoute`s, one for
+each interface with a default gateway or a wide route from /1 to /7, marking the most specific
+wide route, else the first default, as in use. `routed()` merges the table's networks with the ones
+a discovery reached and the ones memory holds, letting a table route take a discovered trace.
+`neighbors::map` builds the page's `NeighborEntry` list: interface headings ordered by in use,
+other ways out, LAN and tunnel, each with its own hosts, its routed networks with their hosts, and
+its internet row; `shows()` keeps interfaces that are up with an address beyond link-local and
+loopback. `discovery()` picks the /24 networks to probe through the in-use way, their `.1` and
+`.254`, without attached networks and those another interface's routes take.
+
+Subnet scans: `borg-app::network::scan` runs on tokio and takes a `Plan`. `Plan::Subnet` keeps 16
+probes in flight; each sends an empty UDP datagram to the discard port when the network is on the
+link, an ICMP echo through an unprivileged `SOCK_DGRAM` socket made with rustix, and TCP connects to
+`SCAN_PORTS`, each with a 1 second timeout. `Plan::Discovery` keeps 64 in flight, tries ports 80
+and 443, and traces each address that answered: echoes with `IP_TTL` from 1 to `MAX_HOPS`, or TCP
+connects with a growing TTL when ping is unavailable. macOS hands Time Exceeded to the ICMP socket,
+so `icmp_answer` reads the inner IPv4 header and echo to name the router; Linux does not, so a
+trace there yields hops alone. Each address uses a block of 16 echo sequence numbers. The echo parser skips the IPv4 header macOS hands over and matches replies by source
+and sequence, since Linux rewrites the identifier. Ping is left out when the socket cannot be
+made. A stop flag ends the loop, each probe answers with `Msg::Probed`, and `Msg::ScanFinished`
+follows the last one. In core, `neighbors::merge` lays the probes and `NeighborMemory` over the
+table read from the system, marking each entry `Listed`, `Answered` or `Offline`. The memory is
+keyed by `LocalNetwork`, the subnet plus the gateway's MAC address. Format 2 adds each place's
+`KnownRoute`s, up to 16, for the networks a discovery reached from it, and keeps hosts behind them
+under the same place; format 1 files still load. Networks behind a tunnel have no place and are not
+kept. The memory is saved owner-only as `neighbors.json` through `Effect::SaveNeighbors`: at once when a host, MAC address or port is new,
+and at most once a minute when only the times change. A file that fails to load is left alone and
+nothing is saved over it for the session.
+
+Port scans: `borg-core::port_scan` holds the pure parts. `ports.rs` reads the port lists from
+`services.tsv`, IANA's service name registry with one `port<TAB>name<TAB>common` line per TCP port,
+which `scripts/update-port-names.py` regenerates from the CSV you pass or the one it downloads. The
+common list is every named port from 1 to 1023 plus the registered ports the script lists. The
+module also holds the form, the `Watch` that picks the canary port and spots a sudden run of
+silence, the `Tally` of answers and the `PortScanMemory`, which keeps the last `HOST_HISTORY` scans
+of each host and is saved owner-only as `port-scans.json`. `borg-app::port_scan::run` drives a
+`Prober`, a TCP connect with a timeout in the app, through a `JoinSet` at the mode's `ScanPace`. It
+asks the canary every `canary_every`, reads the job's `Control` for pause and cancel, and reports
+progress every 250 ms. Its tests use a fake host under tokio's paused clock, and one connects to a
+listener it starts on 127.0.0.1. Each scan is a `JobKind::PortScan` job, and the finish dialog
+waits, like the update offer, for the panels and 2 seconds without a key.
+
+Listening: `borg-core::network::listen` holds the pure parts. `packets::hear` reads one captured
+frame into `Heard` values: ARP and NDP give an address with its MAC address, `dns.rs` reads the
+records of mDNS, LLMNR and NetBIOS, and SSDP, DHCP, LLDP and CDP have their own small readers. A
+MAC address is paired with an address only from frames sent to a group address. `Hearing` keeps
+the session's hosts and switch ports, places each host under the interface whose networks hold it,
+merges what it announced with `Announced::merge`, and caps the hosts, the device types, the
+services and the length of each text. `neighbors::merge` marks hosts only listening heard
+`Presence::Heard`, and `NeighborMemory::note_heard` keeps IPv4 ones with `heard` and `announced`,
+both left out of `neighbors.json` when empty, so the format stays 2. `borg-app::network::capture::listen`
+runs tcpdump with `LISTEN_FILTER` as you or through the administrator helper, feeds the stream to
+`LiveFrames`, and sends `Msg::Listen` with what it heard every second. `LISTEN_FILTER` matches
+Ethernet fields, which tcpdump refuses on a link that carries only IP packets, so
+`listen_interfaces` offers a tunnel only when it has a MAC address. Each listen is a
+`JobKind::Listen` job that cancels and cannot pause. Its tests run a stand-in tcpdump script over a
+made-up pcap.
+
+Reports: `borg-core::report` renders a `ReportSource`, one `PortScanRecord` or a `NeighborsReport`
+built from every neighbor row, as Markdown, JSON or CSV with pure functions, and its tests compare
+whole documents. The save dialog is a `ReportForm` that sends `Effect::SaveReport`.
+`borg-app::report::save` reads a leading `~` as the home folder and creates the file with mode 0600
+and `create_new`, so a file that is there comes back as `ReportError::Exists` and the core asks
+before it sends the effect again with `replace`, which writes through `store::write_privately`.
+
 Captures: `borg-core::capture` reads pcap and pcapng into packets with pure functions. It decodes
 Ethernet, loopback, Linux cooked and raw links, IPv4 and IPv6, TCP, UDP and ICMP, and recognizes
 DNS, TLS client and server hellos, HTTP/1 and QUIC. `flows` groups packets into conversations by
 transport and their two ends in either order, takes the client as the side that sent the SYN or
 spoke first, and puts the client's first bytes back together to read a TLS server name split over
-segments. `network::capture` holds the dialog and the running `Recording`, which keeps every
+segments. `stream` puts a whole conversation back together for the viewer: each side's TCP
+segments in sequence order with repeated bytes dropped, each piece counted as delivered once every
+byte before it came, and the two sides interleaved by that moment into turns. `Stream::left_out`
+counts what the packets' IP lengths say each side sent beyond the bytes the capture kept. The
+viewer keeps the
+selected conversation's stream and the capture's first time, so a frame formats only the rows it
+shows. `network::capture` holds the dialog and the running `Recording`, which keeps every
 socket the screen samples while it runs, and `network::viewer` gives each conversation the
 process its packets were tagged with, by majority, or else the process of the socket that held
 it: the exact ends first, then a socket listening on its port. The tags come from macOS's
 `pktap`, whose pcapng carries Apple's process information blocks, each packet pointing at one
-by its index in the section. `borg-app::network::capture` runs `tcpdump -U -n -w -`, writes its
-output to a 0600 file in the panel's folder while `PcapCounter` counts whole packets for the
-footer, sends SIGINT at the deadline or on R, and reads the file back on a blocking worker.
+by its index in the section. `borg-app::network::capture` runs `tcpdump -U -n -w -` and writes
+its output to a 0600 file in the panel's folder. When the capture keeps the start of each
+connection, the output goes through `ConnectionBudget` first: it cuts the stream into whole pcap
+records or pcapng blocks and, once a conversation carried `CONNECTION_BUDGET` bytes of payload,
+rewrites its later packets' captured length to end where their payload starts, with their wire
+length and pcapng options kept. `PcapCounter` counts the whole packets written. Every second the
+footer gets them with the bytes written and the room left on the disk from `statvfs`, above
+`CaptureRequest::keep_free` (zero unless `keep-free-mib` sets it), and `Recording::limit_ahead`
+turns the rate so far into the time to the first limit. A write that finds the disk full cuts the
+file back to its last whole write and ends the capture like a limit. The app sends SIGINT at the
+deadline, on R or at a limit, which it reports with `Msg::CaptureLimited`, and reads the file back
+on a blocking worker.
+
+TLS: `capture::keylog` reads `SSLKEYLOGFILE` text into secrets by client random, and
+`capture::tls` opens a conversation's stream with them. It splits the stream back into each
+side's bytes, reads their records, and takes the client random and the ServerHello's random,
+suite and version from the handshake in the clear. TLS 1.3 records open by trial: a side tries
+its key in use, then the keys it moves on to (early, handshake, traffic), then the next key
+update, so a lost Finished or KeyUpdate message does not matter. TLS 1.2 keys come from the
+master secret through the PRF, and records count from each side's ChangeCipherSpec. The AEADs,
+HKDF-Expand-Label and P_hash live in `tls::cipher` on RustCrypto's `aes-gcm`,
+`chacha20poly1305`, `hkdf` and `hmac`. Records after a hole in a side's bytes stay sealed,
+because nothing tells where the next record starts. `files` reads pcapng decryption secrets
+blocks, and `with_secrets` writes one after the section header, turning a pcap into pcapng
+first. The vectors in `capture/tls/vectors` are RFC 8448's simple handshake and sessions between
+two OpenSSL endpoints in one process. F3 adds the key log named after the capture
+(`borg-app::network::capture::key_log_beside`).
+
+Recording keys: the dialog's **TLS keys** sets `CaptureRequest::tls_keys` to a `TlsKeys`:
+`Shell`, or `Proxy` with the `Authority` from `[network] proxy-ca`. Once tcpdump runs, the app
+creates the empty `.keylog` beside the capture and sends `Msg::CaptureKeys`, with the proxy's
+`ProxyEndpoint` in proxy mode. `network::shell_variables` types the assignments
+(`export A='…' B='…'`, fish: `set -gx A '…'; …`) at the host shell's prompt through the same
+visible path as the tcpdump install command: `SSLKEYLOGFILE`, or `HTTPS_PROXY`, `https_proxy` and
+the four CA bundle variables. `ShellVariables` keeps the values Borg inherited and which names it
+set, and the end of the capture types the line that restores them, or waits in
+`sync_shell_variables` until the shell is free. The app then embeds the key log's lines for the
+capture's ClientHellos with `with_secrets` (`embed_keys`), turning a pcap into pcapng, and keeps
+the key log. The decryption itself only reads key log text, so any source of standard key log
+lines works the same way.
+
+The proxy (`borg-app::network::proxy`) listens on `127.0.0.1:0` for the length of the capture. It
+reads a `CONNECT` head with httparse, connects to the target, and peeks at the first byte of the
+tunnel: anything other than a TLS handshake is copied as it is. For TLS, `LazyConfigAcceptor`
+reads the ClientHello, the upstream connection offers the client's ALPN and is checked with
+rustls-platform-verifier (with the folder CA as an extra root), and only then does the proxy
+answer the client with a leaf for the SNI that `proxy::authority` signs and caches, speaking the
+protocol upstream chose. Both legs share one rustls `KeyLog` that appends to the capture's key
+log. The temporary CA's key never leaves memory; the trust bundle (the CA, then
+rustls-native-certs' system roots) is written 0600 as `trust-<pid>-<capture>.pem` in the runtime
+folder and removed when the proxy drops, and `runtime_leftovers` removes the bundles of ended
+processes. Each tunnel reports `Event::Opened`; the app finds the client socket's process with the
+sampler and sends `Msg::CaptureProxied`, and `SeenSockets::view` gives the upstream conversation
+that process in place of Borg's own socket. Leaves last 30 days and are backdated an hour, inside
+the 825 days macOS allows for TLS server certificates. `proxy/tests.rs` runs a service signed by
+a generated development CA and checks the echo, ALPN, both sessions' key log lines, a client that
+refuses the CA, an upstream that fails verification, a plain tunnel and the 502 answer.
 
 A capture as administrator goes through `network::capture::elevated`. Borg listens on a Unix
 socket in a 0700 temporary folder and asks osascript (macOS), or pkexec or else `sudo -n`
@@ -238,6 +474,184 @@ moving the shell to the panel's folder first, so the next command end is the ins
 `install::finished` turns its exit code into a notice. Another program joins as a `Tool` variant
 with its package name for each manager and its own dialog text.
 
+### Startup items screen
+
+`borg-core::startup_items` owns the screen and everything about startup items that needs no
+disk: `startup_spots` lists the folders and files each system starts programs from, `parse_startup`
+turns a property list (XML or binary, read by its own small reader), crontab, anacrontab, systemd
+unit, desktop entry, script, shell file, preload list or `authorized_keys` into entries with what
+they run, their program, when and as whom, and `newest_first` and `startup_filtered` order and
+narrow the items. Its tests read fixtures in `startup_items/fixtures`. `borg-app::startup_items`
+does the reading on a blocking worker: each place as the user Borg runs as, units that `.wants`
+and `.requires` folders link to, the user's own crontab through `crontab -l` when the crontab
+folder is closed, owners and change times, whether each program exists, and the rules each file
+and program match through `rule_scan`, each program once. Programs on macOS's sealed system
+volume are not scanned. The agent's `read` source `startup` returns the same report as text.
+
+### Process watcher
+
+`borg-core::watch` owns everything about the watcher that needs no system: `StartedProcess` is what
+Borg knows of a process the moment it starts (program and whether its file was deleted, command,
+user, terminal and the process that started its session, what standard input, output and error lead
+to, preload variables, and the chain of parents), `examine` applies the ten rules to one of those
+and returns `Finding`s that say in plain words why they fired, `Baseline` holds which parent starts
+which program here and the learning period, `decide` says what to do about a finding with the
+guardrails that keep PID 1, Borg, terminals somebody logged in to and the never-frozen programs
+running (by name only where they lie in a system folder, and `tmux` or `screen` only for root and
+people's accounts, numbered from the `UID_MIN` the app reads in `/etc/login.defs`), and `Watcher`
+ties them together with the limits on alerts and freezes per minute. The alert limit never drops a
+finding Borg freezes for, notices and the findings Borg would have frozen past the freeze limit each
+have a limit of their own, and a start that a rule learning cannot quiet fired on stays out of the
+baseline. Freezing waits until every alert from the learning week that would have frozen has been
+read, or until `REVIEW_DAYS` after learning ends, whichever comes first: `AlertLog::reviewed` says
+when the week has been read, and until then `decide` spares the process with a reason that says so.
+`Alerts` is the page: the log, the filter, the cursor and the keys. All of it is data in and data
+out, tested in `watch/tests.rs`.
+
+`borg-app::watch` does the watching. Events come from Borg's own eBPF programs where it may load
+them ([The eBPF programs](#the-ebpf-programs)), else from the kernel's proc connector over netlink
+(`watch::netlink`, which needs root or `CAP_NET_ADMIN`; parsing is a pure function tested on byte
+fixtures, so its tests run on macOS, and a bounded queue lets the kernel drop events, which the
+reader survives, when the watcher falls behind), from the root watcher while it is connected, or from
+looking at the user's own process list four times a second (every process's when Borg runs as root,
+and in the root watcher on a kernel without the proc connector, which says so with
+`FromRoot::Polling`). Looking finds forks along with programs that start, so a copy of its parent
+(the same program and command) is no start: it teaches the baseline nothing, and only the rules
+learning never quiets judge it, since a forced library or a socket can be the copy's own.
+`Processes::started` gives nothing for the kernel's
+threads and for a process that ended before Borg could read it, and keeps the link in a system
+folder a process was started by, such as `/usr/bin/awk` for `mawk`, resolved inside the process's
+own root, so the name rule leaves it alone. `watch::facts::Processes` reads `/proc` and takes its
+folder as an argument, so its tests run against a folder of fixtures on any system; a process is
+identified by its number together with its start time in clock ticks since boot, read again before
+Borg acts. `watch::freeze` sends the stop, continue and kill signals to a process and its
+descendants, parents first, checking identity before each one. `watch::log` keeps `alerts.json` (the
+newest 200 alerts, and beyond them any about a process still frozen), `watch-baseline.json` and `watch-allowed.json` in the state folder, owner-only,
+named by constants in `borg-core::storage` so the Borg's files window and the cleanup rules know
+them. The watcher writes the baseline and never the allowances, while the Alerts page writes the
+allowances and never the baseline, so neither can lose what the other wrote; the watcher takes in
+new allowances on its own tick, once a minute. Both sides change `alerts.json` and
+`watch-allowed.json` through `watch::log`, which locks `watch.lock` in the state folder, reads the
+file fresh, changes it and writes it back, and refuses to write over allowances it cannot read, so what the page marked read or let go on survives the watcher's
+next alert, and the watcher rereads the log once a minute to learn whether the week has been
+reviewed. `AlertLog::add` keeps each command at most `COMMAND_KEPT` bytes, its start and its end, and
+`watch::log::write_log` drops the oldest alerts until the file fits the bytes Borg reads back, so
+nothing a process puts on its command line can make the log unreadable. A writer that finds a log it
+cannot read renames it to `alerts-unreadable.json` first (`load_log`), and the new log names that
+file while it exists; reading for the page never moves anything. A thread of its own hashes the program and runs the rules over it for each alert, so a
+large program does not hold up the processes that start meanwhile; the alerts are written with the
+connections first and take in the hash and matches when they come. The watcher runs inside
+`borg service run` and nowhere else, so one Borg decides and the others read the log; a Borg with
+the page closed follows the log every 5 seconds for the count of unread alerts.
+
+`watch::notify` sends alerts off the machine as they happen, to the places `[watch.notify]` names: a
+Telegram bot, an ntfy topic, a webhook and a heartbeat URL. Configuration parsing refuses an address
+that is neither `https://` nor `http://` to the machine itself, and an ntfy address without a topic.
+The watcher hands each event to a sender on a thread of its own, so a slow place never holds up the
+watcher. A static lock keeps a sender started with new settings from writing the outbox while the
+old one finishes, and a counter of senders started tells the old one to stop sending after the
+message in hand. Each place has its own chain: a message's `seq` is one higher than the last one to
+that place and `previous` is the SHA-256 of that message's exact body, which is why the outbox
+(`watch-outbox.json`, owner-only, at most 500 messages, each tried for 48 hours) keeps bodies as
+sent. A message cuts a command line, a program's path and an alert's reason to 1,000 bytes, keeping
+the start and the end. The writer gives up on the oldest messages until the file fits the 16 MiB it
+reads back, and an outbox the sender cannot read is renamed to `watch-outbox-unreadable.json`
+before it starts a new one, so nothing waiting in it is overwritten. The chain shows loss and changes on the way; it lives on the watched machine, so it cannot
+show what someone who controls that machine does before a message leaves. A place's messages go
+oldest first and stop at its first refusal, so they arrive in order, and a place taken out of the
+configuration leaves nothing waiting. The program's hash and rule matches follow an alert to the
+webhook alone, as `evidence`. The heartbeat adds `/fail` when the examiner's channel is closed, a
+message has waited 30 minutes, Borg gave up on one since the last beat, or it found an outbox it
+could not read, and names each refusing
+place with its HTTP status only, since the heartbeat goes to a service of its own. Building
+messages, the chain and the waits are pure functions; `watch::notify::deliver` does the HTTPS with
+`ureq` and takes each place's token and the key part of its address out of every error. Its tests
+post to a server on `127.0.0.1`. `borg service watch notify` sends a test message outside the chain.
+
+The watcher is Linux only in this release. macOS needs `eslogger` and is a separate change.
+
+### The eBPF programs
+
+`crates/borg-watch-ebpf` holds the programs the watcher loads into the Linux kernel, and the layout
+of what they send. `crates/borg-app/build.rs` builds `src/kernel.rs` for `bpfel-unknown-none`
+through `aya-build`, with the nightly compiler it names, and the `borg` binary embeds the result.
+Built for anything else, the crate's binary is empty, so the workspace builds and lints on stable
+everywhere. `src/lib.rs` is the layout both sides share: `Exec` and `Parent` are `#[repr(C)]`, and
+Borg reads records by `offset_of!` on them, so the reader cannot drift from what the kernel writes.
+`kernel.rs` holds the eBPF side's `unsafe` code: every read the kernel allows a program goes through a
+raw pointer, and the kernel's verifier checks each one before it loads the program. The crate denies
+`unsafe_code`, and only `kernel.rs` allows it.
+
+Three programs run at tracepoints. `sched_process_fork` remembers each new task's parent and start
+time in an LRU map and `sched_process_exit` forgets it. `sched_process_exec` sends the program start
+with the process, its parent, its user, the name it took, the path it was started by, the file the
+kernel ran and the first 4 KiB of its command line. It reads the command line from `mm->arg_start`
+to `mm->arg_end` of the current task, where the kernel has just copied it into the new program's
+memory, so the pages are there to read. Reading the caller's `argv` at `sys_enter_execve` fails
+whenever those pages need a fault first, which `bpf_probe_read_user` cannot take, and a forked child
+often starts that way. It names the file by climbing from `mm->exe_file` through each `dentry`'s
+parent to the root of the mount namespace, crossing from a mount's root to its mount point, as
+`d_path` does; it writes the names from the file up and Borg puts them in order. A file whose inode
+has no links (a memfd, or a file deleted before the exec) is marked as one. Records go through one 4
+MiB ring buffer, a counter on each processor counts the records that found no room, and the reader
+says so in the service's log at most once a minute.
+
+The programs take what they need to know about the running kernel as globals, which `watch::ebpf`
+fills in before it loads them, so they hold across kernel versions. The offsets of the tracepoint
+fields come from the kernel's own `format` files in tracefs. The offsets of the members the programs
+follow (`task_struct.mm`, the argument area and `exe_file` of `mm_struct`, and the members of
+`file`, `path`, `dentry`, `qstr`, `inode`, `vfsmount` and `mount` the climb needs) come from
+`/sys/kernel/btf/vmlinux`, which `watch::ebpf::btf` reads with its own small parser, following
+anonymous structs and unions the way C does. Without BTF those offsets stay zero: the command line
+comes from `/proc`, and the program is the path it was started by. The climb keeps its byte count in
+the record, where the verifier tracks no value, so every way through a step looks the same to it and
+it checks each step once; with the count in a register the verifier gives up after a million
+instructions. Where Borg runs in a pid namespace of its own, the programs report only that
+namespace's processes, by its numbers.
+
+`watch::ebpf` reads records and merges what the programs read with `/proc`, all as pure functions
+tested on any system. `/proc` gives the streams, the terminal, the preload variables and the
+parents. The command line from the exec replaces one the process rewrote, unless the programs cut it
+short. A process whose `/proc` entry runs another file than the one the kernel ran has started a
+later program, so the programs' program and command line win; without that file, another name and
+another file than the path leads to say the same. A process that runs a deleted file never counts as
+one that moved on, so renaming itself cannot clear **Program deleted while it runs**. A `/proc`
+entry that started after the exec belongs to a later process with the same number, and a process
+gone from `/proc` is reported from the programs alone, its start counted in clock ticks from the
+fork. `watch::ebpf::load` (Linux, `cfg(borg_ebpf)`) loads and attaches the programs with `aya` and
+reads the ring buffer on a thread of its own, letting each record go before it waits for the
+watcher. The watcher tries eBPF first, then the proc connector, then looking at the process list,
+and `WatchSource::Ebpf` and `FromRoot::Ebpf` say when it is eBPF.
+
+The programs need Linux 5.8 for the ring buffer, `CAP_BPF` and `CAP_PERFMON`. The kernel lends its
+tracing helpers only to programs with a GPL-compatible license string, so the object declares
+`Dual MIT/GPL`. CI loads them on the runner's kernel with `sudo` in
+`the_programs_load_and_report_a_command_that_ends_at_once`. To try them by hand, run that test
+binary as root, or in a container with `--cap-add BPF --cap-add PERFMON` and `/sys/kernel/tracing`
+mounted. Run it in the container's own pid namespace, since the programs see every process of the
+machine they run on.
+
+### The part that runs as root
+
+The watcher is the first part of Borg that may run as root for a long time, so it is kept as small
+as it can be. `borg service watch install` installs `borg-commander-watch.service`, which runs
+`borg --watch-root SOCKET UID` (`borg-app::watch::root`). That process loads the eBPF programs, or
+hears the kernel's process events where it cannot, reads `/proc`, and stops, continues or ends a
+process when Borg asks it to. It does nothing else: no file manager commands, no reading of file
+contents, no network, and the unit sets `NoNewPrivileges` and bounds its capabilities to
+`CAP_NET_ADMIN`, `CAP_KILL`, `CAP_SYS_PTRACE`, `CAP_DAC_READ_SEARCH`, `CAP_BPF` and `CAP_PERFMON`.
+`LimitMEMLOCK=64M` covers kernels before 5.11, which count the programs' memory as locked memory.
+
+The two sides talk in lines of JSON over a Unix socket in the user's state folder, mode 0600.
+Borg accepts a connection only from a peer whose user is root, and the root part connects only to
+a socket owned by the user it was installed for. Borg's own interface stays unprivileged and
+writes the log itself, so nothing root-owned is left in the user's folders. Anything the root part
+sends is data: it reports processes and the outcomes of what it was asked, and Borg never runs a
+command on its behalf.
+
+When adding to the root part, keep that shape. It should read, report and signal, and the list of
+things it may be asked to do stays in one enum (`watch::root::Act`).
+
 ### Editor
 
 F4 opens `borg-core::editor`, a full-screen editor over `borg-edit::Buffer`: a rope with a
@@ -259,14 +673,27 @@ batches, coalesces obsolete requests, and stops at the documented match limit. Q
 generations reject late messages; the update loop and renderer perform no search I/O.
 
 `borg-core::query` parses the search language and matches entries; `name_search` resolves a
-request's `hidden:` and `excluded:` switches against the window's settings in core, so the
-worker only applies them. The worker walks with the `ignore` crate: ignore files, configured
+request's `hidden:`, `excluded:` and `typos:` switches against the window's settings in core, so
+the worker only applies them. `borg-core::close_match` finds names with typos, shuffled digits
+and left out letters: two letter bit masks reject most names before the edit distance runs, and
+`MatchRank` orders the tiers. `Results` keeps each entry's rank for the match sort, and the index
+ranks its hits the same way. The worker walks with the `ignore` crate: ignore files, configured
 globs as overrides, and a `filter_entry` that drops hidden names and generated folders
 (`borg-core::exclude`, plus `CACHEDIR.TAG`). A dropped folder is still tested against the query.
 A contents search compiles the find bar's `borg_view::Query` once, and the worker reads each file
 whose name matches through `borg-core::contents`, which leaves binary and oversized files unread
 and cuts the first matching line to a preview. Those files travel in `Msg::Found`, each with its
 line, and `Results::lines` keeps them by path for the panel and for F3 to land on the match.
+A rules search (`SearchKind::Rules`) reads each matching file through `rule_scan::scan_file` with
+the same size limit, and on Linux with `O_NOATIME`. Its files travel in `Msg::RuleHits` with the
+rules they matched, and `Results::rule_hits` keeps them by path; F3 lands on the worst rule's
+evidence, as text up to its line break or as a byte regex. A packed-executables search
+(`SearchKind::Packed`) asks `borg_view::executable::code_ranges` for the parts of an ELF, Mach-O
+(thin or universal) or PE file that the loader maps executable, and `entropy::code_tally` measures
+up to 1,024 blocks spread over them. Files whose tally `looks_packed` (at least `PACKED_SHARE` of
+the blocks high) travel in `Msg::PackedHits`, `Results::packed` keeps the tallies, and F3 opens hex
+rows at the first high block through `viewer::Landing::Bytes`. Searches that read files check each
+entry's real kind first, so a named pipe is never opened.
 Name-only queries match on what the listing gives and read metadata for matches alone. The
 search history is core state saved owner-only as `search-history.json` in the state directory.
 
@@ -286,10 +713,12 @@ summaries into a staged SQLite index with bounded page memory, then publishes it
 atomically. Root and immediate children seed a tree; generation-tagged requests
 load expanded branches from the index. Display limits do not truncate the index.
 Direct-file totals explain bytes outside child directories. `borg-core::measure`
-tracks one independent background size task with generation-tagged updates. A separate
+measures one folder at a time with generation-tagged updates. Each Alt-I or F3 count is one
+`JobKind::Sizes` job; a count of several marked folders measures them one after another under
+that job, and a count started while another runs waits in `AppState::waiting_sizes`. A separate
 worker in `borg-app::search` reuses the same scanner, streams completed folder totals
 into matching normal-panel paths, and publishes the same complete cache. Navigation
-and result searches leave it running; starting a file job cancels it before cache
+and result searches leave it running; starting a file job cancels every count before cache
 invalidation. Completion refreshes normal listings without replacing result panes. Core tree state owns
 branches and selection. Measurements are
 explicitly dated observations, never validated as fresh by directory mtimes. Job start
@@ -315,10 +744,145 @@ records before reading metadata.
 Mirror display and input use separate tasks and connections. Input bursts are batched in a
 bounded queue; frame requests wait on the host for new PTY output, outside the service loop
 and child lock. A viewer more than 64 KiB behind receives a snapshot of the visible grid,
-cursor, and attributes instead of the backlog. A copy made while a viewer controls the session
-travels with that viewer's next frame as a base64 `clipboard` field, which the viewer passes to
-its terminal as OSC 52 after checking it is plain base64; view-only viewers never receive it.
+cursor, and attributes instead of the backlog. The controlling viewer sends `mirror_resize` with
+its window less the two banner rows. The service resizes the child's PTY to it. A regular session
+keeps its own terminal and, where the viewer's window is smaller, draws the whole screen into the
+top left of that terminal at the viewer's size and publishes that area as the mirror's frame; it
+fills its terminal again once control returns to it or the viewer lets go. A copy made while a
+viewer controls the session travels with that viewer's next frame as a base64 `clipboard` field,
+which the viewer passes to its terminal as OSC 52 after checking it is plain base64; view-only
+viewers never receive it.
+The viewer does not trust a frame's bytes. `mirror::host_output` passes only text, the cursor,
+color, erase, scroll and private mode sequences Borg draws with, a clipboard copy while that viewer
+has control, and inline images sent as data, with kitty images marked `q=2` so the terminal stays
+quiet. It drops everything the terminal would answer, such as status, color and clipboard
+queries, along with titles, links, images read from a file, plain modes such as keyboard lock,
+and any sequence cut short.
 Copies also stay in `borg-core::clipboard`, so Ctrl-V works in Borg's own fields anywhere.
+
+The hosts overview asks each paired host `host_info` with `{"overview": true}`. A host that knows
+the argument adds an `overview` field holding `HostFigures`: CPU use since its last answer (it keeps
+one `sysinfo::System` while a computer asks again within 30 seconds), the load, memory and swap
+totals, the fullest local filesystem that holds files, the watcher's unread counts from its alert
+log, and container counts from `docker ps`, kept for 30 seconds. It skips network filesystems and
+gives up on the filesystems after 2 seconds. `Served` answers `host_info` itself, so the overview
+never starts a session or waits for approval, and an older host ignores the argument. On the client,
+`host_watch` keeps one monitor channel per host between rounds, asks 8 hosts at a time, and tells a
+timeout from the relay's offline close code, which `relay::dial` returns as `relay::Offline`. Each
+round first calls `link::unlock_keys`, so a Touch ID prompt for the computer keys does not count
+against a host's 5 seconds. The `hosts` tool in `borg mcp` (the routing backend only) asks once the
+same way with `ask_once`, feeds the answers to a `borg_core::Hosts` exactly as the page does, all
+stamped with the moment the last one came, and turns its rows into `host_reports`: the text answer
+and the same reports as `structuredContent`, which `Reply` carries in `structured`. `structured` is
+never serialized, so a host's reply cannot fill it. `host_reports` puts a host's own text (version,
+system, mount, session names, errors) on one line of at most 200 characters, leaves out session IDs
+that are not one visible word, and keeps 50 sessions per host. Concerns come from
+`HostFigures::concerns`, which the cards' colors use too.
+
+Every channel opens with a hello: `pair`, `session` (an agent, a mirror or a panel), `viewer`, or
+`monitor`. A monitor channel may only call `host_info` and `list_sessions`, and `rotate` like a
+session, so the page moves hosts to a new computer key; the host counts no client for it and notes
+in its log that the computer reads, once an hour per computer key (`Served::reads_noted`). A Borg
+from before monitors answers the hello with `unreadable hello`, which `connect` turns into
+`HelloUnknown`, and `Remote::open_monitor` then opens a session channel instead. The Alt-H picker reads hosts over monitor channels too.
+A borg opens a viewer channel for each host session one of its panels mounts (`host_asks`) and
+long-polls `asks_wait` with the version it has. The host answers with an `AskFeed` as soon as its
+`AskBoard` changes, or after 15 seconds: the asks that wait, the last 32 that ended and how, the
+computers Approve all is on for, and the controller when another computer holds the native
+mirror. Answers (`asks_answer`) and `asks_stop` go on a viewer channel opened for each, on a task
+of their own, so they never wait behind a poll and a dropped poll or a closed panel does not lose
+them. The viewer remembers the asks it answered or closed by the host's run and number, so a
+host that restarts shows its new asks even when they reuse a number. The host takes the three `asks_*` calls only on a viewer channel and
+refuses every other call there. `Caller` marks them with `viewer`, which `Call::external` clears,
+so an agent's socket call or session channel cannot claim it. An answer names the host's run, a
+random ID for each process, and the ask's number, and counts only while that ask still waits and
+no other computer controls the session; `borg-core::agent::forward` holds that check and the
+first answer wins logic. `borg mcp` forwards only the tools it lists, so an agent cannot reach
+mirror, console, panel or viewer calls. With the background service, asks reach each session's Borg
+over its registration, which keeps the origin, approval and viewer marks. An agent socket always
+clears those marks. These checks keep Borg's own connections apart. They cannot stop an agent that
+runs programs under your account on the viewer's computer: it can read the pairing key in Borg's
+state folder or send keys to the terminal Borg runs in, so give such an agent a sandbox when its
+requests matter.
+
+Each Borg registers its session with the service over `service.sock` in the state directory, and
+both sides then exchange JSON lines (`service::member`, `service::wire`, `service::members`). A
+registered Borg leaves borg cloud to the service. The service sends a call to the session it
+names, or to the one used last, and starts that session first when it runs nowhere.
+
+The first `borg` starts `borg service run --on-demand` unless `start-service` is false, and that
+service ends 30 seconds after its last session goes. An installed or supervised service keeps
+running and takes over from an on-demand one. Only sessions marked `background` in
+`sessions.json` run inside the service. The test fixture sets `start-service = false`, so
+end-to-end tests that need the service start it themselves.
+
+A newer program file moves a running Borg without ending it (`relaunch`). The old image execs the
+program file with `--resume` and carries its open files over a socketpair that stands in for
+standard output: the real standard output, an unlinked file with a JSON record, and the locks and
+PTYs the record names by place (`app::carry`, `service::carry`). The new image reads them and puts
+standard output back. The service moves between requests, when `borg update` asks over
+`service.sock` (`service::follow`) or a paired computer sends `host_update`. Its listening socket
+stays behind, because macOS empties a listening socket in flight once the old image's sockets
+close; the new service binds `service.sock` again and Borgs register again. A Borg that registers
+with an older version gets `Relaunch` and moves once no job, unsaved file or agent request holds
+it. A guard started from `.borg.previous` with `--guard-update` waits 60 seconds for the service to
+answer as the new version, and otherwise puts the previous program file back, ends the process and
+starts the service again when it ran on demand. A mirror that loses its host connects again for
+up to 100 seconds (`mirror::reconnect`).
+
+A borg keeps two kinds of keys in the `link` folder of its state folder. The server key, `key`,
+identifies it to the computers paired with it and loads by itself. A borg that reaches servers
+proves itself with a computer key of its own, which `link::keys` loads once per process, together
+with the keys it retired while some server may still take them. `computer.json` holds the current
+key's public half and when it was made, and `computer.lock` serializes making keys and changing
+`servers.json`. Each `servers.json` entry records the computer key that server takes (`computer`)
+and a key sent in a `rotate` whose answer did not arrive (`offered`). `Remote::open_as` tries the
+offered key, then the one the server takes, then the current one. On a session channel to a server
+whose answer to the hello sets `rotation`, it sends `rotate` with the new public key and a proof:
+an HMAC over the channel's handshake hash and the new key, keyed through HKDF from
+DH(new private, server public) with the label `borg-link rotate 1`. The server checks the proof,
+swaps the key in that computer's entry, keeps its name, saves `computers.json`, and shows a notice
+with both fingerprints; `Caller` ends sessions on the old key at their next message. A computer
+that every key fails on gets the `cloud_key_refused` message.
+
+Where the computer keys live depends on the state folder. When it is the usual one
+(`StateDir::default_root`), a Mac keeps them in a login keychain item, service `Borg Commander` and
+account `computer key` (`link/keychain.rs`), whose access list trusts only the borg binary that
+made it. Before the first read in a process, `borg-local-auth` asks LocalAuthentication for Touch ID
+or the password, and a refusal or a session without the Mac's screen ends the load with a message.
+A `computer-key` file found there moves into the keychain, merged around the key `computer.json`
+names, and is deleted.
+
+On Linux, the usual state folder keeps the computer keys in `computer-key.sealed`
+(`link/sealed.rs`), JSON with `format: 1`. A random data key seals the key text with
+XChaCha20-Poly1305, and a password slot seals the data key under Argon2id v0x13 with a random salt.
+The slot records its cost: an eighth of the machine's memory, clamped to 64 MiB to 1 GiB, 3 passes
+and 4 lanes. An optional agent slot seals the data key again, under HKDF-SHA256 of an ssh-agent
+signature over `borg-commander unlocks this computer's key 1 ` followed by the slot's salt, and
+names the agent key by its fingerprint. Only `ssh-ed25519` and `ssh-rsa` keys qualify, RSA asked
+for SHA-256, and `borg unlock --ssh-agent` signs twice to refuse a key whose signatures change.
+Each box's associated data names what it holds, so a box cannot stand in for another.
+
+`link/unlock.rs` opens the file with the data key held from earlier, then the agent slot, then a
+password from the terminal when the command allows one (`link::ask_in_terminal`; `borg unlock`
+reads lines from stdin when it is no terminal). Otherwise it sends `Msg::ComputerKeyLocked` to the
+TUI once, which opens a masked prompt and answers with `Effect::UnlockComputerKey`, and the load
+fails with `KeyLocked`. A plain `computer-key` file found there is sealed under a new password the
+first time a terminal can ask for one, and is deleted. `link/unlocked.rs` holds the data key per
+state folder in the user keyring, as a `user` key described as `borg-commander:` and 16 bytes of
+SHA-256 of the canonical state path, with possessor and user permissions only and a 12-hour
+timeout that each recall renews. Borg uses the keyring only when the session keyring links the
+user keyring, as pam_keyinit sets up for logins: without that link, the kernel lets a process add a
+key there but not read it back or set its timeout. Elsewhere, as in Docker containers, systemd
+services or wherever seccomp blocks keyctl, `borg --key-agent STATE` holds the key instead. That
+process reads the hex key from stdin, marks itself not dumpable, answers `get`, `put HEX` and
+`forget` lines on the 0600 `link/unlocked.sock` for peers with its own uid, and exits after 12
+hours without a request or on `forget`. A recall tries the keyring and then the agent, `borg lock`
+forgets the key in both, and `borg unlock` fails when neither holds it. The suggested password is 4 words from `link/words.txt`, the
+2,048-word BIP-39 English list as rust-bip39 ships it under CC0, which gives 44 bits.
+
+Everywhere else, including every test, the keys are a 0600 `computer-key` file. `computer_keys`
+loads them on a blocking thread, one load at a time, so parallel connections ask once.
 
 `scripts/remote-latency.py` measures a paired host from a source checkout without taking
 control or sending keys:
@@ -331,6 +895,20 @@ It prints connection time, status round trips, and full-screen and subsequent fr
 as JSON lines, with byte counts but no screen contents or identity keys. `--sizes 1x1,20x5,150x60`
 compares response sizes; a failed frame is followed by a fresh status connection to tell a
 stalled display from an unreachable host.
+
+### Borg's own files
+
+`borg-core::storage::leftovers` decides what is left over from a listing of Borg's folders, given
+the time, this version, whether the runtime folder was idle at start, which processes run and
+which sockets answer. The rules match file names Borg writes, and a name they do not know is
+never left over. `borg-app::storage` lists the folders, answers those questions, measures each
+place for the Borg's files window and `borg storage`, and cleans up 30 seconds after start and
+then at the interval of the runtime TTL refresh. Saved captures are remembered in `captures.json` in
+the state directory, owner-only, newest first.
+
+When you add a file or folder that Borg writes, name it with a constant the rules can share, add
+the rule and a test in `borg-core::storage`, and check the place it is measured under. A file
+the rules do not know is never cleaned up and never shown as left over.
 
 ### Interface text
 
@@ -416,7 +994,7 @@ Rules of thumb:
 - Never sleep. Wait for what you expect to see (`wait_text`, `wait_until`, `wait_gone`).
 - `settle()` waits for the screen to stop changing. Avoid it while something animates
   forever (the About screen, a screensaver); wait for a condition instead.
-- Fixtures disable update checks. Use `fixture.configure("...")` to add settings.
+- Fixtures turn off update checks and hidden files. Use `fixture.configure("...")` to add settings.
 - `BORG_TEST_TIMEOUT_SECS` raises the wait timeout on slow machines (CI uses 30).
 
 ### On CI
@@ -426,7 +1004,8 @@ its own, and the `ci` profile in `.config/nextest.toml` retries a failed test up
 test that fails all 3 attempts fails the job and shows as an error on the run. A test that
 passes on a retry keeps the job green and shows as a warning, with the output of the attempt
 that failed. A warning still means the test depends on timing somewhere, so fix it when you see
-one. To run the suite the way CI does, install nextest with `cargo install cargo-nextest
+one. On Linux, CI installs the eBPF tools with `scripts/install-ebpf-tools.sh` and then runs the
+test that loads the watcher's programs into the runner's kernel with `sudo`. To run the suite the way CI does, install nextest with `cargo install cargo-nextest
 --locked` and run the same command.
 
 ### Screenshots
@@ -496,26 +1075,62 @@ borg uses semantic versioning. The version lives once, in `[workspace.package]` 
 - checks that the tag matches the crate version (`scripts/check-version.sh`),
 - builds static Linux binaries (musl, x86_64 and arm64, with `cargo zigbuild`) and macOS
   binaries (Intel and Apple Silicon),
+- signs the macOS binaries ad hoc with the hardened runtime and
+  `packaging/macos/borg.entitlements`, then checks that they load only system libraries
+  (`scripts/sign-macos.sh`); the debugger entitlement keeps memory reading as administrator
+  working, and Borg running as you never asks macOS for another process's task port,
 - packages each as `borg-<version>-<target>.tar.gz` with a `.sha256` file
   (`scripts/package.sh`),
+- signs every `.sha256` file with the Ed25519 key in the `RELEASE_SIGNING_KEY` secret and
+  attaches the result as `<archive>.tar.gz.sha256.sig` (`scripts/sign-release.sh`); the step
+  fails when the secret is missing or its public half is not in `RELEASE_PUBLIC_KEYS`,
 - creates the GitHub release with generated notes and attaches everything,
-- renders the Homebrew formula from `packaging/homebrew/borg-commander.rb.in`
-  (`scripts/homebrew-formula.sh`) and, when the `HOMEBREW_TAP_TOKEN` secret is set, pushes it
-  to the tap repository (`vars.HOMEBREW_TAP`, default `0xcd21h/homebrew-tap`).
+- renders the Homebrew cask from `packaging/homebrew/borg-commander.rb.in`
+  (`scripts/homebrew-cask.sh`) and, when the `HOMEBREW_TAP_TOKEN` secret is set, pushes it
+  to `Casks/` in the tap repository (`vars.HOMEBREW_TAP`, default `0xcd21h/homebrew-tap`)
+  (`scripts/publish-cask.sh`).
+
+Borg ships to Homebrew as a cask because the archives hold prebuilt binaries: Homebrew installs
+a cask without the developer tools that a formula without bottles needs. The cask links the
+binary as `borg` and `borgcmd`; Homebrew skips the `borg` link where BorgBackup's formula owns
+it. Homebrew quarantines cask downloads, and the binary is signed ad hoc without notarization,
+so a step in the cask's `postflight_steps` removes the quarantine attribute from the binary.
+The publish script also deletes the old `Formula/borg-commander.rb` and writes
+`tap_migrations.json`, which moves anyone who installed the formula to the cask on their next
+upgrade.
 
 One-time setup for Homebrew: create the public repository `homebrew-tap` and add a
 fine-grained token with *Contents: read and write* on it as the `HOMEBREW_TAP_TOKEN` secret of
 this repository. Users then install with `brew install 0xcd21h/tap/borg-commander`.
 
-Without the tap token, GitHub Releases still publishes the binaries and the generated formula
-is saved as a workflow artifact. After adding the token, run the **Publish Homebrew formula**
+Without the tap token, GitHub Releases still publishes the binaries and the generated cask
+is saved as a workflow artifact. After adding the token, run the **Publish Homebrew cask**
 action with the released version (for example `0.2.0`) to publish it without making another tag.
 
 `borg update` and the daily check live in `crates/borg-update`: they read the latest release
 from the GitHub API, pick the archive for the target borg was built for (`BORG_TARGET`, set by
-`crates/borg-app/build.rs`), verify the checksum and swap the binary in place. GNU Linux builds
-can also update to the published static MUSL build for the same architecture when no exact
-target archive is available.
+`crates/borg-app/build.rs`), verify the signature and the checksum, and swap the binary in
+place. GNU Linux builds can also update to the published static MUSL build for the same
+architecture when no exact target archive is available.
+
+The signature is the 64 raw bytes of an Ed25519 signature over the checksum file, which holds
+the archive's SHA-256 and its name. The name carries the version and the target, so a signed
+checksum from another release or platform is refused. Signing the checksum file keeps the
+signing step small: it never reads the archives. The trusted public keys are
+`RELEASE_PUBLIC_KEYS` in `crates/borg-update/src/signature.rs`, 64 hex digits each, and a
+signature from any of them is accepted. The private key exists only as the
+`RELEASE_SIGNING_KEY` secret (a PEM file from `openssl genpkey -algorithm ed25519`) and in the
+owner's own backup. `borg update` refuses a release whose signature is missing or was made
+with a key that is not in the list, and a build with an empty list refuses every update.
+
+The list holds more than one key only while the signing key changes: one release, signed with
+the old key, adds the new key, and later releases are signed with the new one. A copy older
+than that release cannot check the latest one. `borg update` then reads the 30 newest releases
+(`RELEASES_URL`), installs the newest one above its own version that it can check, and asks to
+be run again. That copy knows the new key and finishes the update.
+
+Versions released before signing check only the checksum, so the first signed release reaches
+them that way. Every later update is checked against the key.
 
 Archive downloads have an explicit 128 MiB limit; release metadata and checksum downloads
 have smaller limits. Borg 0.8.2 and earlier read downloads with the HTTP library's 10 MiB
@@ -526,9 +1141,131 @@ default, so they cannot download a larger archive and update by installing again
 - No comments in code: names, types and small functions carry the meaning.
 - No magic values: name constants, keep them next to their use.
 - Prefer pure functions and data in, data out. Side effects belong in `borg-app`.
-- Keep `unsafe` out (`unsafe_code = "forbid"` in the workspace lints).
+- Keep `unsafe` out (`unsafe_code = "forbid"` in the workspace lints). The eBPF programs
+  ([The eBPF programs](#the-ebpf-programs)) and `borg-local-auth`, whose Objective-C calls into
+  LocalAuthentication are all `unsafe`, are the two exceptions.
 - New behaviour comes with a test at the lowest layer that can catch it; anything a user sees
   also gets a render snapshot.
+
+## Configuration file
+
+`borg-app::config` holds the settings as structs, one per section of `config.toml`, and
+`config::document` reads and writes the file itself. The file is read setting by setting: a
+setting Borg does not have, or a value it cannot use, is left out and told to the user with its
+line, and everything else still loads. Saving changes only the settings that changed, so the
+user's comments, their order and settings Borg does not know stay as they wrote them. Only a file
+that is not TOML fails, and the next save keeps it as `config-unreadable.toml`.
+
+To add a setting, add a field to the section's struct with its default and describe it in the
+guide's sample, which a test loads and expects no remark about. To retire one, remove the field
+and add a line to `RETIRED` in `config::document`: `dropped("name")` for a setting that is gone,
+or a successor function for one that was renamed or reshaped. Nothing else needs to remember the
+old setting: it loads without complaint, and it leaves the file the next time Borg saves.
+
+## Dependencies
+
+Every crate and npm package ends up on users' machines or in the release build, so each one
+has to earn its place. These rules apply to new dependencies, version bumps and every change to
+`Cargo.lock` or `website/package-lock.json`, including the transitive packages a change brings
+along. Security and maintenance come first. Popularity counts after them.
+
+### Seven days old
+
+Use only versions published at least 7 days ago. Hijacked accounts and broken releases are
+usually caught and yanked within days, and the wait keeps Borg out of that window.
+
+- Cargo has no stable setting for this yet. When `cargo update` picks a version that is too
+  young, pin an older one with `cargo update -p <crate> --precise <version>`.
+- `website/.npmrc` sets `min-release-age=7`, so npm 11.10 and newer only install versions that
+  are at least 7 days old.
+- A fix for an advisory that affects Borg may come in sooner. Add it to `exceptions` in
+  `.config/dependency-age.toml` with the advisory as the reason, for example
+  `{ crate = "rustls-webpki@0.103.16", reason = "RUSTSEC-2026-0382" }` or
+  `{ npm = "astro@7.4.5", reason = "GHSA-xxxx-xxxx-xxxx" }`, and remove the entry once the
+  version is 7 days old.
+
+`scripts/check-dependency-age.py` reads publish times from the crates.io index and the npm
+registry. It also fails on yanked crates:
+
+```sh
+python3 scripts/check-dependency-age.py --base origin/main   # what your branch adds or changes
+python3 scripts/check-dependency-age.py                      # every locked package
+```
+
+### Security checks
+
+Before adding or bumping a dependency, look up the exact version in:
+
+- the [RustSec advisory database](https://rustsec.org/advisories/), through
+  `cargo deny check advisories`,
+- [OSV.dev](https://osv.dev), which collects RustSec, GitHub and other advisories for crates and
+  npm packages,
+- [GitHub security advisories](https://github.com/advisories),
+- [deps.dev](https://deps.dev), for advisories, the OpenSSF Scorecard and dependents,
+- its page on [crates.io](https://crates.io) or [npmjs.com](https://www.npmjs.com): who owns it,
+  whether the repository link leads to the real source, and whether recent versions were yanked
+  or deprecated.
+
+`python3 scripts/check-npm-audit.py` runs `npm audit` for the website. A crate that bundles a C library, such as
+SQLite in `libsqlite3-sys`, also needs the bundled library's version checked against that
+project's own advisories, because RustSec rarely tracks them.
+
+For crates that parse untrusted input, handle cryptography, talk to the network or call C, read
+the parts Borg calls. Look at the `unsafe` blocks and at what `build.rs` does, since it runs on
+every developer's machine and in CI.
+
+### Maintenance and popularity
+
+A dependency must pass all of these:
+
+- No unfixed advisory for the locked version, including RustSec notices that a crate is
+  unmaintained or unsound.
+- A public repository that matches the published package and is not archived.
+- Signs of life in the last 12 months: a release, or commits and answered issues. A small
+  finished crate qualifies when its issues still get answers.
+
+Popularity tells you how many other people would notice a problem first. A crate is too obscure
+when it misses any of these:
+
+- 100,000 downloads in total and 10,000 in the last 90 days.
+- 10 reverse dependencies on crates.io.
+- 6 months since its first release.
+- Two or more owners, or 1,000,000 downloads in total.
+
+An npm package is too obscure when it misses any of these:
+
+- 10,000 downloads a week.
+- 6 months since its first release.
+- Two or more maintainers, or 100,000 downloads a week.
+
+A package that is too obscure comes in only when nothing popular does the job and the security
+and maintenance checks pass. Say why in the pull request, read the code Borg calls, and consider
+whether a small function in Borg would do the job.
+
+### Checks on CI
+
+`.github/workflows/dependencies.yml` runs on every pull request, on pushes to main and every
+Monday:
+
+- the age check for what the change adds to either lock file,
+- `cargo deny --locked check advisories bans sources` with `deny.toml`. It fails on RustSec
+  vulnerabilities, unmaintained and unsound notices, yanked crates, crates from anywhere but
+  crates.io, unused `[workspace.dependencies]` entries and the banned UnRAR crates,
+- `scripts/check-npm-audit.py`, which runs `npm audit` for the website and fails on every
+  advisory that `.config/npm-audit.toml` does not ignore.
+
+When a new advisory fails the check, update the crate or npm package. If no fixed version is
+7 days old yet, or the advisory cannot reach the code Borg runs or the site it builds, add it to
+`ignore` in `deny.toml` or `.config/npm-audit.toml` with the reason, and remove the entry when
+the fix is locked. The npm script names entries that npm audit no longer reports.
+
+The tools follow the same rules: CI pins cargo-deny to a release that is at least 7 days old.
+To run it locally, install the version `dependencies.yml` pins:
+
+```sh
+cargo install cargo-deny --locked --version <version>
+cargo deny --locked check advisories bans sources
+```
 
 ## Documentation website
 
@@ -544,9 +1281,19 @@ python3 scripts/check-public-content.py --site website/dist
 
 Edit `docs/GUIDE.md` for guide content. The generator splits its selected sections into
 searchable pages on every build; do not edit the generated `website/src/content/docs/guide/`
-files. The landing page lives in `website/src/content/docs/index.mdx`. Only the guide and
-an explicit list of fictional showcase screenshots are copied into the site. Build metadata
-comes from `Cargo.toml` and the Git revision. The guide tracks main rather than a release.
+files. The landing page lives in `website/src/content/docs/index.mdx`. Only the guide, the
+icon and an explicit list of fictional showcase screenshots are copied into the site. Build
+metadata comes from `Cargo.toml` and the Git revision. The guide tracks main rather than a
+release.
+
+The icon is Borg's corner badge caught mid-glitch. `scripts/render-brand.mjs` draws the site
+icon, the favicon, the animated README icon and the GitHub social preview into `docs/brand/`.
+Run it again after changing the badge or the glitch, then upload the new social preview in the
+repository settings. It needs Node, `resvg` and ImageMagick:
+
+```sh
+node scripts/render-brand.mjs
+```
 
 The **Publish guide** workflow checks the source, builds the site and search index, checks
 local links, and deploys GitHub Pages when relevant files change on main. Pull requests build

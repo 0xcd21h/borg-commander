@@ -4,11 +4,17 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use borg_rules::{Problem, RuleMatch};
 use borg_vfs::Entry;
+use borg_view::entropy::Tally;
 
 use crate::{Action, AppState, Effect, LineInput, Overlay, Panel, Prompt, PromptPurpose, Side};
 
 pub const RESULT_LIMIT: usize = 20_000;
+/// The share of a program's code blocks with high entropy from which a search lists it as
+/// packed. Code compiled the usual way stays well below; packed or encrypted code fills nearly
+/// all of it.
+pub const PACKED_SHARE: f64 = 0.7;
 pub const COLLECTION_LIMIT: usize = 64;
 const COLLECTION_NAME_LIMIT: usize = 80;
 
@@ -36,6 +42,9 @@ pub struct SearchProgress {
     pub unread: usize,
     pub limited: bool,
     pub cancelled: bool,
+    /// Rules a rules search runs, Borg's own included, and the rule files it left out.
+    pub rules: usize,
+    pub left_out: Vec<Problem>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -46,25 +55,37 @@ pub struct SearchRequest {
     pub options: crate::SearchOptions,
     /// What the search leaves out; `None` searches everything.
     pub skip: Option<crate::SearchSettings>,
+    /// Plain words also find names with typos, shuffled digits or letters left out.
+    pub typos: bool,
 }
 
-/// A name search for `query` below `root`, after the query's own `hidden:` and `excluded:`
-/// switches. Size scans never skip anything, so their totals stay true.
+/// What a name search looks for besides its query: hidden names, what it leaves out, and close
+/// matches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Reach {
+    pub hidden: bool,
+    pub skip: bool,
+    pub typos: bool,
+}
+
+/// A name search for `query` below `root`, after the query's own `hidden:`, `excluded:` and
+/// `typos:` switches. Size scans never skip anything, so their totals stay true, and match
+/// names only as typed.
 pub(crate) fn name_search(
     state: &AppState,
     root: PathBuf,
     query: &str,
-    hidden: bool,
-    skip: bool,
+    reach: Reach,
     options: crate::SearchOptions,
 ) -> Result<SearchRequest, crate::QueryError> {
     let parsed = crate::SearchQuery::parse(query)?;
     let sizes = matches!(options.kind, crate::SearchKind::FolderTotals | crate::SearchKind::FolderTree);
-    let skip = parsed.excluded.map_or(skip, |excluded| !excluded) && !sizes;
+    let skip = parsed.excluded.map_or(reach.skip, |excluded| !excluded) && !sizes;
     Ok(SearchRequest {
+        typos: parsed.typos.unwrap_or(reach.typos) && !sizes,
         root,
         query: query.into(),
-        hidden: parsed.hidden.unwrap_or(hidden),
+        hidden: parsed.hidden.unwrap_or(reach.hidden),
         options,
         skip: skip.then(|| state.settings.search.clone()),
     })
@@ -73,7 +94,7 @@ pub(crate) fn name_search(
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResultSource {
     Collection(String),
-    Search { request: SearchRequest, progress: SearchProgress },
+    Search { request: SearchRequest, progress: Box<SearchProgress> },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -93,6 +114,20 @@ pub struct Results {
     pub collapsed: HashSet<String>,
     /// A contents search's first match in each file it found, by the file's path.
     pub lines: HashMap<PathBuf, crate::LineMatch>,
+    /// The rules each file a rules search found matched, worst first, by the file's path.
+    pub rule_hits: HashMap<PathBuf, Vec<RuleMatch>>,
+    /// The entropy of the code of each program a search for packed ones found, by its path.
+    pub packed: HashMap<PathBuf, Tally>,
+    /// The name search's query, which ranks the results and marks what matched in their names.
+    pub query: Option<crate::SearchQuery>,
+    /// How well each result matches the query, by its path.
+    pub ranks: crate::Ranks,
+    /// Results that match the query only closely.
+    pub close_matches: usize,
+    /// Whether the filter also finds names closely when nothing matches it as typed.
+    pub filter_typos: bool,
+    /// The filter as a word for close matching, while nothing matches it as typed.
+    near: Option<crate::Needle>,
 }
 
 /// Where a contents search found its first match in a file, and the query it found it with.
@@ -131,7 +166,18 @@ impl Results {
             }
             _ => None,
         };
+        let query = match &source {
+            ResultSource::Search { request, .. } if !request.options.kind.measures_sizes() => {
+                crate::SearchQuery::parse(&request.query).ok().map(|query| query.with_typos(request.typos))
+            }
+            _ => None,
+        };
         Self {
+            query: query.filter(crate::SearchQuery::looks_for_names),
+            ranks: crate::Ranks::new(),
+            close_matches: 0,
+            filter_typos: false,
+            near: None,
             tree,
             expanded: false,
             source,
@@ -140,6 +186,8 @@ impl Results {
             rows: Vec::new(),
             collapsed: HashSet::new(),
             lines: HashMap::new(),
+            rule_hits: HashMap::new(),
+            packed: HashMap::new(),
         }
     }
 
@@ -156,9 +204,39 @@ impl Results {
         self.lines.get(path)
     }
 
-    /// Where the file at `path` opens on a contents search's result.
+    /// Whether the results come from scanning files with rules.
+    pub fn by_rules(&self) -> bool {
+        matches!(&self.source, ResultSource::Search { request, .. } if request.options.kind == crate::SearchKind::Rules)
+    }
+
+    /// Whether the results come from looking for packed programs.
+    pub fn by_entropy(&self) -> bool {
+        matches!(&self.source, ResultSource::Search { request, .. } if request.options.kind == crate::SearchKind::Packed)
+    }
+
+    /// The entropy of the code of the program at `path`, when a search for packed ones found it.
+    pub fn code_tally(&self, path: &Path) -> Option<&Tally> {
+        self.packed.get(path)
+    }
+
+    /// Where the first block of high entropy in the code of the program at `path` starts.
+    pub fn first_high(&self, path: &Path) -> Option<u64> {
+        self.code_tally(path)?.first_high
+    }
+
+    /// The rules the file at `path` matched, worst first.
+    pub fn rule_hits(&self, path: &Path) -> Option<&[RuleMatch]> {
+        self.rule_hits.get(path).map(Vec::as_slice)
+    }
+
+    /// Where the file at `path` opens on a contents search's result, or on the bytes the worst
+    /// rule it matched found.
     pub fn first_match(&self, path: &Path) -> Option<FirstMatch> {
-        Some(FirstMatch { query: self.contents()?.clone(), offset: self.line(path)?.offset })
+        if let Some(query) = self.contents() {
+            return Some(FirstMatch { query: query.clone(), offset: self.line(path)?.offset });
+        }
+        let evidence = self.rule_hits(path)?.iter().find_map(|found| found.evidence.as_ref())?;
+        Some(FirstMatch { query: evidence_query(&evidence.bytes)?, offset: evidence.offset })
     }
 
     pub fn title(&self) -> String {
@@ -170,6 +248,12 @@ impl Results {
             ResultSource::Search { request, .. } if request.options.kind == crate::SearchKind::FolderTotals => {
                 tr!(folder_sizes, request.query)
             }
+            ResultSource::Search { request, .. } if request.options.kind == crate::SearchKind::Rules => {
+                tr!(rules_search_title, query = request.query)
+            }
+            ResultSource::Search { request, .. } if request.options.kind == crate::SearchKind::Packed => {
+                tr!(packed_search_title, query = request.query)
+            }
             ResultSource::Search { request, .. } if let Some(contents) = &request.options.contents => {
                 tr!(contents_search_title, query = request.query, contents = contents.text)
             }
@@ -177,10 +261,41 @@ impl Results {
         }
     }
 
+    /// Notes how well each of `entries` matches the query.
+    pub fn note(&mut self, entries: &[Entry]) {
+        let Some(query) = &self.query else { return };
+        for entry in entries {
+            if let Some(rank) = query.rank(&entry.name) {
+                self.ranks.insert(entry.identity().to_path_buf(), rank);
+            }
+        }
+    }
+
+    /// The bytes of `entry`'s name that matched the query or, while it finds names only
+    /// closely, the filter.
+    pub fn spans(&self, entry: &Entry) -> crate::Spans {
+        if let Some(near) = &self.near {
+            return near.locate(&entry.name, true).map(|(_, spans)| spans).unwrap_or_default();
+        }
+        self.query.as_ref().map(|query| query.spans(&entry.name)).unwrap_or_default()
+    }
+
+    /// Whether the filter finds names only closely, since nothing matches it as typed.
+    pub fn filter_is_close(&self) -> bool {
+        self.near.is_some()
+    }
+
     pub fn matches(&self, entry: &Entry) -> bool {
         if self.filter.is_empty() {
             return true;
         }
+        if let Some(near) = &self.near {
+            return near.close_to(&entry.name);
+        }
+        self.matches_typed(entry)
+    }
+
+    fn matches_typed(&self, entry: &Entry) -> bool {
         let text = format!("{} {}", entry.name, entry.identity().display());
         if self.filter.chars().any(char::is_uppercase) {
             text.contains(&self.filter)
@@ -203,6 +318,12 @@ impl Results {
 
     pub fn rebuild(&mut self, entries: &[Entry]) {
         self.rows.clear();
+        self.close_matches =
+            entries.iter().filter(|entry| self.ranks.get(entry.identity()).is_some_and(|rank| rank.is_close())).count();
+        self.near = None;
+        if self.filter_typos && !self.filter.is_empty() && !entries.iter().any(|entry| self.matches_typed(entry)) {
+            self.near = Some(crate::Needle::new(&self.filter, true)).filter(crate::Needle::can_be_close);
+        }
         if let Some(tree) = self.tree.as_mut() {
             tree.branches = entries
                 .iter()
@@ -313,8 +434,14 @@ pub(crate) fn prompt(
     value: String,
     purpose: PromptPurpose,
 ) -> Vec<Effect> {
-    state.overlay =
-        Some(Overlay::Prompt(Prompt { title, label, input: LineInput::new(value), purpose, option_focused: false }));
+    state.overlay = Some(Overlay::Prompt(Prompt {
+        title,
+        label,
+        input: LineInput::new(value),
+        purpose,
+        option_focused: false,
+        typed: None,
+    }));
     Vec::new()
 }
 
@@ -328,13 +455,18 @@ pub(crate) fn start_search(state: &mut AppState, request: SearchRequest) -> Vec<
     let generation = state.next_generation();
     remember(state, side);
     state.panel_mut(side).open_results(
-        ResultSource::Search { request: request.clone(), progress: SearchProgress::default() },
+        ResultSource::Search { request: request.clone(), progress: Default::default() },
         Vec::new(),
         generation,
     );
     state.panel_mut(side).begin_search(generation);
-    if matches!(request.options.kind, crate::SearchKind::FolderTotals | crate::SearchKind::FolderTree) {
+    let ranked = state.panel(side).results.as_ref().is_some_and(|results| results.query.is_some());
+    if request.options.kind.measures_sizes() {
         state.panel_mut(side).set_sort(crate::Sort { key: crate::SortKey::Size, reverse: true });
+    } else if ranked {
+        state.panel_mut(side).set_sort(crate::Sort { key: crate::SortKey::Match, reverse: false });
+    } else if state.panel(side).sort().key == crate::SortKey::Match {
+        state.panel_mut(side).set_sort(crate::Sort::default());
     }
     state.refit();
     vec![Effect::Search { side, generation, request }]
@@ -470,9 +602,10 @@ pub(crate) fn back(state: &mut AppState) -> Vec<Effect> {
     if sizes && !state.panel(side).is_results() { vec![state.reload(side)] } else { Vec::new() }
 }
 
+/// Opens the folder of the result under the cursor in the other panel, with the cursor on it.
 pub(crate) fn reveal(state: &mut AppState) -> Vec<Effect> {
     let panel = state.active_panel();
-    let Some(entry) = panel.hovered_entry() else { return Vec::new() };
+    let Some(entry) = panel.hovered_entry().filter(|_| panel.is_results()) else { return Vec::new() };
     let path = entry.path(panel.dir());
     let Some(parent) = path.parent() else { return Vec::new() };
     let side = state.active.other();
@@ -517,6 +650,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action) -> Vec<Effect> {
             start_search(
                 state,
                 SearchRequest {
+                    typos: false,
                     skip: None,
                     root,
                     query: "*".into(),
@@ -553,24 +687,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action) -> Vec<Effect> {
         }
         Action::BackResults => back(state),
         Action::RevealOriginal => reveal(state),
-        Action::CancelSearch => {
-            let side = state.active;
-            if !matches!(state.panel(side).results.as_ref().map(|r| &r.source), Some(ResultSource::Search { .. })) {
-                return Vec::new();
-            }
-            if let Some(crate::Results { source: ResultSource::Search { progress, .. }, .. }) =
-                &mut state.panel_mut(side).results
-            {
-                progress.cancelled = true;
-            }
-            let old = state.panel(side).generation();
-            state.panel_mut(side).cancel_refresh();
-            state.panel_mut(side).finish(old, None);
-            state.panel_mut(side).settle();
-            let generation = state.next_generation();
-            state.panel_mut(side).finish_results_edit(generation);
-            vec![Effect::CancelSearch(side)]
-        }
+        Action::CancelSearch => cancel_search(state, state.active),
         Action::RemoveReferences => {
             let side = state.active;
             let generation = state.next_generation();
@@ -584,6 +701,25 @@ pub(crate) fn perform(state: &mut AppState, action: Action) -> Vec<Effect> {
         }
         _ => Vec::new(),
     }
+}
+
+/// Stops the search the panel on `side` runs, keeping what it found.
+pub(crate) fn cancel_search(state: &mut AppState, side: Side) -> Vec<Effect> {
+    if !matches!(state.panel(side).results.as_ref().map(|r| &r.source), Some(ResultSource::Search { .. })) {
+        return Vec::new();
+    }
+    if let Some(crate::Results { source: ResultSource::Search { progress, .. }, .. }) =
+        &mut state.panel_mut(side).results
+    {
+        progress.cancelled = true;
+    }
+    let old = state.panel(side).generation();
+    state.panel_mut(side).cancel_refresh();
+    state.panel_mut(side).finish(old, None);
+    state.panel_mut(side).settle();
+    let generation = state.next_generation();
+    state.panel_mut(side).finish_results_edit(generation);
+    vec![Effect::CancelSearch(side)]
 }
 
 /// Files a contents search found, each with its first match.
@@ -601,12 +737,71 @@ pub(crate) fn found(state: &mut AppState, side: Side, generation: u64, found: Ve
     panel.receive(generation, entries, show_hidden);
 }
 
+/// Files a rules search found, each with the rules it matched.
+pub(crate) fn found_by_rules(state: &mut AppState, side: Side, generation: u64, found: Vec<(Entry, Vec<RuleMatch>)>) {
+    let show_hidden = state.settings.preferences.show_hidden;
+    let Some(panel) = state.receiving_panel(side, generation) else { return };
+    let Some(results) = panel.results.as_mut() else { return };
+    let entries = found
+        .into_iter()
+        .map(|(entry, hits)| {
+            results.rule_hits.insert(entry.identity().to_path_buf(), hits);
+            entry
+        })
+        .collect();
+    panel.receive(generation, entries, show_hidden);
+}
+
+/// Programs a search for packed ones found, each with the entropy of its code.
+pub(crate) fn found_packed(state: &mut AppState, side: Side, generation: u64, found: Vec<(Entry, Tally)>) {
+    let show_hidden = state.settings.preferences.show_hidden;
+    let Some(panel) = state.receiving_panel(side, generation) else { return };
+    let Some(results) = panel.results.as_mut() else { return };
+    let entries = found
+        .into_iter()
+        .map(|(entry, tally)| {
+            results.packed.insert(entry.identity().to_path_buf(), tally);
+            entry
+        })
+        .collect();
+    panel.receive(generation, entries, show_hidden);
+}
+
+/// Whether the code a program's `tally` sums up looks packed or encrypted.
+pub fn looks_packed(tally: &Tally) -> bool {
+    tally.share() >= PACKED_SHARE
+}
+
+/// The query that finds a rule's evidence in the viewer, which looks within one line at a time:
+/// the evidence up to its first line break, as text, or as bytes when it is not text.
+fn evidence_query(bytes: &[u8]) -> Option<borg_view::Query> {
+    let line = bytes.split(|byte| matches!(byte, b'\n' | b'\r')).next().filter(|line| !line.is_empty())?;
+    let text = line.iter().all(|&byte| byte == b' ' || byte.is_ascii_graphic());
+    let (text, regex) = if text {
+        (String::from_utf8_lossy(line).into_owned(), false)
+    } else {
+        (format!("(?-u:{})", line.iter().map(|byte| format!("\\x{byte:02x}")).collect::<String>()), true)
+    };
+    Some(borg_view::Query { text, case: true, words: false, regex })
+}
+
+/// Takes in how far a search got. The first rule file a rules search leaves out shows in a
+/// notice, with why.
 pub(crate) fn progress(state: &mut AppState, side: Side, generation: u64, update: SearchProgress) {
     let Some(panel) = state.receiving_panel(side, generation) else { return };
+    let mut notice = None;
     if let Some(Results { source: ResultSource::Search { progress, .. }, .. }) = &mut panel.results
         && !progress.cancelled
     {
-        *progress = update;
+        if progress.left_out.is_empty()
+            && let Some(problem) = update.left_out.first()
+        {
+            notice = Some(tr!(rule_file_left_out_notice, file = problem.file.display(), message = problem.message));
+        }
+        **progress = update;
+    }
+    if notice.is_some() {
+        state.notice = notice;
     }
 }
 

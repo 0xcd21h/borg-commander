@@ -1,0 +1,18 @@
+[package]
+name                 = "borg-drives"
+description          = "What borg-commander knows of the drives it works on: their kind, their speed and the answers given about them"
+edition.workspace      = true
+version.workspace      = true
+license.workspace      = true
+rust-version.workspace = true
+
+[dependencies]
+rustix     = { workspace = true }
+serde      = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

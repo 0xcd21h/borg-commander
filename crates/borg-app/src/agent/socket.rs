@@ -2,15 +2,23 @@
 
 use anyhow::{Result, bail};
 use std::{
+    ffi::OsStr,
     os::unix::fs::{DirBuilderExt, MetadataExt},
     path::{Path, PathBuf},
 };
 
-pub(super) const SOCKET_PREFIX: &str = "session-";
+pub(crate) const SOCKET_PREFIX: &str = "session-";
 
-pub(super) const SOCKET_SUFFIX: &str = ".sock";
+const PROGRAM_NAME: &str = "borg";
 
-pub(super) const OWNER_ONLY: u32 = 0o700;
+pub(crate) use borg_core::SOCKET_SUFFIX;
+
+/// Where the folders of sockets are, each named after the user and its runtime folder.
+const SOCKET_PARENT: &str = "/tmp";
+const SHARED_NAME: &str = "default";
+const HASH_DIGITS: usize = 16;
+
+const PRIVATE_DIR: u32 = 0o700;
 
 pub(super) const OTHERS: u32 = 0o077;
 
@@ -19,7 +27,11 @@ pub(super) const OTHERS: u32 = 0o077;
 /// named after the runtime folder, so `borg mcp` finds only its sessions; without it, as on
 /// macOS, every program the user starts shares one, whatever its temporary folder.
 pub(crate) fn socket_dir(runtime_dir: &Path) -> Result<PathBuf> {
-    let uid = rustix::process::getuid().as_raw();
+    owner_only(&socket_path(runtime_dir))
+}
+
+/// The folder of sockets for `runtime_dir`, as [`socket_dir`] names it, without making it.
+pub(crate) fn socket_path(runtime_dir: &Path) -> PathBuf {
     let name = if std::env::var_os("XDG_RUNTIME_DIR").is_some() {
         // FNV-1a, which stays the same from one build of borg to the next.
         let hash = runtime_dir
@@ -29,21 +41,52 @@ pub(crate) fn socket_dir(runtime_dir: &Path) -> Result<PathBuf> {
             .fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| (hash ^ u64::from(*byte)).wrapping_mul(0x0100_0000_01b3));
         format!("{hash:016x}")
     } else {
-        "default".to_owned()
+        SHARED_NAME.to_owned()
     };
-    owner_only(&PathBuf::from(format!("/tmp/borg-{uid}-{name}")))
+    Path::new(SOCKET_PARENT).join(format!("{}{name}", socket_folder_prefix()))
 }
 
-/// Creates a folder only its owner can enter. One that someone else owns, or that others
-/// can enter, is refused, so no other user can reach a session through it.
+fn socket_folder_prefix() -> String {
+    format!("borg-{}-", rustix::process::getuid().as_raw())
+}
+
+/// Every folder of sockets this user's Borgs made, for whatever runtime folder.
+pub(crate) fn socket_dirs() -> Vec<PathBuf> {
+    let prefix = socket_folder_prefix();
+    let ours = |name: &str| {
+        name.strip_prefix(&prefix).is_some_and(|rest| {
+            rest == SHARED_NAME || (rest.len() == HASH_DIGITS && rest.chars().all(|c| c.is_ascii_hexdigit()))
+        })
+    };
+    let Ok(entries) = std::fs::read_dir(SOCKET_PARENT) else { return Vec::new() };
+    entries
+        .flatten()
+        .filter(|entry| ours(&entry.file_name().to_string_lossy()))
+        .map(|entry| entry.path())
+        .filter(|path| {
+            std::fs::symlink_metadata(path).is_ok_and(|meta| {
+                meta.is_dir() && meta.uid() == rustix::process::getuid().as_raw() && meta.mode() & OTHERS == 0
+            })
+        })
+        .collect()
+}
+
+/// Creates a folder only its owner can enter. One that someone else owns, that others can
+/// enter, or that is a link to another folder, is refused, so no other user can reach a
+/// session through it.
 pub(super) fn owner_only(dir: &Path) -> Result<PathBuf> {
     let dir = dir.to_path_buf();
-    std::fs::DirBuilder::new().recursive(true).mode(OWNER_ONLY).create(&dir)?;
-    let meta = std::fs::metadata(&dir)?;
-    if meta.uid() != rustix::process::getuid().as_raw() || meta.mode() & OTHERS != 0 {
+    std::fs::DirBuilder::new().recursive(true).mode(PRIVATE_DIR).create(&dir)?;
+    let meta = std::fs::symlink_metadata(&dir)?;
+    if !meta.is_dir() || meta.uid() != rustix::process::getuid().as_raw() || meta.mode() & OTHERS != 0 {
         bail!("{} must belong to you and be closed to others", dir.display());
     }
     Ok(dir)
+}
+
+/// Whether the program at the other end of `stream` runs as this user.
+pub(crate) fn same_user(stream: &tokio::net::UnixStream) -> bool {
+    stream.peer_cred().is_ok_and(|peer| peer.uid() == rustix::process::getuid().as_raw())
 }
 
 pub fn hostname() -> String {
@@ -87,15 +130,20 @@ pub fn connect_info() -> borg_core::ConnectInfo {
 /// This program's path, preferring the one on `PATH` that leads to it, since a package
 /// manager's versioned folder changes with each upgrade.
 pub fn program_path() -> String {
-    let exe = std::env::current_exe().ok();
-    let real = exe.as_ref().and_then(|exe| std::fs::canonicalize(exe).ok());
-    if let (Some(path), Some(real)) = (std::env::var_os("PATH"), &real) {
-        for dir in std::env::split_paths(&path).filter(|dir| dir.is_absolute()) {
-            let candidate = dir.join("borg");
-            if std::fs::canonicalize(&candidate).ok().as_ref() == Some(real) {
-                return candidate.display().to_string();
-            }
-        }
-    }
-    exe.map_or_else(|| "borg".to_owned(), |exe| exe.display().to_string())
+    let exe = crate::program::path().ok();
+    let linked = exe.zip(std::env::var_os("PATH")).and_then(|(exe, path)| linked_on_path(exe, &path));
+    linked
+        .or_else(|| exe.map(Path::to_path_buf))
+        .map_or_else(|| PROGRAM_NAME.to_owned(), |exe| exe.display().to_string())
+}
+
+/// The first name in `path` that leads to `exe`: `borg`, or the name the program file has,
+/// such as `borgcmd` where Homebrew leaves `borg` to BorgBackup.
+pub(super) fn linked_on_path(exe: &Path, path: &OsStr) -> Option<PathBuf> {
+    let real = std::fs::canonicalize(exe).ok()?;
+    let names = [Some(OsStr::new(PROGRAM_NAME)), exe.file_name(), real.file_name()];
+    std::env::split_paths(path)
+        .filter(|dir| dir.is_absolute())
+        .flat_map(|dir| names.into_iter().flatten().map(move |name| dir.join(name)))
+        .find(|candidate| std::fs::canonicalize(candidate).ok().as_ref() == Some(&real))
 }

@@ -16,6 +16,13 @@ const CONTROL_PREFIX: char = '^';
 const ALT_PREFIX: &str = "M-";
 const HINT_FROM: u16 = 150;
 
+/// The function keys whose names follow what the panels show.
+pub struct FileLabels {
+    pub view: &'static str,
+    pub copy: &'static str,
+    pub remove: &'static str,
+}
+
 pub(crate) fn actions_area(area: Rect) -> Rect {
     let hint = if area.width >= HINT_FROM { tr!(esc_then_1_9_0_f1_f10).width() as u16 } else { 0 };
     Rect { width: area.width.saturating_sub(hint), ..area }
@@ -32,7 +39,7 @@ pub fn draw_keybar(
     state: &AppState,
     area: Rect,
     styles: &Styles<Style>,
-    labels: (&str, &str),
+    labels: FileLabels,
     now: std::time::Instant,
     buf: &mut Buffer,
 ) {
@@ -71,7 +78,7 @@ pub(crate) fn action_at(state: &AppState, area: Rect, point: Position) -> Option
 
 /// Draws the function keys. After an Esc with nothing to close, a digit acts as the
 /// function key, so the row shows the digits to press instead.
-fn draw_functions(area: Rect, styles: &Styles<Style>, (copy, remove): (&str, &str), digits: bool, buf: &mut Buffer) {
+fn draw_functions(area: Rect, styles: &Styles<Style>, labels: FileLabels, digits: bool, buf: &mut Buffer) {
     let items: Vec<(String, &str)> = KEYMAP
         .iter()
         .filter_map(|binding| {
@@ -81,8 +88,9 @@ fn draw_functions(area: Rect, styles: &Styles<Style>, (copy, remove): (&str, &st
                     code => key_name(code, binding.modifiers),
                 },
                 match binding.action {
-                    borg_core::Action::Copy => copy,
-                    borg_core::Action::Delete => remove,
+                    borg_core::Action::View => labels.view,
+                    borg_core::Action::Copy => labels.copy,
+                    borg_core::Action::Delete => labels.remove,
                     _ => binding.label?.text(),
                 },
             ))
@@ -122,4 +130,29 @@ pub fn key_name(code: KeyCode, modifiers: KeyModifiers) -> String {
     } else {
         base
     }
+}
+
+/// While a screen lends a file panel and its list has the keys, the keys for the panel take the
+/// place of the screen's own hints, unless a notice shows there.
+pub(crate) fn lent_hint(state: &AppState, area: Rect, styles: &Styles<Style>, buf: &mut Buffer) {
+    let (_, context) = rows(area);
+    if context.is_empty() || state.files_beside_focused() || state.notice.is_some() {
+        return;
+    }
+    Clear.render(context, buf);
+    buf.set_style(context, styles.key_label);
+    Line::styled(format::truncate_end(tr!(lent_hint), usize::from(context.width)), styles.key_label)
+        .render(context, buf);
+}
+
+/// A screen's buttons, where Esc brings the details back while the list's pane is lent.
+pub(crate) fn lent_esc(specs: Vec<(&'static str, KeyCode)>, gives_back: bool) -> Vec<(&'static str, KeyCode)> {
+    specs
+        .into_iter()
+        .map(
+            |(label, key)| {
+                if gives_back && key == KeyCode::Esc { (tr!(lent_details_button), key) } else { (label, key) }
+            },
+        )
+        .collect()
 }

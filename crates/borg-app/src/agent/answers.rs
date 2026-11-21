@@ -2,7 +2,7 @@
 //! output.
 
 use super::{LIST_LIMIT, Location, OUTPUT_LIMIT, Reply, Target, hostname};
-use borg_core::{AppState, Console, Row, Side, View};
+use borg_core::{AppState, ArchiveMount, Console, Row, Side, View};
 use borg_i18n::tr;
 use std::{
     fmt::Write as _,
@@ -131,6 +131,9 @@ pub(super) const CONSOLE_LINES: usize = 20;
 
 /// What the user sees: where they are and what the panels hold, in words an agent can use
 /// (panels as locations, which every tool takes as they are), then the screen itself as text.
+const SECRET_WITHHELD: &str =
+    "\nThe screen shows a vault's recovery key or a decrypted file, which Borg does not pass to agents.\n";
+
 pub fn screen(state: &AppState, frame: &[String], console: &ConsoleText) -> String {
     let console_shown = state.effective_view() == View::Shell;
     let looking = if state.viewer.is_some() {
@@ -147,13 +150,16 @@ pub fn screen(state: &AppState, frame: &[String], console: &ConsoleText) -> Stri
         "the panels"
     };
     let mut text = format!("Borg on {}. The user is looking at {looking}.\n", hostname());
-    if matches!(state.overlay, Some(borg_core::Overlay::Approval(_))) {
+    if state.approval.is_some() {
         text.push_str("A dialog asks the user to approve a request.\n");
     }
     let _ = writeln!(text, "Active panel: {}", side_name(state.active));
     for side in Side::ALL {
         let panel = state.panel(side);
         let _ = writeln!(text, "{} panel: {}", side_name(side), panel_location(state, side));
+        if let Some(archive) = &panel.archive {
+            let _ = writeln!(text, "  {}", archive_place(archive, panel.dir()));
+        }
         match panel.hovered() {
             Some(Row::Entry(entry)) => drop(writeln!(text, "  highlighted: {}", entry.name)),
             Some(Row::Parent) => drop(writeln!(text, "  highlighted: .. (the parent folder)")),
@@ -194,7 +200,6 @@ pub fn screen(state: &AppState, frame: &[String], console: &ConsoleText) -> Stri
     if let Some(process) = state.activity.process().filter(|_| state.activity.side.is_some()) {
         let _ = writeln!(text, "Activity monitor open, on {} (PID {})", process.name, process.key.pid);
     }
-    // Long runs of empty rows read as one, to keep the text short.
     let shown = |lines: &[String]| {
         let end = lines.iter().rposition(|line| !line.is_empty()).map_or(0, |last| last + 1);
         let mut out: Vec<String> = Vec::new();
@@ -214,7 +219,9 @@ pub fn screen(state: &AppState, frame: &[String], console: &ConsoleText) -> Stri
         }
         out.join("\n")
     };
-    if !frame.is_empty() {
+    if state.secret_on_screen() {
+        text.push_str(SECRET_WITHHELD);
+    } else if !frame.is_empty() {
         let _ = write!(text, "\nThe screen as the user sees it, as text:\n{}\n", shown(frame));
     }
     if !console_shown {
@@ -235,12 +242,24 @@ pub(super) fn side_name(side: Side) -> &'static str {
     }
 }
 
-/// Where a panel is: a folder on this machine, or in a container's filesystem.
+/// Where in an archive the folder `dir` lies, and that the archive is read only when Borg
+/// cannot change its format.
+pub(super) fn archive_place(archive: &ArchiveMount, dir: &Path) -> String {
+    let inside = archive.inside(dir).unwrap_or_default();
+    let place = format!("inside the archive {}, at /{inside}", archive.archive.display());
+    match archive.format {
+        Some(format) if !borg_archive::writable(format) => format!("{place}, read only"),
+        _ => place,
+    }
+}
+
+/// Where a panel is: a folder on this machine, or in a container's filesystem. An archive's
+/// panel is where the archive is.
 pub fn panel_location(state: &AppState, side: Side) -> Location {
     let panel = state.panel(side);
     match &panel.mount {
         Some(mount) => Location::Container { container: mount.name.clone(), path: panel.dir().to_path_buf() },
-        None => Location::Host(panel.dir().to_path_buf()),
+        None => Location::Host(panel.shell_folder().to_path_buf()),
     }
 }
 
@@ -257,13 +276,20 @@ pub fn host_dir(state: &AppState) -> PathBuf {
         .into_iter()
         .map(|side| state.panel(side))
         .find(|panel| panel.mount.is_none())
-        .map_or_else(|| state.shell.cwd.clone(), |panel| panel.dir().to_path_buf())
+        .map_or_else(|| state.shell.cwd.clone(), |panel| panel.shell_folder().to_path_buf())
 }
 
 /// Text an agent types, with every control character left out but line breaks and tabs, so
 /// nothing in it can end a paste or act as a key.
 pub fn typable(text: &str) -> String {
     text.replace("\r\n", "\n").chars().filter(|&c| c == '\n' || c == '\t' || !c.is_control()).collect()
+}
+
+/// Whether the approval dialog shows a command as the shell gets it. The dialog leaves out
+/// control characters, which a shell's line editor acts on, so line breaks are the only ones
+/// a command may hold.
+pub fn shown_as_typed(command: &str) -> bool {
+    command.chars().all(|c| c == '\n' || !c.is_control())
 }
 
 /// The `shown` busiest processes, by memory or CPU, with the machine's totals.
@@ -363,6 +389,7 @@ pub(super) fn indicator_name(kind: borg_core::Indicator) -> &'static str {
 
 /// What the system does not count, in a network answer.
 const UNCOUNTED: &str = "—";
+const UTC_STAMP: &str = "%Y-%m-%dT%H:%M:%SZ";
 
 fn per_second(bytes: Option<u64>) -> String {
     bytes.map_or_else(|| UNCOUNTED.into(), |bytes| format!("{}/s", borg_ui::size_text(bytes)))
@@ -371,6 +398,70 @@ fn per_second(bytes: Option<u64>) -> String {
 fn shown_of(total: usize, shown: usize, filter: &str) -> String {
     let filtered = if filter.is_empty() { String::new() } else { format!(" matching {filter:?}") };
     if shown < total { format!("{total}{filtered}, showing {shown}") } else { format!("{total}{filtered}") }
+}
+
+/// The places programs start from, newest change first: when each changed, where it is, who
+/// owns it, whether its program is there, what it runs and the rules it matched.
+pub fn startup_items(report: &borg_core::StartupReport, filter: &str, shown: usize) -> Reply {
+    use borg_core::ProgramPresence;
+    let rows = borg_core::startup_filtered(&report.items, filter);
+    let mut text = format!(
+        "Startup items: {} · {} matched a rule · newest change first\n",
+        shown_of(rows.len(), shown.min(rows.len()), filter),
+        report.matched()
+    );
+    for (path, error) in &report.unread {
+        let _ = writeln!(text, "Could not read {}: {error}", path.display());
+    }
+    for problem in &report.problems {
+        let _ = writeln!(text, "Rule file left out: {}: {}", problem.file.display(), problem.message);
+    }
+    text.push_str("MODIFIED (UTC)        PLACE                 OWNER     PROGRAM  FILE\n");
+    for item in rows.iter().take(shown).map(|&index| &report.items[index]) {
+        let modified = item
+            .modified
+            .and_then(|time| jiff::Timestamp::try_from(time).ok())
+            .map_or_else(|| UNCOUNTED.into(), |stamp| stamp.strftime(UTC_STAMP).to_string());
+        let presence = match item.presence {
+            ProgramPresence::Present => "found",
+            ProgramPresence::Missing => "missing",
+            ProgramPresence::Unknown => UNCOUNTED,
+        };
+        let line = item.found.line.map_or_else(String::new, |line| format!(":{line}"));
+        let _ = writeln!(
+            text,
+            "{modified:<21} {:<21} {:<9} {presence:<8} {}{line}",
+            item.place.code(),
+            item.owner.as_deref().unwrap_or(UNCOUNTED),
+            item.file.display()
+        );
+        let _ = writeln!(text, "  name: {}", item.found.name);
+        if !item.found.runs.is_empty() {
+            let _ = writeln!(text, "  runs: {}", item.found.runs);
+        }
+        if let Some(program) = &item.found.program {
+            let found =
+                item.resolved.as_ref().map_or_else(String::new, |path| format!(" (found at {})", path.display()));
+            let _ = writeln!(text, "  program: {program}{found}");
+        }
+        let facts = [
+            item.found.when.as_ref().map(|when| format!("when: {when}")),
+            item.found.user.as_ref().map(|user| format!("runs as: {user}")),
+            item.found.disabled.then(|| "disabled in its file".to_owned()),
+            item.read_only.then(|| "on the sealed system volume".to_owned()),
+        ];
+        let facts: Vec<String> = facts.into_iter().flatten().collect();
+        if !facts.is_empty() {
+            let _ = writeln!(text, "  {}", facts.join(" · "));
+        }
+        for hit in &item.hits {
+            let place = if hit.in_program { "its program" } else { "its file" };
+            let level = borg_core::Severity::from(hit.rule.level).label();
+            let about = hit.rule.about().map_or_else(String::new, |about| format!(": {about}"));
+            let _ = writeln!(text, "  rule {} ({level}, in {place}){about}", hit.rule.rule);
+        }
+    }
+    Reply::ok(text)
 }
 
 /// The listening ports, who can reach each and the process behind it.

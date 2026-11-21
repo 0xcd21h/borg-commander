@@ -70,7 +70,6 @@ fn lay_out(text: &str, indent: &str, go_on: &dyn Fn() -> bool, out: &mut String)
                 let close = if open == b'{' { b'}' } else { b']' };
                 let next = at + 1 + bytes[at + 1..].iter().position(|b| !b.is_ascii_whitespace()).unwrap_or(0);
                 if bytes.get(next) == Some(&close) {
-                    // Empty, it stays on the line: `{}` or `[]`.
                     out.push(char::from(open));
                     out.push(char::from(close));
                     at = next + 1;
@@ -97,7 +96,6 @@ fn lay_out(text: &str, indent: &str, go_on: &dyn Fn() -> bool, out: &mut String)
                 at += 1;
             }
             _ => {
-                // A number, `true`, `false` or `null`, kept as written.
                 let end = bytes[at..]
                     .iter()
                     .position(|b| matches!(b, b',' | b']' | b'}' | b':') || b.is_ascii_whitespace())

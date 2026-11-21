@@ -45,6 +45,10 @@ const PADDING: u16 = 1;
 const TITLE_PADDING: usize = 2;
 const CRUMB_SEPARATOR: &str = " › ";
 const CONTAINER_MARK: char = '▣';
+const ARCHIVE_MARK: char = '▤';
+const VOLUME_MARK: char = '▥';
+const REMOTE_MARK: char = '◈';
+const VAULT_MARK: char = '▦';
 const PARENT_NAME: &str = "..";
 const COLUMN_SEPARATOR: &str = "│";
 const LEFT_CAP: char = '▐';
@@ -186,26 +190,34 @@ fn find_bar<'a>(find: &Find, (current, total): (usize, usize), room: usize, look
     Line::from(spans)
 }
 
-/// The folder path as breadcrumbs. Container and remote panels lead with their source,
-/// so they never pass for a local folder.
+/// The folder path as breadcrumbs. Container, remote and archive panels lead with their
+/// source, so they never pass for a local folder.
 fn title<'a>(scene: &PanelScene<'_>, style: Style, separator: Style, badge: Style) -> Line<'a> {
     let mount = scene.panel.mount.as_ref();
-    let label = mount
-        .map(|mount| format!(" {CONTAINER_MARK} {} ", mount.name))
+    let volume = scene.panel.volume.as_ref();
+    let vault = scene.panel.vault.as_ref();
+    let label = volume
+        .map(|volume| format!(" {VOLUME_MARK} {} ", tr!(docker_volume_label, name = volume.name.as_str())))
+        .or_else(|| vault.map(|vault| format!(" {VAULT_MARK} {} ", tr!(vault_badge, name = vault.name()))))
+        .or_else(|| mount.map(|mount| format!(" {CONTAINER_MARK} {} ", mount.name)))
         .or_else(|| {
             scene.panel.remote_mount.as_ref().map(|remote| {
-                format!(
-                    " ◈ Host {}:{} ",
-                    scene.state.remote_host_name(&remote.machine),
-                    scene.state.remote_session_name(&remote.machine, &remote.session, &remote.name)
-                )
+                let machine = scene.state.remote_host_name(&remote.machine);
+                let session = scene.state.remote_session_name(&remote.machine, &remote.session, &remote.name);
+                format!(" {REMOTE_MARK} {} ", tr!(panel_remote_host, machine = machine, session = session))
             })
         })
-        .or_else(|| scene.client_of_remote.then(|| " ◈ Client ".to_owned()));
+        .or_else(|| scene.panel.archive.as_ref().map(|archive| format!(" {ARCHIVE_MARK} {} ", archive.label())))
+        .or_else(|| scene.client_of_remote.then(|| format!(" {REMOTE_MARK} {} ", tr!(panel_remote_client))));
     let reserved = label.as_ref().map_or(0, |label| label.width() + 1);
     let width = usize::from(scene.area.width).saturating_sub(TITLE_PADDING * 2 + reserved);
     let home = if mount.is_some() || scene.panel.remote_mount.is_some() { None } else { scene.home };
-    let crumbs = format::fit_crumbs(format::crumbs(scene.panel.dir(), home), width, CRUMB_SEPARATOR);
+    let crumbs = match (volume, vault) {
+        (Some(volume), _) => format::crumbs(&volume.inside(scene.panel.dir()), None),
+        (None, Some(vault)) => format::crumbs(&vault.inside(scene.panel.dir()), None),
+        (None, None) => format::crumbs(scene.panel.dir(), home),
+    };
+    let crumbs = format::fit_crumbs(crumbs, width, CRUMB_SEPARATOR);
     let last = crumbs.len().saturating_sub(1);
     let separator = Style { fg: separator.fg, ..style.remove_modifier(Modifier::BOLD) };
     let spans = crumbs.into_iter().enumerate().flat_map(|(index, crumb)| {
@@ -245,6 +257,13 @@ fn footer<'a>(scene: &PanelScene<'_>, look: &Look<'_>) -> (Line<'a>, Option<Grad
         let pad = || Span::styled(" ", styles.footer);
         Line::from([vec![pad()], spinner.spans(&text, look, styles.footer), vec![pad()]].concat())
     };
+    if let Some(text) = reading(panel) {
+        let line = match scene.spinner {
+            Some(spinner) => spinning(spinner, text),
+            None => Line::styled(format!(" {text} "), styles.footer),
+        };
+        return (line, None);
+    }
     let line = match (scene.spinner, &scene.activity, panel.listing()) {
         (Some(spinner), Some(activity), _) => spinning(spinner, activity.label.clone()),
         (Some(spinner), None, _) if panel.loading() => spinning(spinner, tr!(loading, panel.received())),
@@ -269,6 +288,14 @@ fn footer<'a>(scene: &PanelScene<'_>, look: &Look<'_>) -> (Line<'a>, Option<Grad
         (_, _, Listing::Failed(error)) => Line::styled(format!(" {error} "), styles.notice),
     };
     (line, None)
+}
+
+/// How far the first read of the archive the panel opens got.
+fn reading(panel: &borg_core::Panel) -> Option<String> {
+    let archive = panel.archive.as_ref()?;
+    let (read, total) = archive.reading?;
+    let name = archive.archive.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
+    Some(tr!(archive_reading, name = name, read = format::size(read), total = format::size(total)))
 }
 
 fn decorate(scene: &PanelScene<'_>, look: &Look<'_>, title: Rect, buf: &mut Buffer) {

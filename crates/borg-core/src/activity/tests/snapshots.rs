@@ -1,6 +1,7 @@
 //! Capturing memory, comparing captures and moving through them.
 
 use super::*;
+use borg_view::HexLayout;
 
 #[test]
 fn snapshots_compare_only_the_same_process_region_and_export_to_the_file_panel() {
@@ -125,6 +126,9 @@ fn windows_move_through_a_region_and_recapture_reads_the_shown_window_again() {
         Ok(ActivityData::Snapshot(MemorySnapshot { process, address: shown, bytes, captured: 1 })),
         now,
     );
+    assert_eq!(state.activity.snapshot_origin(), start, "rows count from the start of the region");
+    assert_eq!(state.activity.snapshot_layout(73), HexLayout { columns: 16, digits: 5 });
+    assert_eq!(state.activity.snapshot_columns(72), 8);
     key(&mut state, KeyCode::Tab);
     assert!(state.activity.preview_focused);
     assert_eq!(capture(&key(&mut state, KeyCode::Char('>'))), Some((shown + window, true)));
@@ -132,6 +136,19 @@ fn windows_move_through_a_region_and_recapture_reads_the_shown_window_again() {
     assert_eq!(capture(&key(&mut state, KeyCode::Char('<'))), Some((start, false)));
     state.activity.pending = None;
     assert_eq!(capture(&key(&mut state, KeyCode::Char('r'))), Some((shown, false)));
+}
+
+#[test]
+fn a_capture_outside_the_shown_region_counts_its_rows_from_its_own_start() {
+    let (mut state, _) = state();
+    let activity = &mut state.activity;
+    let process = ProcessKey { pid: 2, start: 10 };
+    activity.snapshot = Some(MemorySnapshot { process, address: 0x1000, bytes: vec![1; 0x200], captured: 1 });
+    assert_eq!(activity.snapshot_origin(), 0x1000);
+    assert_eq!(activity.snapshot_layout(138), HexLayout { columns: 32, digits: 4 });
+    activity.text = true;
+    assert_eq!(activity.snapshot_columns(40), 34);
+    assert_eq!(activity.snapshot_columns(138), 64);
 }
 
 #[test]

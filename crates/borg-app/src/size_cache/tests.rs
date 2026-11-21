@@ -59,6 +59,7 @@ fn complete_index_retains_late_siblings_and_loads_only_expanded_branches() {
     let count: i64 = connection.query_row("SELECT count(*) FROM folders", [], |r| r.get(0)).unwrap();
     assert_eq!(count, RESULT_LIMIT as i64 + 5);
     let request = SearchRequest {
+        typos: false,
         skip: None,
         root: root.clone(),
         query: "apps".into(),

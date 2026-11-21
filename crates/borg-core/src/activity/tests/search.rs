@@ -236,3 +236,24 @@ fn continued_strings_add_up_and_c_visits_each_copy() {
     route_key(&mut state, &KeyCode::Char('c').into(), now);
     assert_eq!(state.activity.search_report.as_ref().unwrap().hits[0].address, 0x10010);
 }
+
+#[test]
+fn the_search_form_opens_with_what_it_held_when_it_closed() {
+    let (mut state, now) = state();
+    open(&mut state);
+    sample(&mut state, vec![process(2, 10, 200)], now);
+    let send = |state: &mut AppState, code| update(state, Msg::Key(KeyEvent::from(code)), now);
+    send(&mut state, KeyCode::Tab);
+    send(&mut state, KeyCode::Char('/'));
+    for c in "token".chars() {
+        send(&mut state, KeyCode::Char(c));
+    }
+    send(&mut state, KeyCode::Tab);
+    send(&mut state, KeyCode::Left);
+    let held = state.activity.search_form.clone().unwrap();
+    send(&mut state, KeyCode::Esc);
+    assert!(state.activity.search_form.is_none());
+    send(&mut state, KeyCode::Char('/'));
+    let form = state.activity.search_form.clone().unwrap();
+    assert_eq!((form.input.text(), form.mode, form.selected), ("token", held.mode, 0));
+}

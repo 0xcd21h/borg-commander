@@ -21,7 +21,7 @@ const RUNTIME: &str = "run";
 const STATE: &str = "state";
 const EXECUTABLE_MODE: u32 = 0o755;
 const CONFIG_FILE: &str = "config.toml";
-const QUIET: [(&str, &str); 1] = [("update-check", "false")];
+const QUIET: [(&str, &str); 3] = [("update-check", "false"), ("start-service", "false"), ("show-hidden", "false")];
 
 const SHELL_RC: [(&str, &str); 4] = [
     (".bashrc", "PS1='$ '\n"),

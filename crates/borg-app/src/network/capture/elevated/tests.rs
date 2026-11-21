@@ -93,3 +93,9 @@ async fn closing_borgs_side_interrupts_tcpdump_and_its_last_bytes_still_arrive()
     assert_eq!(rest, b"LAST", "tcpdump finished what it was writing, and the stream ended");
     assert_eq!(helper.await.unwrap(), Ok(String::new()));
 }
+
+#[test]
+fn the_helper_takes_what_listening_asks_for() {
+    let listening = Tcpdump::listening("en0");
+    assert_eq!(Tcpdump::parse(&listening.helper_args()), Some(listening));
+}

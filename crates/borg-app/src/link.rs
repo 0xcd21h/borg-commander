@@ -26,17 +26,79 @@ use crate::agent::{Call, Reply};
 mod caller;
 mod clients;
 mod commands;
+#[cfg(any(target_os = "linux", test))]
+mod key_agent;
+#[cfg(target_os = "macos")]
+mod keychain;
+mod keys;
 mod remote;
+#[cfg(any(target_os = "linux", test))]
+mod sealed;
 mod served;
+#[cfg(any(target_os = "linux", test))]
+mod ssh_agent;
 mod store;
+#[cfg(target_os = "linux")]
+mod unlock;
+#[cfg(target_os = "linux")]
+mod unlocked;
+#[cfg(any(target_os = "linux", test))]
+mod words;
 
 pub use clients::paired_clients;
 use clients::{ClientConnection, client_status};
-pub use commands::{get_command, pair_command, put_command};
-pub use remote::{CHUNK, Remote, download_in_session, pair, upload_in_session};
+pub use commands::{get_command, lock_command, pair_command, put_command, unlock_command};
+#[cfg(target_os = "linux")]
+use keys::KeyLocked;
+pub use remote::{CHUNK, Existing, Remote, download_in_session, pair, upload_in_session};
 use served::Served;
-pub use store::{Computer, Server, forget_server, identity, server, servers};
-use store::{claim, clean_name, load, same, save, state_dir, this_computer};
+pub use store::{Computer, KeyChanged, Server, forget_server, identity, server, servers};
+use store::{claim, clean_name, load, load_to_change, same, save, state_dir, this_computer};
+
+static UNLOCK_PROMPT: std::sync::OnceLock<UnboundedSender<Msg>> = std::sync::OnceLock::new();
+static UNLOCK_ASKED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Unlocks this computer's keys for borg cloud, asking for Touch ID or a password when they
+/// are locked away, so the asks that follow do not wait for that.
+pub async fn unlock_keys(state: &std::path::Path) -> Result<()> {
+    keys::computer_keys(state).await.map(drop)
+}
+
+pub fn register_unlock_prompt(messages: UnboundedSender<Msg>) {
+    UNLOCK_PROMPT.set(messages).ok();
+}
+
+#[cfg(target_os = "linux")]
+fn notify_locked() {
+    if !UNLOCK_ASKED.swap(true, std::sync::atomic::Ordering::Relaxed)
+        && let Some(messages) = UNLOCK_PROMPT.get()
+    {
+        messages.send(Msg::ComputerKeyLocked { wrong: false }).ok();
+    }
+}
+
+pub fn unlock_with_password(state: &std::path::Path, password: &str) -> Result<bool> {
+    UNLOCK_ASKED.store(false, std::sync::atomic::Ordering::Relaxed);
+    #[cfg(target_os = "linux")]
+    return unlock::unlock_with_password(state, password);
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (state, password);
+        Ok(true)
+    }
+}
+
+pub fn ask_in_terminal() {
+    #[cfg(target_os = "linux")]
+    if rustix::termios::isatty(std::io::stdin()) {
+        unlock::allow_terminal();
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub async fn key_agent_command(args: &[String]) -> Result<()> {
+    unlocked::agent_command(args).await
+}
 
 const LINK_DIR: &str = "link";
 const KEY_FILE: &str = "key";
@@ -62,13 +124,46 @@ const NAME_LIMIT: usize = 40;
 pub const DEFAULT_RELAY: Option<&str> = None;
 /// The internal call that asks the user to approve a pairing.
 pub const PAIR_CALL: &str = "_pair";
+/// The call that updates a paired host to the latest Borg.
+pub const HOST_UPDATE_CALL: &str = "host_update";
+/// With this set in its arguments, `host_info` adds the machine's figures under the same name,
+/// for the hosts screen. A Borg from before the screen leaves them out.
+pub const OVERVIEW_ARG: &str = "overview";
 
-/// The first message of a channel, encrypted: a pairing, or a session of a paired computer.
+/// A host's answer to [`HOST_UPDATE_CALL`]: the version its service runs next, and whether it
+/// moves to it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HostUpdating {
+    pub version: String,
+    pub moving: bool,
+}
+/// What waits for an answer in a session, the next time it changes.
+pub const ASKS_WAIT: &str = "asks_wait";
+/// An answer to an ask waiting in a session.
+pub const ASKS_ANSWER: &str = "asks_answer";
+/// Turns off Approve all in a session.
+pub const ASKS_STOP: &str = "asks_stop";
+/// The only calls a viewer connection makes, and which no other connection may make.
+const VIEWER_CALLS: [&str; 3] = [ASKS_WAIT, ASKS_ANSWER, ASKS_STOP];
+/// The only calls a monitor connection makes: what the host is and how it is doing, for the
+/// hosts page and for agents. Neither reaches a session or waits for approval.
+const MONITOR_CALLS: [&str; 2] = ["host_info", "list_sessions"];
+/// What a server answers to a hello it does not know, as a Borg from before monitor connections
+/// does to one.
+const UNREADABLE_HELLO: &str = "unreadable hello";
+/// How long an `asks_wait` call waits for a change before it answers with what it has.
+pub const ASKS_WAIT_TIME: Duration = Duration::from_secs(15);
+
+/// The first message of a channel, encrypted: a pairing, a session of a paired computer, a
+/// paired computer's borg watching for the asks of a session its panels show, or one reading how
+/// the host is doing.
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum Hello {
     Pair { secret: String, name: String },
     Session,
+    Viewer,
+    Monitor,
 }
 
 /// The server's answer to a hello.
@@ -79,7 +174,24 @@ struct Answer {
     name: String,
     #[serde(default)]
     error: String,
+    #[serde(default)]
+    unpaired: bool,
+    #[serde(default)]
+    rotation: bool,
 }
+
+impl Answer {
+    fn accepted() -> Self {
+        Self { ok: true, name: crate::agent::hostname(), error: String::new(), unpaired: false, rotation: true }
+    }
+
+    fn refused(&self) -> bool {
+        !self.ok && (self.unpaired || self.error == NOT_PAIRED)
+    }
+}
+
+const NOT_PAIRED: &str = "this computer is not paired with this borg";
+pub const ROTATE_CALL: &str = "rotate";
 
 struct Pairing {
     secret: [u8; SECRET_LEN],
@@ -100,6 +212,8 @@ struct Shared {
     computers: Vec<Computer>,
     pairing: Option<Pairing>,
     connections: std::collections::HashMap<String, usize>,
+    /// The relay has this Borg registered now, so paired computers reach it.
+    registered: bool,
 }
 
 /// The server's side: this borg reachable through the relay by the computers paired with it.
@@ -115,7 +229,8 @@ pub struct LinkServer {
     claimed: Option<std::fs::File>,
     /// Whether the user heard that another borg has borg cloud.
     told_taken: bool,
-    background_service: bool,
+    /// The Borgs registered with the background service, when this is the service's link.
+    members: Option<crate::service::Members>,
     calls: UnboundedSender<(Call, oneshot::Sender<Reply>)>,
     messages: UnboundedSender<Msg>,
     clients: Arc<AtomicUsize>,
@@ -133,7 +248,12 @@ impl LinkServer {
     ) -> Self {
         let computers =
             state.as_ref().map(|state| load(&state.join(LINK_DIR).join(COMPUTERS_FILE))).unwrap_or_default();
-        let shared = Arc::new(Mutex::new(Shared { computers, pairing: None, connections: Default::default() }));
+        let shared = Arc::new(Mutex::new(Shared {
+            computers,
+            pairing: None,
+            connections: Default::default(),
+            registered: false,
+        }));
         Self {
             state,
             runtime_dir,
@@ -144,7 +264,7 @@ impl LinkServer {
             task: None,
             claimed: None,
             told_taken: false,
-            background_service: false,
+            members: None,
             calls,
             messages,
             clients,
@@ -159,8 +279,10 @@ impl LinkServer {
         self.session_id.as_deref()
     }
 
-    pub fn set_background_service(&mut self) {
-        self.background_service = true;
+    /// Makes this the background service's link, whose calls go to the sessions registered
+    /// with it.
+    pub fn set_members(&mut self, members: crate::service::Members) {
+        self.members = Some(members);
     }
 
     /// Goes through `relay` from now on; the connection to the one before ends.
@@ -171,6 +293,11 @@ impl LinkServer {
                 task.abort();
             }
         }
+    }
+
+    /// Whether paired computers reach this Borg through the relay now.
+    pub fn reachable(&self) -> bool {
+        self.task.as_ref().is_some_and(|task| !task.is_finished()) && self.shared.lock().expect("link lock").registered
     }
 
     pub fn computers(&self) -> Vec<String> {
@@ -236,7 +363,7 @@ impl LinkServer {
             }
             let (Some(relay), Ok(identity)) = (self.relay.clone(), self.identity()) else { return };
             let server = Served {
-                background_service: self.background_service,
+                members: self.members.clone(),
                 relay,
                 identity,
                 shared: self.shared.clone(),
@@ -246,12 +373,15 @@ impl LinkServer {
                 calls: self.calls.clone(),
                 messages: self.messages.clone(),
                 clients: self.clients.clone(),
+                overview: Default::default(),
+                reads_noted: Default::default(),
             };
             self.task = Some(tokio::spawn(server.run()));
         } else if !wanted {
             if let Some(task) = self.task.take() {
                 task.abort();
             }
+            self.shared.lock().expect("link lock").registered = false;
             self.claimed = None;
         }
     }

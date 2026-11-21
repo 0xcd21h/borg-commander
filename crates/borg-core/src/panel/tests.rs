@@ -276,3 +276,143 @@ fn marks_of_vanished_files_are_dropped_after_reload() {
     panel.settle();
     assert_eq!(panel.marked_count(), 0);
 }
+
+const TALL: usize = 10;
+const FOLDERS: usize = 40;
+
+fn folders(range: std::ops::Range<usize>) -> Vec<Entry> {
+    range.map(|i| dir(&format!("d{i:02}"))).collect()
+}
+
+fn list(panel: &mut Panel, path: &str, generation: u64, focus: Option<&str>, batches: Vec<Vec<Entry>>) {
+    panel.navigate(PathBuf::from(path), generation, focus.map(str::to_owned));
+    for batch in batches {
+        panel.receive(generation, batch, false);
+        panel.settle();
+    }
+    panel.finish(generation, None);
+    panel.settle();
+}
+
+fn hovered(panel: &Panel) -> Option<&str> {
+    panel.hovered_entry().map(|entry| entry.name.as_str())
+}
+
+fn screen_row(panel: &Panel) -> usize {
+    panel.cursor() - panel.scroll()
+}
+
+/// A tall panel in `/x` scrolled down, with the cursor on `d20` in the middle of the screen.
+fn scrolled() -> Panel {
+    let mut panel = Panel::new(PathBuf::from("/"), TALL, ListingMode::Full, Sort::default());
+    list(&mut panel, "/x", 1, None, vec![folders(0..FOLDERS)]);
+    panel.move_by(25);
+    panel.move_by(-4);
+    assert_eq!((hovered(&panel), panel.cursor(), panel.scroll()), (Some("d20"), 21, 16));
+    panel
+}
+
+#[test]
+fn returning_from_a_folder_restores_its_scroll_and_row() {
+    let mut panel = scrolled();
+    list(&mut panel, "/x/d20", 2, None, vec![folders(0..FOLDERS)]);
+    assert_eq!((panel.cursor(), panel.scroll()), (0, 0), "a folder entered opens at the top");
+
+    list(&mut panel, "/x", 3, Some("d20"), vec![folders(0..FOLDERS)]);
+    assert_eq!((hovered(&panel), panel.cursor(), panel.scroll()), (Some("d20"), 21, 16));
+}
+
+#[test]
+fn returning_to_the_root_restores_every_folder_on_the_way() {
+    let mut panel = scrolled();
+    list(&mut panel, "/x/d20", 2, None, vec![folders(0..FOLDERS)]);
+    panel.move_by(33);
+    let inner = (panel.cursor(), panel.scroll());
+    list(&mut panel, "/x/d20/d32", 3, None, vec![folders(0..FOLDERS)]);
+    panel.move_by(5);
+    list(&mut panel, "/x/d20/d32/d04", 4, None, vec![vec![file("f")]]);
+
+    list(&mut panel, "/x/d20/d32", 5, Some("d04"), vec![folders(0..FOLDERS)]);
+    assert_eq!((panel.cursor(), panel.scroll()), (5, 0));
+    list(&mut panel, "/x/d20", 6, Some("d32"), vec![folders(0..FOLDERS)]);
+    assert_eq!((panel.cursor(), panel.scroll()), inner);
+    list(&mut panel, "/x", 7, Some("d20"), vec![folders(0..FOLDERS)]);
+    assert_eq!((panel.cursor(), panel.scroll()), (21, 16));
+}
+
+#[test]
+fn a_folder_that_lost_entries_keeps_the_cursor_on_its_row_without_space_below_the_end() {
+    let mut panel = scrolled();
+    list(&mut panel, "/x/d20", 2, None, vec![vec![file("f")]]);
+    list(&mut panel, "/x", 3, Some("d20"), vec![folders(10..FOLDERS)]);
+    assert_eq!((hovered(&panel), screen_row(&panel)), (Some("d20"), 5), "entries above it went");
+
+    list(&mut panel, "/x/d20", 4, None, vec![vec![file("f")]]);
+    list(&mut panel, "/x", 5, Some("d20"), vec![folders(0..22)]);
+    assert_eq!(hovered(&panel), Some("d20"));
+    assert_eq!(panel.scroll(), panel.len() - TALL, "the last row stays at the bottom of the panel");
+}
+
+#[test]
+fn a_resized_panel_keeps_the_row_when_it_fits_and_the_bottom_row_when_not() {
+    const SHORT: usize = 4;
+    const TALLER: usize = 20;
+    let mut panel = scrolled();
+    list(&mut panel, "/x/d20", 2, None, vec![vec![file("f")]]);
+    panel.set_rows(TALLER);
+    list(&mut panel, "/x", 3, Some("d20"), vec![folders(0..FOLDERS)]);
+    assert_eq!((hovered(&panel), screen_row(&panel)), (Some("d20"), 5));
+
+    list(&mut panel, "/x/d20", 4, None, vec![vec![file("f")]]);
+    panel.set_rows(SHORT);
+    list(&mut panel, "/x", 5, Some("d20"), vec![folders(0..FOLDERS)]);
+    assert_eq!((hovered(&panel), screen_row(&panel)), (Some("d20"), SHORT - 1));
+}
+
+#[test]
+fn the_row_holds_while_a_returning_listing_arrives_in_batches() {
+    let mut panel = scrolled();
+    list(&mut panel, "/x/d20", 2, None, vec![vec![file("f")]]);
+    list(&mut panel, "/x", 3, Some("d20"), vec![folders(20..FOLDERS), folders(0..20)]);
+    assert_eq!((hovered(&panel), panel.cursor(), panel.scroll()), (Some("d20"), 21, 16));
+}
+
+#[test]
+fn a_move_made_while_a_returning_listing_arrives_is_kept() {
+    let mut panel = scrolled();
+    list(&mut panel, "/x/d20", 2, None, vec![vec![file("f")]]);
+    panel.navigate(PathBuf::from("/x"), 3, Some("d20".into()));
+    panel.receive(3, folders(0..30), false);
+    panel.settle();
+    panel.move_by(1);
+    let moved = (panel.cursor(), panel.scroll());
+    panel.receive(3, folders(30..FOLDERS), false);
+    panel.finish(3, None);
+    panel.settle();
+    assert_eq!((hovered(&panel), panel.cursor(), panel.scroll()), (Some("d21"), moved.0, moved.1));
+}
+
+#[test]
+fn brief_listings_return_to_the_same_columns() {
+    let mut panel = Panel::new(PathBuf::from("/"), TALL, ListingMode::Brief, Sort::default());
+    list(&mut panel, "/x", 1, None, vec![folders(0..FOLDERS)]);
+    panel.to_end();
+    panel.move_by(-15);
+    let before = (panel.cursor(), panel.scroll());
+    assert_eq!((hovered(&panel), before), (Some("d24"), (25, 20)));
+    list(&mut panel, "/x/d24", 2, None, vec![vec![file("f")]]);
+    list(&mut panel, "/x", 3, Some("d24"), vec![folders(0..FOLDERS)]);
+    assert_eq!((panel.cursor(), panel.scroll()), before);
+}
+
+#[test]
+fn a_container_keeps_its_own_trail_apart_from_this_machines_folders() {
+    let mut panel = Panel::new(PathBuf::from("/"), TALL, ListingMode::Full, Sort::default());
+    list(&mut panel, "/", 1, None, vec![folders(0..FOLDERS)]);
+    panel.move_by(25);
+    panel.move_by(-4);
+    panel.mount = Some(crate::Mount { id: "web".into(), name: "web".into(), host: PathBuf::from("/") });
+    list(&mut panel, "/d20", 2, None, vec![vec![file("f")]]);
+    list(&mut panel, "/", 3, Some("d20"), vec![folders(0..FOLDERS)]);
+    assert_eq!((hovered(&panel), panel.scroll()), (Some("d20"), 21 + 1 - TALL), "the host's row stays with the host");
+}

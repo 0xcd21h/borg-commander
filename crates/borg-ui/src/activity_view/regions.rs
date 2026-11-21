@@ -9,10 +9,11 @@ use crate::{
     spinner::Spinner,
 };
 use borg_core::{
-    Activity, ActivityPage, CENSUS_LEGEND, MemoryCensus, MemoryGroup, MemoryProtection, PageClass, RegionRow,
-    SnapshotRow, census_grid,
+    Activity, ActivityPage, CENSUS_ENTROPY, CENSUS_KINDS, CENSUS_LEGEND, CensusPage, FindingKind, MemoryCensus,
+    MemoryGroup, MemoryProtection, PageClass, RegionRow, SnapshotRow, census_grid,
 };
 use borg_i18n::tr;
+use borg_view::{Mark, Paint, entropy::Entropy};
 use ratatui::{
     buffer::Buffer,
     layout::{Position, Rect},
@@ -161,14 +162,16 @@ pub(super) fn snapshot(activity: &Activity, look: &Look<'_>, body: Rect, spinner
         }
     }
     if let Some(finding) =
-        activity.selected_finding().filter(|f| f.address.is_none() && activity.list == ActivityPage::Integrity)
+        activity.selected_finding().filter(|f| f.address.is_none() && activity.list == ActivityPage::Findings)
     {
         let mut page = Page { buf, area: body, y: 0 };
-        page.wrapped(tr!(integrity_whole_process), dim(theme));
-        page.gap();
+        if finding.kind != FindingKind::RuleProblem {
+            page.wrapped(tr!(integrity_whole_process), dim(theme));
+            page.gap();
+        }
         page.wrapped(&finding.detail, emphasis(theme));
         page.gap();
-        return page.wrapped(finding.kind.caveat(), theme.styles.overlay);
+        return page.wrapped(finding.caveat(), theme.styles.overlay);
     }
     let Some(snapshot) = &activity.snapshot else {
         if activity.error.is_none() && activity.preview_waiting() {
@@ -188,15 +191,17 @@ pub(super) fn snapshot(activity: &Activity, look: &Look<'_>, body: Rect, spinner
             tr!(activity_region_unreadable)
         } else if activity.list == ActivityPage::Search {
             tr!(activity_no_matches)
-        } else if activity.list == ActivityPage::Integrity {
-            tr!(integrity_none)
+        } else if activity.list == ActivityPage::Findings {
+            activity.findings.as_ref().map_or(tr!(integrity_none), super::search::nothing_found)
         } else {
             tr!(activity_region_choose)
         };
         text(buf, row(body, 0), note, dim(theme));
         return;
     };
+    let layout = activity.snapshot_layout(usize::from(body.width));
     let columns = activity.snapshot_columns(usize::from(body.width));
+    let origin = activity.snapshot_origin();
     let details = tr!(
         activity_capture_label,
         pid = snapshot.process.pid,
@@ -222,44 +227,60 @@ pub(super) fn snapshot(activity: &Activity, look: &Look<'_>, body: Rect, spinner
         text(buf, row(body, 1), note, dim(theme));
     }
     let hit = activity.marked();
-    let printable = |b: u8| if b.is_ascii_graphic() || b == b' ' { char::from(b) } else { '.' };
+    let mark = |offset: usize| {
+        let at = snapshot.address.saturating_add(offset as u64);
+        let changed = activity.diff && old.is_some_and(|old| old.bytes.get(offset) != snapshot.bytes.get(offset));
+        if hit.as_ref().is_some_and(|hit| hit.contains(&at)) {
+            Mark::Current
+        } else if changed {
+            Mark::Match
+        } else {
+            Mark::None
+        }
+    };
+    let look_of = |paint: &Paint, mark: Mark| match mark {
+        Mark::Current => theme.styles.cursor.add_modifier(Modifier::BOLD),
+        Mark::Match => theme.styles.marked.add_modifier(Modifier::BOLD),
+        Mark::None if paint.dim => dim(theme),
+        Mark::None => theme.styles.overlay,
+    };
     let rows = activity.snapshot_rows(columns);
     for (y, shown) in
         rows.into_iter().skip(activity.offset).take(usize::from(body.height.saturating_sub(2))).enumerate()
     {
-        let address = Span::styled(format!("{:016x}  ", snapshot.address + shown.start() as u64), dim(theme));
+        let offset = (snapshot.address - origin) + shown.start() as u64;
+        let label =
+            || Span::styled(format!("{:width$}", layout.offset(offset), width = layout.offset_width()), dim(theme));
         let line = match shown {
             SnapshotRow::Zeros { len, .. } => Line::from(vec![
-                address,
+                label(),
                 Span::styled(tr!(activity_zero_run, size = size(Some(len as u64))), dim(theme)),
             ]),
-            SnapshotRow::Bytes(offset) => {
-                let chunk = &snapshot.bytes[offset..(offset + columns).min(snapshot.bytes.len())];
-                let mut spans = vec![address];
-                for (i, &byte) in chunk.iter().enumerate() {
-                    let changed = activity.diff && old.is_some_and(|old| old.bytes.get(offset + i) != Some(&byte));
-                    let at = snapshot.address.saturating_add((offset + i) as u64);
-                    let style = if hit.as_ref().is_some_and(|hit| hit.contains(&at)) {
-                        theme.styles.cursor.add_modifier(Modifier::BOLD)
-                    } else if changed {
-                        theme.styles.marked.add_modifier(Modifier::BOLD)
-                    } else {
-                        theme.styles.overlay
-                    };
-                    spans.push(Span::styled(
-                        if activity.text { printable(byte).to_string() } else { format!("{byte:02x} ") },
-                        style,
-                    ));
+            SnapshotRow::Bytes(start) => {
+                let chunk = &snapshot.bytes[start..(start + columns).min(snapshot.bytes.len())];
+                if activity.text {
+                    let shown = chunk.iter().enumerate().map(|(i, &byte)| {
+                        Span::styled(printable(byte).to_string(), look_of(&Paint::default(), mark(start + i)))
+                    });
+                    Line::from(std::iter::once(label()).chain(shown).collect::<Vec<_>>())
+                } else {
+                    let within = |at: u64| mark(start + (at - offset) as usize);
+                    let runs = layout.runs(offset, chunk, &within);
+                    Line::from(
+                        runs.into_iter()
+                            .map(|run| Span::styled(run.text, look_of(&run.paint, run.mark)))
+                            .collect::<Vec<_>>(),
+                    )
                 }
-                if !activity.text {
-                    let ascii: String = chunk.iter().map(|&b| printable(b)).collect();
-                    spans.push(Span::styled(format!(" {ascii:columns$}"), theme.styles.overlay));
-                }
-                Line::from(spans)
             }
         };
         line.render(row(body, (y + 2) as u16), buf);
     }
+}
+
+fn printable(byte: u8) -> char {
+    const UNPRINTED: char = '.';
+    if byte.is_ascii_graphic() || byte == b' ' { char::from(byte) } else { UNPRINTED }
 }
 
 /// How the page map draws a class: a glyph that tells it apart without colour, and a colour.
@@ -279,14 +300,27 @@ pub(super) fn page_look(class: PageClass, theme: &Theme) -> (char, Style) {
     (glyph, readable(theme, color).map_or_else(|| dim(theme), |color| theme.styles.overlay.fg(color)))
 }
 
+/// How the page map draws a page whose bytes look compressed, encrypted or packed, whatever it
+/// holds: its kind's glyph, bold, in the colour of dense data.
+fn high_look(theme: &Theme) -> Style {
+    page_look(PageClass::Dense, theme).1.add_modifier(Modifier::BOLD)
+}
+
+/// The glyph the legend shows high entropy with.
+const HIGH_SAMPLE: char = '█';
+/// The least room between the cursor's page and the region's highest entropy on their row.
+const HIGHEST_GAP: usize = 2;
+
 /// The class most of `pages` have, earlier classes winning ties.
-pub(super) fn majority(pages: &[PageClass]) -> PageClass {
-    let count = |class: &PageClass| pages.iter().filter(|page| *page == class).count();
+pub(super) fn majority(pages: &[CensusPage]) -> PageClass {
+    let count = |class: &PageClass| pages.iter().filter(|page| page.class == *class).count();
     PageClass::ALL.into_iter().rev().max_by_key(count).unwrap_or(PageClass::Unread)
 }
 
 /// The selected region's pages as a grid, a cell per page or per run of them, with a legend of
 /// what share of the region each class takes and, when focused, a cursor to open a page with.
+/// Pages of high entropy stand out whatever they hold, the cursor's row ends in the highest
+/// entropy of the region, and a note says what entropy means.
 pub(super) fn page_map(
     census: &MemoryCensus,
     cursor: usize,
@@ -310,23 +344,37 @@ pub(super) fn page_map(
     text(buf, row(body, 0), title, emphasis(theme));
     let height = usize::from(body.height.saturating_sub(2)).saturating_sub(CENSUS_LEGEND);
     let (columns, rows, span) = census_grid(census.pages.len(), usize::from(body.width), height);
-    let cell = |index: usize| majority(&census.pages[index * span..((index + 1) * span).min(census.pages.len())]);
+    let pages = |index: usize| &census.pages[index * span..((index + 1) * span).min(census.pages.len())];
+    let cell = |index: usize| majority(pages(index));
+    let highest = |index: usize| pages(index).iter().filter_map(|page| page.entropy).max();
     let at = (cursor / span).min(census.pages.len().saturating_sub(1) / span);
+    let mut cursor_width = 0;
     if focused && !census.pages.is_empty() {
         let line = tr!(census_cursor, address = census.address(at * span), class = cell(at).label());
+        let line = match highest(at) {
+            Some(entropy) => format!("{line} · {}", tr!(entropy_bits, bits = format::bits(entropy))),
+            None => line,
+        };
+        cursor_width = line.width();
         text(buf, row(body, 1), line, theme.styles.overlay);
     }
+    if let Some(entropy) = census.highest() {
+        let line = tr!(census_highest, bits = format::bits(entropy));
+        if cursor_width + HIGHEST_GAP + line.width() <= usize::from(body.width) {
+            Line::styled(line, dim(theme)).right_aligned().render(row(body, 1), buf);
+        }
+    }
+    let kinds = PageClass::ALL.into_iter().map(|class| (census.share(class), page_look(class, theme), class.label()));
+    let high = (census.high_share(), (HIGH_SAMPLE, high_look(theme)), tr!(page_high));
     let mut legend = vec![Vec::new()];
     let mut x = 0;
-    for class in PageClass::ALL {
-        let share = census.share(class);
+    for (share, (glyph, style), name) in kinds.chain([high]) {
         if share == 0.0 {
             continue;
         }
-        let (glyph, style) = page_look(class, theme);
-        let label = format!(" {} {:.0}%  ", class.label(), (share * 100.0).max(1.0));
+        let label = format!(" {name} {:.0}%  ", (share * 100.0).max(1.0));
         let width = 1 + label.width();
-        if x + width > usize::from(body.width) && x > 0 && legend.len() < CENSUS_LEGEND {
+        if x + width > usize::from(body.width) && x > 0 && legend.len() < CENSUS_KINDS {
             legend.push(Vec::new());
             x = 0;
         }
@@ -338,6 +386,10 @@ pub(super) fn page_map(
     for (y, spans) in legend.into_iter().enumerate() {
         Line::from(spans).render(row(body, 2 + y as u16), buf);
     }
+    let note = tr!(entropy_note, high = format::bits(Entropy::HIGH), low = format::bits(Entropy::LOW));
+    for (y, line) in wrap(&note, usize::from(body.width)).into_iter().take(CENSUS_ENTROPY).enumerate() {
+        text(buf, row(body, (2 + CENSUS_KINDS + y) as u16), line, dim(theme));
+    }
     for y in 0..rows.min(height) {
         let line = row(body, (2 + CENSUS_LEGEND + y) as u16);
         for x in 0..columns {
@@ -346,7 +398,13 @@ pub(super) fn page_map(
                 break;
             }
             let (glyph, style) = page_look(cell(index), theme);
-            let style = if focused && index == at { theme.styles.cursor } else { style };
+            let style = if focused && index == at {
+                theme.styles.cursor
+            } else if pages(index).iter().any(|page| page.high()) {
+                high_look(theme)
+            } else {
+                style
+            };
             if let Some(target) = buf.cell_mut(Position { x: line.x + x as u16, y: line.y }) {
                 target.set_char(glyph).set_style(style);
             }

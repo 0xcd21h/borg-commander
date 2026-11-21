@@ -40,6 +40,10 @@ jobs:
           pip3 install ziglang
           cargo install --locked cargo-zigbuild
 
+      - name: Install the eBPF tools (Linux)
+        if: runner.os == 'Linux'
+        run: scripts/install-ebpf-tools.sh
+
       - name: Build (Linux)
         if: runner.os == 'Linux'
         run: cargo zigbuild --release --locked -p borg-app -p borg-relay --target ${{ matrix.target }}
@@ -47,6 +51,11 @@ jobs:
       - name: Build (macOS)
         if: runner.os == 'macOS'
         run: cargo build --release --locked -p borg-app --target ${{ matrix.target }}
+
+      - name: Sign with the hardened runtime (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: scripts/sign-macos.sh "target/${{ matrix.target }}/release/borg"
 
       - name: Package
         shell: bash
@@ -127,21 +136,27 @@ jobs:
           path: dist
           merge-multiple: true
 
+      - name: Sign the checksum files
+        shell: bash
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+        run: scripts/sign-release.sh dist
+
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/*
           generate_release_notes: true
 
-      - name: Render the Homebrew formula
+      - name: Render the Homebrew cask
         shell: bash
-        run: scripts/homebrew-formula.sh "${GITHUB_REF_NAME#v}" dist > borg-commander.rb
+        run: scripts/homebrew-cask.sh "${GITHUB_REF_NAME#v}" dist > borg-commander.rb
 
       - uses: actions/upload-artifact@v4
         with:
-          name: homebrew-formula
+          name: homebrew-cask
           path: borg-commander.rb
 
       - name: Publish to the Homebrew tap
         if: env.HOMEBREW_TAP_TOKEN != ''
         shell: bash
-        run: scripts/publish-formula.sh borg-commander.rb "${HOMEBREW_TAP}" "${GITHUB_REF_NAME}"
+        run: scripts/publish-cask.sh borg-commander.rb "${HOMEBREW_TAP}" "${GITHUB_REF_NAME}"

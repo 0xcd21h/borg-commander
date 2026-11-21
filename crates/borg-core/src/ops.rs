@@ -74,14 +74,6 @@ pub fn compress<'a>(archive: &str, format: ArchiveFormat, sources: impl IntoIter
     base.local(archive).locals(sources)
 }
 
-pub fn extract(archive: &str, format: ArchiveFormat, dest: &Path) -> CommandLine {
-    match format {
-        ArchiveFormat::Zip => CommandLine::program("unzip").flag("-q").local(archive).flag("-d").path(dest),
-        ArchiveFormat::SevenZip => CommandLine::program("7z").flag("x").flag("-bd").local(archive).glued("-o", dest),
-        _ => CommandLine::program("tar").flag("-xf").local(archive).flag("-C").path(dest),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -110,9 +102,6 @@ mod tests {
         assert_eq!(text(&compress("out.tar.gz", ArchiveFormat::TarGz, ["a"])), "tar -czf './out.tar.gz' './a'");
         assert_eq!(text(&compress("out.zip", ArchiveFormat::Zip, ["a"])), "zip -r -q './out.zip' './a'");
         assert_eq!(text(&compress("o.7z", ArchiveFormat::SevenZip, ["a"])), "7z a -bd './o.7z' './a'");
-        assert_eq!(text(&extract("x.zip", ArchiveFormat::Zip, Path::new("/d"))), "unzip -q './x.zip' -d '/d'");
-        assert_eq!(text(&extract("x.tar.xz", ArchiveFormat::TarXz, Path::new("/d"))), "tar -xf './x.tar.xz' -C '/d'");
-        assert_eq!(text(&extract("x.7z", ArchiveFormat::SevenZip, Path::new("/d"))), "7z x -bd './x.7z' -o'/d'");
     }
 
     #[test]

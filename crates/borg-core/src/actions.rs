@@ -23,7 +23,6 @@ const PAGE_DOWN: isize = 1;
 const SELECT_ALL: &str = "*";
 
 pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec<Effect> {
-    // Results take their panel back from the activity monitor and the container list.
     if matches!(
         action,
         Action::Search
@@ -34,9 +33,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
             | Action::Folders
             | Action::BackResults
     ) {
-        state.activity.side = None;
-        crate::docker::close(state);
-        crate::network::close(state);
+        crate::screens::close_all(state);
     }
     if let Some(notice) = refusals::refusal(state, action) {
         state.notice = Some(notice);
@@ -44,14 +41,20 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
     }
     let side = state.active;
     match action {
-        Action::MeasureSizes => crate::measure::toggle(state),
+        Action::MeasureSizes => crate::measure::toggle(state, now),
         Action::Activity => crate::activity::open(state),
         Action::Network => crate::network::toggle(state),
+        Action::StartupItems => crate::startup_items::toggle(state),
+        Action::Alerts => crate::watch::toggle(state),
+        Action::HostsOverview => crate::hosts::toggle(state),
         Action::ToggleSystemPlugin => settings::flip(state, |prefs| &mut prefs.system_plugin),
+        Action::ToggleProcessWatch => settings::toggle_process_watch(state),
+        Action::ToggleProcessFreeze => settings::flip(state, |prefs| &mut prefs.process_freeze),
         Action::Docker => crate::docker::toggle(state, now),
         Action::DockerAct(action) => crate::docker::act(state, action),
         Action::DockerFiles => crate::docker::browse(state),
         Action::DockerShell => crate::docker::open_shell(state, now),
+        Action::DockerDisk => crate::docker::toggle_disk(state, now),
         Action::AgentLog => crate::agent::open_log(state),
         Action::ConnectClaude => crate::agent::open_connect(state),
         Action::DockerFilter => {
@@ -63,7 +66,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         Action::ToggleAgentCloud => settings::flip(state, |prefs| &mut prefs.agent_cloud),
         Action::ToggleAgentAskReads => settings::flip(state, |prefs| &mut prefs.agent_ask_reads),
         Action::ToggleAgentLog => settings::toggle_agent_log(state),
-        Action::ToggleIndex => settings::toggle_index(state),
+        Action::ToggleIndex => settings::toggle_index(state, now),
         Action::Search
         | Action::FolderTree
         | Action::CalculateSizes
@@ -81,24 +84,39 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         | Action::RemoveReferences
         | Action::CancelSearch => crate::results::perform(state, action),
         Action::DeleteOriginals => files::confirm_delete(state),
+        Action::ReplaceInFiles => crate::replace::ask(state),
         Action::Quit => dialogs::confirm_quit(state),
-        Action::Jobs => crate::jobs::open_list(state),
+        Action::Jobs => crate::jobs::open_list(state, now),
+        Action::JobResult => crate::jobs::open_newest_result(state),
+        Action::CloseToasts => {
+            crate::jobs::close_toasts(state, now);
+            Vec::new()
+        }
+        Action::ToggleJobNotifications => settings::flip(state, |prefs| &mut prefs.job_notifications),
         Action::ToggleShell => shell::toggle_shell(state),
         Action::MirrorRemote => crate::remote::mirror_mounted(state),
         Action::BrowseRemotes => crate::remote::browse(state),
-        Action::ApprovalModeOff => vec![Effect::ApprovalModeOff],
+        Action::ApprovalModeOff => crate::agent::approve_all_off(state),
         Action::SwitchPanel => panels::switch(state),
         Action::InsertNewline => shell::insert_newline(state),
         Action::QuickView => crate::aside::toggle(state, crate::Aside::QuickView),
         Action::Info => crate::aside::toggle(state, crate::Aside::Info),
         Action::TimeMachine => crate::backup::open(state),
+        Action::Storage => crate::storage::open(state),
+        Action::BackgroundService => crate::service::check(),
+        Action::AskAgain => {
+            state.kept_answers = 0;
+            state.notice = Some(tr!(asking_again).into());
+            vec![Effect::AskAgain]
+        }
         Action::Up => panels::moved(state, |panel| panel.move_by(LINE_UP)),
         Action::Down => panels::moved(state, |panel| panel.move_by(LINE_DOWN)),
         Action::PageUp => panels::moved(state, |panel| panel.page(PAGE_UP)),
         Action::PageDown => panels::moved(state, |panel| panel.page(PAGE_DOWN)),
         Action::Top => panels::moved(state, Panel::to_start),
         Action::Bottom => panels::moved(state, Panel::to_end),
-        Action::Open => panels::open(state, side),
+        Action::Open => panels::open(state, side, now),
+        Action::Enter => panels::enter(state, side),
         Action::Descend => panels::step_in(state, side),
         Action::Leave => panels::step_out(state, side),
         Action::InsertName => shell::insert_names(state, side),
@@ -125,17 +143,19 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
             dialogs::prompt(state, tr!(unselect_group), tr!(files_matching), SELECT_ALL, PromptPurpose::Unselect)
         }
         Action::InvertSelection => panels::moved(state, Panel::invert_marks),
-        Action::View => files::view(state, side),
-        Action::Edit => files::edit_hovered(state, crate::EditorSlot::Screen),
-        Action::EditInPanel => files::edit_in_panel(state, side),
+        Action::View => files::view(state, side, now),
+        Action::Edit => files::edit_hovered(state, crate::EditorSlot::Screen, now),
+        Action::EditInPanel => files::edit_in_panel(state, side, now),
         Action::EditExternal => files::edit_external(state),
         Action::Copy => files::copy(state, side),
         Action::Move => files::move_selection(state, side),
         Action::Mkdir => dialogs::prompt(state, tr!(make_directory), tr!(name), "", PromptPurpose::Mkdir),
         Action::Delete => files::delete(state),
         Action::Compress => files::compress(state),
-        Action::ExtractHere => files::extract(state, side, now),
-        Action::ExtractToOther => files::extract(state, side.other(), now),
+        Action::ExtractHere => crate::archive::extract(state, side, now),
+        Action::ExtractToOther => crate::archive::extract(state, side.other(), now),
+        Action::CreateVault => crate::vault::create(state),
+        Action::CloseVault => crate::vault::close(state),
         Action::SwapPanels => panels::swap(state),
         Action::SameFolder => panels::same_folder(state),
         Action::EqualizePanels => panels::set_split(state, EVEN_SPLIT, now),

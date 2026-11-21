@@ -1,19 +1,29 @@
+use ratatui::layout::Rect;
 use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
     time::{Duration, Instant},
 };
 mod process;
-pub use process::{MemoryProtection, ProcessInfo, ProcessKey, SystemSample};
+pub use process::{DiskActivity, LoadAverage, MemoryProtection, ProcessInfo, ProcessKey, SystemSample, Threads};
+mod summary;
+pub use summary::{
+    CORE_METER, CORE_PERCENT, CoreRows, LoadReading, LoadTrend, SUMMARY_GAP, SummaryExtras, SummaryLayout, bar_labels,
+    core_number_width, figure_labels, label_width, load_reading, load_text, strip_cells, summary_layout, threads_text,
+    uptime_text, waiting_text,
+};
 mod memory;
 pub use memory::{
-    CENSUS_LEGEND, MemoryCensus, MemoryGroup, MemoryRegion, MemorySnapshot, MemoryTotals, PageClass, ProcessFile,
-    ProcessFiles, RegionItem, RegionRow, census_grid,
+    CENSUS_ENTROPY, CENSUS_KINDS, CENSUS_LEGEND, CensusPage, MemoryCensus, MemoryGroup, MemoryRegion, MemorySnapshot,
+    MemoryTotals, PageClass, ProcessFile, ProcessFiles, RegionItem, RegionRow, census_grid,
 };
 use memory::{GroupEntry, Member};
 mod integrity;
 use integrity::check_integrity;
 pub use integrity::{FINDING_NOTE, Finding, FindingKind, IntegrityReport, Severity};
+mod rules;
+use rules::scan_with_rules;
+pub use rules::{FindingsReport, RulesReport, evidence_text, problem_finding, rule_finding, rule_source};
 mod strings;
 use strings::merge_strings;
 pub use strings::{
@@ -22,18 +32,33 @@ pub use strings::{
 };
 mod request;
 pub use request::{ActivityData, ActivityRequest};
+mod scan;
+pub use scan::{ScanChecks, ScanSubject, scan_ask};
 mod keys;
 pub(crate) use keys::{on_key, panels_action, paste, route_key};
 mod refresh;
 pub(crate) use refresh::{open, receive, receive_file_preview, sync, sync_file_preview, wake_at};
 mod capture;
 mod control;
+mod cpu;
 pub use control::{
     CONTROL_CHOICES, ControlChoice, ControlDialog, ControlOutcome, ControlReport, DEFAULT_NICE, LEAST_NICE, NICEST,
     PRIORITY_STEP, ProcessControl, ProcessSignal,
 };
 pub(crate) use control::{on_key as on_control_key, open as open_control};
+pub use cpu::CpuAverage;
+mod entropy;
+mod family;
+pub use family::{Branch, Kin, ListedProcess, Relative};
+mod filter;
+use filter::ProcessFilter;
 mod tree;
+pub use entropy::{
+    EntropyChoice, EntropyDialog, EntropyHit, EntropyReport, EntropyScan, EntropyScope, HIT_LIMIT, HitKind,
+};
+pub(crate) use entropy::{
+    on_dialog_key as on_entropy_key, open as open_entropy, receive as receive_entropy, show_hits as show_entropy_hits,
+};
 
 pub const HISTORY: usize = 60;
 pub const SNAPSHOT_LIMIT: usize = 64 * 1024;
@@ -45,13 +70,15 @@ const ZERO_ROWS: usize = 2;
 
 /// Rows the selected open file's details take above its preview.
 pub const FILE_PREVIEW_TOP: u16 = 5;
-/// Rows a pane's frame, header and footer take from a list or preview of each page.
-pub fn chrome_rows(page: ActivityPage) -> u16 {
+/// Rows a pane's frame, header and footer take from a list or preview of each page in `pane`,
+/// with the system summary above the processes.
+pub fn chrome_rows(activity: &Activity, page: ActivityPage, pane: Rect) -> u16 {
     match page {
         ActivityPage::Snapshot => 8,
         ActivityPage::Search => 8,
-        ActivityPage::Integrity => 7 + FINDING_NOTE,
-        _ => 6,
+        ActivityPage::Findings => 7 + FINDING_NOTE,
+        ActivityPage::Processes => crate::screens::CHROME_ROWS + activity.summary_rows(pane),
+        _ => crate::screens::CHROME_ROWS,
     }
 }
 
@@ -83,10 +110,14 @@ pub enum ActivityPage {
     Regions,
     Snapshot,
     Search,
-    /// Integrity findings, in the list pane.
-    Integrity,
+    /// What the integrity check or rules found, in the list pane.
+    Findings,
     Files,
     FileDetails,
+    /// The hits of the entropy scan of every process, in the list pane.
+    Entropy,
+    /// The selected hit's details, in the preview pane.
+    EntropyDetails,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActivitySort {
@@ -110,28 +141,45 @@ pub struct Activity {
     pub side: Option<crate::Side>,
     pub preview_focused: bool,
     pub list: ActivityPage,
-    /// The list that search matches and integrity findings go back to with Esc.
+    /// The list that search matches and findings go back to with Esc.
     pub results_origin: ActivityPage,
     preview_due: Option<Instant>,
     pub search_form: Option<MemorySearchForm>,
+    /// What the memory search form held when it closed, for the next time it opens.
+    pub(crate) search_draft: Option<MemorySearchForm>,
     pub search_report: Option<MemorySearchReport>,
     pub search_cursor: usize,
     pub search_progress: Option<(u64, u64, usize)>,
     pub last_search: Option<ActivityRequest>,
     pub from_search: bool,
-    pub integrity: Option<IntegrityReport>,
+    pub findings: Option<FindingsReport>,
     pub finding_cursor: usize,
     pub sample: SystemSample,
     pub histories: HashMap<ProcessKey, MemoryHistory>,
+    /// Each process's CPU use averaged over the last few seconds, which the list shows and
+    /// sorts by.
+    cpu: HashMap<ProcessKey, CpuAverage>,
+    /// The whole system's CPU use, averaged the same way.
+    system_cpu: Option<CpuAverage>,
+    /// Each core's CPU use, averaged the same way.
+    cores: Vec<CpuAverage>,
+    /// The process list shows the one-line overview instead of the system summary.
+    pub hide_summary: bool,
     pub selected: Option<ProcessKey>,
-    pub rows: Vec<(usize, usize)>,
+    pub rows: Vec<ListedProcess>,
     pub cursor: usize,
     pub page: ActivityPage,
     pub sort: ActivitySort,
     pub reverse: bool,
     pub tree: bool,
+    /// The processes whose branches the tree keeps folded.
+    folded: HashSet<ProcessKey>,
     pub filter: String,
     pub filtering: bool,
+    /// The list leaves out processes that used no CPU in the last few seconds.
+    pub hide_idle: bool,
+    /// How many processes the list leaves out as idle.
+    idle_hidden: usize,
     pub paused: bool,
     regions: Vec<MemoryRegion>,
     pub region_cursor: usize,
@@ -152,7 +200,7 @@ pub struct Activity {
     /// The selected open file's preview, when it is a regular file, and the one being read.
     pub file_preview: Option<crate::Peeked>,
     file_previewing: Option<PathBuf>,
-    pub tops: [usize; 5],
+    pub tops: [usize; 6],
     pub snapshot: Option<MemorySnapshot>,
     pub previous: Option<MemorySnapshot>,
     pub text: bool,
@@ -171,6 +219,12 @@ pub struct Activity {
     revealing: Option<(u32, bool)>,
     /// The monitor was opened from the network screen, and Esc goes back to it.
     pub from_network: bool,
+    /// The entropy scan of every process, which keeps running while the monitor shows
+    /// something else.
+    pub entropy: Option<EntropyScan>,
+    /// The memory map was opened from a hit of the entropy scan, and Esc goes back to the hits.
+    pub from_entropy: bool,
+    landing: Option<entropy::Landing>,
 }
 impl Default for Activity {
     fn default() -> Self {
@@ -182,15 +236,20 @@ impl Default for Activity {
             results_origin: ActivityPage::Processes,
             preview_due: None,
             search_form: None,
+            search_draft: None,
             search_report: None,
             search_cursor: 0,
             search_progress: None,
             last_search: None,
             from_search: false,
-            integrity: None,
+            findings: None,
             finding_cursor: 0,
             sample: Default::default(),
             histories: Default::default(),
+            cpu: HashMap::new(),
+            system_cpu: None,
+            cores: Vec::new(),
+            hide_summary: false,
             selected: None,
             rows: Vec::new(),
             cursor: 0,
@@ -198,8 +257,11 @@ impl Default for Activity {
             sort: ActivitySort::Memory,
             reverse: true,
             tree: false,
+            folded: HashSet::new(),
             filter: String::new(),
             filtering: false,
+            hide_idle: false,
+            idle_hidden: 0,
             paused: false,
             regions: Vec::new(),
             region_cursor: 0,
@@ -216,7 +278,7 @@ impl Default for Activity {
             file_cursor: 0,
             file_preview: None,
             file_previewing: None,
-            tops: [0; 5],
+            tops: [0; 6],
             snapshot: None,
             previous: None,
             text: false,
@@ -232,6 +294,9 @@ impl Default for Activity {
             next: None,
             revealing: None,
             from_network: false,
+            entropy: None,
+            from_entropy: false,
+            landing: None,
         }
     }
 }
@@ -279,7 +344,8 @@ impl Activity {
             ActivityPage::Regions => (self.region_cursor, self.tops[1]),
             ActivityPage::Search => (self.search_cursor, self.tops[2]),
             ActivityPage::Files => (self.file_cursor, self.tops[3]),
-            ActivityPage::Integrity => (self.finding_cursor, self.tops[4]),
+            ActivityPage::Findings => (self.finding_cursor, self.tops[4]),
+            ActivityPage::Entropy => (self.entropy.as_ref().map_or(0, |scan| scan.cursor), self.tops[5]),
             _ => return 0,
         };
         top.min(cursor).max(cursor.saturating_sub(height.max(1) - 1))
@@ -291,7 +357,8 @@ impl Activity {
             ActivityPage::Regions => 1,
             ActivityPage::Search => 2,
             ActivityPage::Files => 3,
-            ActivityPage::Integrity => 4,
+            ActivityPage::Findings => 4,
+            ActivityPage::Entropy => 5,
             _ => return,
         };
         self.tops[index] = top;
@@ -306,21 +373,89 @@ impl Activity {
     pub fn growth(&self, key: ProcessKey) -> i128 {
         self.histories.get(&key).map_or(0, |h| i128::from(*h.values.last().unwrap_or(&h.first)) - i128::from(h.first))
     }
-    pub fn rebuild(&mut self) {
-        let filter = self.filter.to_lowercase();
-        let mut rows: Vec<_> = self
+    /// A process's CPU use averaged over the last few seconds, in hundredths of a percent of one
+    /// core and rounded to the step the list shows, once a sample has measured it.
+    pub fn cpu(&self, key: ProcessKey) -> Option<u32> {
+        self.cpu.get(&key).map(CpuAverage::shown)
+    }
+    /// The whole system's CPU use, averaged like each process's, in hundredths of a percent.
+    pub fn system_cpu(&self) -> Option<u32> {
+        self.system_cpu.as_ref().map(CpuAverage::shown)
+    }
+    /// Each core's CPU use, averaged like the system's, in hundredths of a percent of the core.
+    pub fn core_cpu(&self) -> Vec<u32> {
+        self.cores.iter().map(CpuAverage::shown).collect()
+    }
+    /// Whether a process used no CPU in the last few seconds. One not measured yet is not idle.
+    pub fn idle(&self, key: ProcessKey) -> bool {
+        self.cpu(key) == Some(0)
+    }
+    /// How many processes the list leaves out as idle.
+    pub fn idle_hidden(&self) -> usize {
+        self.idle_hidden
+    }
+    /// Averages each process's CPU, each core's and the system's into what the monitor shows,
+    /// forgetting the processes that ended.
+    pub(crate) fn average_cpu(&mut self, now: Instant) {
+        let keys: HashSet<_> = self.sample.processes.iter().map(|p| p.key).collect();
+        self.cpu.retain(|key, _| keys.contains(key));
+        for process in &self.sample.processes {
+            if let Some(cpu) = process.cpu {
+                self.cpu.insert(process.key, CpuAverage::next(self.cpu.get(&process.key).copied(), cpu, now));
+            }
+        }
+        if self.cores.len() != self.sample.cpu.len() {
+            self.cores.clear();
+        }
+        self.cores = self
             .sample
-            .processes
+            .cpu
             .iter()
             .enumerate()
-            .filter(|(_, p)| filter.is_empty() || format!("{} {}", p.name, p.key.pid).to_lowercase().contains(&filter))
-            .map(|(i, _)| i)
+            .map(|(index, &core)| CpuAverage::next(self.cores.get(index).copied(), core, now))
             .collect();
+        let cores = self.sample.cpu.len();
+        if cores > 0 {
+            let total = self.sample.cpu.iter().map(|&core| u64::from(core)).sum::<u64>() / cores as u64;
+            self.system_cpu = Some(CpuAverage::next(self.system_cpu, u32::try_from(total).unwrap_or(u32::MAX), now));
+        }
+    }
+    /// The processes of `matched` the list keeps while idle ones are hidden: those that used CPU,
+    /// and in the tree the processes they descend from, so the tree holds together.
+    fn without_idle(&self, matched: Vec<usize>, tree: bool) -> Vec<usize> {
+        if !self.hide_idle {
+            return matched;
+        }
+        let processes = &self.sample.processes;
+        let busy: Vec<usize> = matched.iter().copied().filter(|&index| !self.idle(processes[index].key)).collect();
+        let mut kept: HashSet<usize> = busy.iter().copied().collect();
+        if tree {
+            let by_pid: HashMap<u32, usize> = processes.iter().enumerate().map(|(i, p)| (p.key.pid, i)).collect();
+            for index in busy {
+                let mut parent = processes[index].parent;
+                while let Some(&up) = parent.and_then(|pid| by_pid.get(&pid)) {
+                    if !kept.insert(up) {
+                        break;
+                    }
+                    parent = processes[up].parent;
+                }
+            }
+        }
+        matched.into_iter().filter(|index| kept.contains(index)).collect()
+    }
+    pub fn rebuild(&mut self) {
+        let filter = ProcessFilter::parse(&self.filter);
+        let tree = self.tree && filter.is_empty();
+        let matched: Vec<_> =
+            self.sample.processes.iter().enumerate().filter(|(_, p)| filter.keeps(p)).map(|(i, _)| i).collect();
+        let matches = matched.len();
+        let mut rows = self.without_idle(matched, tree);
+        self.idle_hidden = matches - rows.len();
         rows.sort_by(|&a, &b| {
             let (a, b) = (&self.sample.processes[a], &self.sample.processes[b]);
             let order = match self.sort {
                 ActivitySort::Memory => a.resident.cmp(&b.resident),
-                ActivitySort::Cpu => a.cpu.cmp(&b.cpu),
+                ActivitySort::Cpu => self.cpu(a.key).cmp(&self.cpu(b.key)),
                 ActivitySort::Growth => self.growth(a.key).cmp(&self.growth(b.key)),
                 ActivitySort::Name => a.name.cmp(&b.name),
                 ActivitySort::Pid => a.key.pid.cmp(&b.key.pid),
@@ -329,54 +464,46 @@ impl Activity {
             };
             (if self.reverse { order.reverse() } else { order }).then(a.key.pid.cmp(&b.key.pid))
         });
-        self.rows = if self.tree && filter.is_empty() {
-            let pids: HashSet<_> = rows.iter().map(|&i| self.sample.processes[i].key.pid).collect();
-            let mut children: HashMap<u32, Vec<usize>> = HashMap::new();
-            let mut roots = Vec::new();
-            for &i in &rows {
-                match self.sample.processes[i]
-                    .parent
-                    .filter(|pid| pids.contains(pid) && *pid != self.sample.processes[i].key.pid)
-                {
-                    Some(parent) => children.entry(parent).or_default().push(i),
-                    None => roots.push(i),
-                }
-            }
-            let mut seen = HashSet::new();
-            let mut out = Vec::new();
-            for root in roots.into_iter().chain(rows.iter().copied()) {
-                let mut stack = vec![(root, 0)];
-                while let Some((i, depth)) = stack.pop() {
-                    if seen.insert(i) {
-                        out.push((i, depth));
-                        if let Some(children) = children.get(&self.sample.processes[i].key.pid) {
-                            stack.extend(children.iter().rev().map(|&c| (c, depth + 1)));
-                        }
-                    }
-                }
-            }
-            out
+        self.forget_ended_folds();
+        self.rows = if tree {
+            family::tree(&self.sample.processes, &rows, &self.folded)
         } else {
-            rows.into_iter().map(|i| (i, 0)).collect()
+            rows.into_iter().map(|index| ListedProcess { index, depth: 0, branch: Branch::Leaf }).collect()
         };
         self.cursor = self
             .rows
             .iter()
-            .position(|&(i, _)| Some(self.sample.processes[i].key) == self.selected)
+            .position(|row| Some(self.sample.processes[row.index].key) == self.selected)
             .unwrap_or(self.cursor.min(self.rows.len().saturating_sub(1)));
         if self.list == ActivityPage::Processes || self.selected.is_none() {
             self.select();
         }
     }
-    /// Selects the process with `pid` once the next sample lists it, clearing a filter that
-    /// would hide it, and with `control` offers its signals and priority then.
+    /// Whether the monitor is waiting for the next sample to select `pid`.
+    pub fn reveals(&self, pid: u32) -> bool {
+        self.revealing.is_some_and(|(waiting, _)| waiting == pid)
+    }
+
+    /// Selects the process with `pid` once the next sample lists it, clearing a filter and
+    /// showing idle processes so neither hides it, and with `control` offers its signals and
+    /// priority then.
     pub(crate) fn reveal(&mut self, pid: u32, control: bool) {
         self.filter.clear();
         self.filtering = false;
+        self.hide_idle = false;
         self.revealing = Some((pid, control));
     }
+    /// Lists the processes the filter now keeps, with the cursor on the process whose PID it names.
+    pub(crate) fn refilter(&mut self) {
+        self.rebuild();
+        for pid in ProcessFilter::parse(&self.filter).pids().collect::<Vec<_>>() {
+            if self.select_pid(pid) {
+                break;
+            }
+        }
+    }
     fn select_pid(&mut self, pid: u32) -> bool {
-        let Some(cursor) = self.rows.iter().position(|&(i, _)| self.sample.processes[i].key.pid == pid) else {
+        let Some(cursor) = self.rows.iter().position(|row| self.sample.processes[row.index].key.pid == pid) else {
             return false;
         };
         self.cursor = cursor;
@@ -384,7 +511,7 @@ impl Activity {
         true
     }
     fn select(&mut self) {
-        let selected = self.rows.get(self.cursor).map(|&(i, _)| self.sample.processes[i].key);
+        let selected = self.rows.get(self.cursor).map(|row| self.sample.processes[row.index].key);
         if self.selected != selected {
             self.region_cursor = 0;
             self.expanded_groups.clear();
@@ -396,19 +523,21 @@ impl Activity {
             self.file_cursor = 0;
             self.file_preview = None;
             self.file_previewing = None;
-            self.tops[1..].fill(0);
+            self.tops[1..5].fill(0);
             self.snapshot = None;
             self.previous = None;
             self.search_form = None;
             self.search_report = None;
             self.last_search = None;
             self.search_progress = None;
-            self.integrity = None;
+            self.findings = None;
             self.finding_cursor = 0;
             self.preview_due = None;
             self.from_search = false;
             self.error = None;
             self.retry = None;
+            self.from_entropy = false;
+            self.landing = None;
             if self.pending.as_ref().is_some_and(|(_, r)| !matches!(r, ActivityRequest::Sample)) {
                 self.pending = None;
                 self.next = None;

@@ -2,29 +2,47 @@
 
 use super::{
     Anchor, EAGER_MERGE_LIMIT, EXTENSION_SEPARATOR, INITIAL_GENERATION, Incoming, Listing, ListingMode,
-    MERGE_GROWTH_DIVISOR, Panel, Row, Sort, SortKey,
+    MERGE_GROWTH_DIVISOR, Panel, Row, Sort, SortKey, Viewport,
 };
+use crate::MatchRank;
 use borg_vfs::Entry;
 use std::{
     cmp::Ordering,
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
 };
 
+/// How well each search result matches its query, by the result's path.
+pub type Ranks = HashMap<PathBuf, MatchRank>;
+
+pub(super) fn ranks(results: &Option<crate::Results>) -> Option<&Ranks> {
+    results.as_ref().map(|results| &results.ranks)
+}
+
 impl Panel {
     pub fn navigate(&mut self, dir: PathBuf, generation: u64, focus: Option<String>) {
+        self.remember_viewport(&dir);
         self.results = None;
+        if self.sort.key == SortKey::Match {
+            self.sort = Sort::default();
+        }
         let refresh = self.is_reloading_into(&dir);
-        self.incoming = Some(Incoming { dir, generation, focus: focus.map(Anchor::Name), refresh });
+        let row = focus.as_deref().and_then(|entry| self.recall_row(&dir, entry));
+        self.incoming = Some(Incoming { dir, generation, focus: focus.map(Anchor::Name), refresh, row });
+    }
+
+    pub fn abandon(&mut self, generation: u64) {
+        self.incoming.take_if(|incoming| incoming.generation == generation);
     }
 
     pub fn reload(&mut self, generation: u64) {
         // A folder still loading keeps the entry it was opened to select; otherwise the
         // refresh selects whatever is hovered when it arrives, after any move made meanwhile.
         let focus = self.incoming.as_ref().and_then(|incoming| incoming.focus.clone());
+        let row = self.incoming.as_ref().and_then(|incoming| incoming.row);
         let dir = self.destination().to_path_buf();
         let refresh = self.is_reloading_into(&dir);
-        self.incoming = Some(Incoming { dir, generation, focus, refresh });
+        self.incoming = Some(Incoming { dir, generation, focus, refresh, row });
     }
 
     pub fn receive(&mut self, generation: u64, batch: Vec<Entry>, show_hidden: bool) {
@@ -32,6 +50,9 @@ impl Panel {
             self.commit();
         }
         if generation == self.generation {
+            if let Some(results) = self.results.as_mut() {
+                results.note(&batch);
+            }
             let results = self.is_results();
             self.pending.extend(batch.into_iter().filter(|entry| results || show_hidden || !entry.is_hidden()));
         }
@@ -61,6 +82,13 @@ impl Panel {
     }
 
     pub fn settle(&mut self) {
+        self.take_pending();
+        if self.listing != Listing::Loading {
+            self.return_row = None;
+        }
+    }
+
+    fn take_pending(&mut self) {
         let loading = self.listing == Listing::Loading;
         if self.replacing {
             if !loading {
@@ -77,7 +105,8 @@ impl Panel {
                 by_path.insert(entry.identity().to_path_buf(), entry);
             }
             self.entries = by_path.into_values().collect();
-            self.entries.sort_by(|a, b| order(a, b, self.sort));
+            let (sort, ranks) = (self.sort, ranks(&self.results));
+            self.entries.sort_by(|a, b| order(a, b, sort, ranks));
             self.rebuild_results();
             self.restore(anchor);
             return;
@@ -88,10 +117,10 @@ impl Panel {
         }
         if !self.pending.is_empty() && (!loading || small || grown) {
             let anchor = self.focus.clone().or_else(|| self.anchor());
-            let sort = self.sort;
+            let (sort, ranks) = (self.sort, ranks(&self.results));
             let mut fresh = std::mem::take(&mut self.pending);
-            fresh.sort_by(|a, b| order(a, b, sort));
-            self.entries = merge(std::mem::take(&mut self.entries), fresh, sort);
+            fresh.sort_by(|a, b| order(a, b, sort, ranks));
+            self.entries = merge(std::mem::take(&mut self.entries), fresh, sort, ranks);
             self.rebuild_results();
             self.restore(anchor);
         }
@@ -102,7 +131,7 @@ impl Panel {
 
     pub(super) fn replace_entries(&mut self) {
         let anchor = self.focus.clone().or_else(|| self.anchor());
-        let sort = self.sort;
+        let (sort, ranks) = (self.sort, ranks(&self.results));
         let mut fresh = std::mem::take(&mut self.pending);
         if self.is_tree() {
             let mut by_path = std::collections::HashMap::new();
@@ -111,7 +140,7 @@ impl Panel {
             }
             fresh = by_path.into_values().collect();
         }
-        fresh.sort_by(|a, b| order(a, b, sort));
+        fresh.sort_by(|a, b| order(a, b, sort, ranks));
         self.entries = fresh;
         self.replacing = false;
         self.rebuild_results();
@@ -127,7 +156,8 @@ impl Panel {
     pub fn set_sort(&mut self, sort: Sort) {
         let anchor = self.focus.clone().or_else(|| self.anchor());
         self.sort = sort;
-        self.entries.sort_by(|a, b| order(a, b, sort));
+        let ranks = ranks(&self.results);
+        self.entries.sort_by(|a, b| order(a, b, sort, ranks));
         self.rebuild_results();
         self.restore(anchor);
     }
@@ -142,12 +172,14 @@ impl Panel {
         self.generation = incoming.generation;
         if incoming.focus.is_some() || !incoming.refresh {
             self.focus = incoming.focus;
+            self.return_row = incoming.row;
         }
         self.replacing = incoming.refresh;
         self.pending.clear();
         self.listing = Listing::Loading;
         self.dir = incoming.dir;
         if !incoming.refresh {
+            self.trail.retain(|viewport| self.dir.starts_with(&viewport.dir) && self.dir != viewport.dir);
             self.entries.clear();
             self.marks.clear();
             self.cursor = 0;
@@ -174,7 +206,31 @@ impl Panel {
                 self.focus = None;
             }
         }
+        if let Some(row) = self.return_row {
+            let top = self.cursor.saturating_sub(row);
+            self.scroll = top - top % self.page_step();
+        }
         self.clamp();
+    }
+
+    fn remember_viewport(&mut self, destination: &Path) {
+        let mount = self.mount.as_ref().map(|mount| mount.id.clone());
+        if mount != self.trail_mount {
+            self.trail.clear();
+            self.trail_mount = mount;
+            return;
+        }
+        if self.is_results() || destination == self.dir {
+            return;
+        }
+        let Some(entry) = self.hovered_entry().map(|entry| entry.name.clone()) else { return };
+        let row = self.cursor.saturating_sub(self.scroll);
+        self.trail.retain(|viewport| viewport.dir != self.dir);
+        self.trail.push(Viewport { dir: self.dir.clone(), entry, row });
+    }
+
+    fn recall_row(&self, dir: &Path, entry: &str) -> Option<usize> {
+        self.trail.iter().find(|viewport| viewport.dir == dir && viewport.entry == entry).map(|viewport| viewport.row)
     }
 
     pub(super) fn parent_rows(&self) -> usize {
@@ -214,7 +270,15 @@ impl Panel {
     }
 }
 
-pub fn order(a: &Entry, b: &Entry, sort: Sort) -> Ordering {
+/// How `a` and `b` follow each other under `sort`: folders first, except when search results
+/// go by how well they match, where the best match comes first wherever it is.
+pub fn order(a: &Entry, b: &Entry, sort: Sort, ranks: Option<&Ranks>) -> Ordering {
+    if sort.key == SortKey::Match
+        && let Some(ranks) = ranks
+    {
+        let within = by_match(a, b, ranks).then_with(|| by_name(a, b));
+        return if sort.reverse { within.reverse() } else { within };
+    }
     let group = b.is_dir().cmp(&a.is_dir());
     let measured = if matches!(sort.key, SortKey::Size | SortKey::Files) && a.is_dir() && b.is_dir() {
         b.usage.is_some().cmp(&a.usage.is_some())
@@ -222,17 +286,28 @@ pub fn order(a: &Entry, b: &Entry, sort: Sort) -> Ordering {
         Ordering::Equal
     };
     let within = match sort.key {
-        SortKey::Name => Ordering::Equal,
+        SortKey::Name | SortKey::Match => Ordering::Equal,
         SortKey::Extension => folded_cmp(extension(&a.name), extension(&b.name)),
         SortKey::Size => a.size.cmp(&b.size),
         SortKey::Modified => a.modified.cmp(&b.modified),
         SortKey::Files => a.usage.as_ref().map(|u| u.files).cmp(&b.usage.as_ref().map(|u| u.files)),
         SortKey::Source => a.source.as_ref().and_then(|p| p.parent()).cmp(&b.source.as_ref().and_then(|p| p.parent())),
     }
-    .then_with(|| folded_cmp(&a.name, &b.name))
-    .then_with(|| a.name.cmp(&b.name))
-    .then_with(|| a.identity().cmp(b.identity()));
+    .then_with(|| by_name(a, b));
     group.then(measured).then(if sort.reverse { within.reverse() } else { within })
+}
+
+fn by_name(a: &Entry, b: &Entry) -> Ordering {
+    folded_cmp(&a.name, &b.name).then_with(|| a.name.cmp(&b.name)).then_with(|| a.identity().cmp(b.identity()))
+}
+
+/// Ranked results before the others, then shallower paths and shorter names.
+fn by_match(a: &Entry, b: &Entry, ranks: &Ranks) -> Ordering {
+    let key = |entry: &Entry| {
+        let rank = ranks.get(entry.identity());
+        (rank.is_none(), rank.copied(), entry.identity().components().count(), entry.name.chars().count())
+    };
+    key(a).cmp(&key(b))
 }
 
 pub(super) fn extension(name: &str) -> &str {
@@ -247,13 +322,13 @@ pub(super) fn folded_cmp(a: &str, b: &str) -> Ordering {
     }
 }
 
-pub(super) fn merge(left: Vec<Entry>, right: Vec<Entry>, sort: Sort) -> Vec<Entry> {
+pub(super) fn merge(left: Vec<Entry>, right: Vec<Entry>, sort: Sort, ranks: Option<&Ranks>) -> Vec<Entry> {
     let mut out = Vec::with_capacity(left.len() + right.len());
     let mut left = left.into_iter().peekable();
     let mut right = right.into_iter().peekable();
     loop {
         let take_left = match (left.peek(), right.peek()) {
-            (Some(l), Some(r)) => order(l, r, sort) != Ordering::Greater,
+            (Some(l), Some(r)) => order(l, r, sort, ranks) != Ordering::Greater,
             (Some(_), None) => true,
             (None, Some(_)) => false,
             (None, None) => return out,

@@ -17,6 +17,7 @@ const OPEN_WINDOW: u64 = 32 * 1024;
 struct Reads {
     calls: usize,
     furthest: u64,
+    bytes: u64,
 }
 
 #[derive(Default)]
@@ -39,6 +40,7 @@ impl Source for Repeated {
         let mut reads = self.reads.lock().unwrap();
         reads.calls += 1;
         reads.furthest = reads.furthest.max(offset + count as u64);
+        reads.bytes += count as u64;
         Ok(count)
     }
 
@@ -99,4 +101,28 @@ fn giant_wrapped_lines_do_not_expand_the_highlighting_window_to_many_lines() {
     let pager = Pager::for_path(source.clone(), Path::new("large.js"), 45, 20).unwrap();
     assert_eq!(pager.rows().len(), 20);
     assert!(source.reads.lock().unwrap().furthest < borg_view::MAX_LINE * 2);
+}
+
+#[test]
+fn hex_rows_read_only_the_page_wherever_it_is_in_a_large_file() {
+    const NEAR_PAGE: u64 = 4 * 1024;
+    let (mut pager, reads) = open(80, 20);
+    let read = || reads.lock().unwrap().bytes;
+    let mut before = read();
+    let mut step = |name: &str, act: &mut dyn FnMut(&mut Pager) -> io::Result<()>| {
+        act(&mut pager).unwrap();
+        let now = read();
+        assert!(now - before <= NEAR_PAGE, "{name} read {} bytes", now - before);
+        before = now;
+    };
+    step("switching to hex rows", &mut |pager| pager.toggle_hex());
+    step("the end", &mut |pager| pager.end());
+    step("a page up", &mut |pager| pager.page_up());
+    step("a row down", &mut |pager| pager.scroll_down(1));
+    let search = borg_view::Query { text: "value".into(), ..borg_view::Query::default() }.compile().unwrap();
+    step("marking matches", &mut |pager| pager.show_matches(search.clone()));
+    step("a match far up", &mut |pager| pager.reveal(LARGE_FILE / 2..LARGE_FILE / 2 + 5));
+    step("the start", &mut |pager| pager.home());
+    assert_eq!(pager.rows().len(), 20);
+    assert!(pager.rows()[0].starts_with("000000000  6c 65 74"), "{:?}", pager.rows()[0]);
 }

@@ -11,7 +11,12 @@ use std::{
 
 fn run(source: PathBuf, target: PathBuf, control: &Control, emit: &mut dyn FnMut(Event)) -> Outcome {
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-    CopyJob { from: None, to: None, sources: vec![source], target }.run(runtime.handle(), control, emit)
+    CopyJob { from: None, to: None, sources: vec![source], target }.run(
+        runtime.handle(),
+        &Drives::default(),
+        control,
+        emit,
+    )
 }
 
 #[test]

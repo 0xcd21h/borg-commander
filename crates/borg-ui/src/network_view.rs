@@ -1,26 +1,31 @@
 //! The network screen: a page of ports, processes, connections or interfaces in one pane, and
 //! the selected row's details and traffic in the other. It shares the activity monitor's look.
 
-use crate::{activity_view::text, format, look::Look, spinner::Spinner};
-use borg_core::{AppState, Network, NetworkPage, NetworkSort, Socket};
+use crate::{format, look::Look, spinner::Spinner};
+use borg_core::{AppState, Neighbor, NeighborRow, Network, NetworkPage, NetworkSort, Presence, Socket};
 use borg_i18n::tr;
-use ratatui::{
-    buffer::Buffer,
-    layout::Rect,
-    text::Line,
-    widgets::{Block, Clear, Widget},
+use jiff::Zoned;
+use ratatui::{buffer::Buffer, layout::Rect};
+use std::{
+    net::{IpAddr, SocketAddr},
+    time::{Duration, UNIX_EPOCH},
 };
-use std::net::{IpAddr, SocketAddr};
 use unicode_width::UnicodeWidthStr;
 
 mod capture;
 mod controls;
 mod details;
 mod list;
+mod listen;
+mod map;
+mod scan_form;
 mod traffic;
 
 pub(crate) use capture::{draw_dialog as draw_capture_dialog, field_at as capture_field_at};
 pub(crate) use controls::{keybar, panel_mouse, status};
+pub(crate) use list::{FilterLine, filter_line};
+pub(crate) use listen::{draw as draw_listen_form, field_at as listen_field_at};
+pub(crate) use scan_form::draw as draw_scan_form;
 
 const TABS_ROW: u16 = 0;
 const FILTER_ROW: u16 = 1;
@@ -36,15 +41,33 @@ const REACH_FROM: u16 = 56;
 const PORT_WIDTH: u16 = 6;
 const PROTOCOL_WIDTH: u16 = 5;
 const REACH_WIDTH: u16 = 15;
-const PID_WIDTH: u16 = 7;
+/// Seven digits, the longest PID Linux hands out, and a space before the next column.
+const PID_WIDTH: u16 = 8;
 const COUNT_WIDTH: u16 = 6;
 const RATE_WIDTH: u16 = 9;
 const STATE_WIDTH: u16 = 12;
 const PROCESS_WIDTH: u16 = 16;
 const INTERFACE_WIDTH: u16 = 11;
 const KIND_WIDTH: u16 = 10;
+const MAC_FROM: u16 = 56;
+const NEIGHBOR_DETAILS_FROM: u16 = 110;
+const MAC_WIDTH: u16 = 17;
+const VENDOR_WIDTH: u16 = 16;
+const NEIGHBOR_STATE_WIDTH: u16 = 10;
+const PORTS_WIDTH: u16 = 11;
+const PING_WIDTH: u16 = 6;
+const NOTE_WIDTH: u16 = 18;
+const MICROS_PER_MILLI: u128 = 1000;
+const PORT_SEPARATOR: &str = ", ";
 
-pub(crate) fn draw(state: &AppState, look: &Look<'_>, panels: [Rect; 2], now: std::time::Instant, buf: &mut Buffer) {
+pub(crate) fn draw(
+    state: &AppState,
+    look: &Look<'_>,
+    panels: [Rect; 2],
+    clock: &Zoned,
+    now: std::time::Instant,
+    buf: &mut Buffer,
+) {
     let network = &state.network;
     let Some(side) = network.side else { return };
     let spinner = Spinner::of(&state.busy, borg_core::Task::Network, now);
@@ -55,33 +78,11 @@ pub(crate) fn draw(state: &AppState, look: &Look<'_>, panels: [Rect; 2], now: st
         return;
     }
     if !list.is_empty() {
-        list::draw_list(state, look, list, spinner, now, buf);
+        list::draw_list(state, look, list, clock, spinner, now, buf);
     }
     if !details.is_empty() {
-        details::draw_details(network, look, details, buf);
+        details::draw_details(state, look, details, clock, buf);
     }
-}
-
-fn frame(network: &Network, look: &Look<'_>, rect: Rect, title: &str, focused: bool, buf: &mut Buffer) -> Rect {
-    let theme = look.theme;
-    let styles = &theme.styles;
-    Clear.render(rect, buf);
-    let controls = crate::results_view::controls(rect, network.expanded);
-    let room = controls.first().map_or(rect.width.saturating_sub(2), |(r, _, _)| r.x.saturating_sub(rect.x + 2));
-    let block = Block::bordered()
-        .border_type(theme.border.into())
-        .style(styles.overlay)
-        .border_style(if focused { styles.border_active } else { styles.border })
-        .title(Line::styled(
-            format::truncate_end(&format!(" {title} "), usize::from(room)),
-            if focused { styles.title_active } else { styles.title },
-        ));
-    let inner = block.inner(rect);
-    block.render(rect, buf);
-    for (r, label, _) in controls {
-        text(buf, r, label, styles.menu);
-    }
-    inner
 }
 
 fn page_label(page: NetworkPage) -> &'static str {
@@ -90,6 +91,7 @@ fn page_label(page: NetworkPage) -> &'static str {
         NetworkPage::Processes => tr!(network_processes_tab),
         NetworkPage::Connections => tr!(network_connections_tab),
         NetworkPage::Interfaces => tr!(network_interfaces_tab),
+        NetworkPage::Neighbors => tr!(network_neighbors_tab),
     }
 }
 
@@ -129,6 +131,13 @@ enum Field {
     Interface,
     Kind,
     Address,
+    Mac,
+    Vendor,
+    Name,
+    Host,
+    Ports,
+    Ping,
+    Note,
 }
 
 impl Field {
@@ -147,6 +156,12 @@ impl Field {
             Self::Interface => tr!(network_interface_column),
             Self::Kind => tr!(network_kind_column),
             Self::Address => tr!(network_address_column),
+            Self::Mac => tr!(network_mac_column),
+            Self::Vendor => tr!(network_vendor_column),
+            Self::Name | Self::Host => tr!(network_name_column),
+            Self::Ports => tr!(network_ports_column),
+            Self::Ping => tr!(network_ping_column),
+            Self::Note => tr!(network_note_column),
         }
     }
 }
@@ -201,6 +216,19 @@ fn columns(page: NetworkPage, width: u16) -> Vec<Column> {
             Some(column(Field::Down, RATE_WIDTH, Some(NetworkSort::Traffic))),
             Some(column(Field::Up, RATE_WIDTH, Some(NetworkSort::Traffic))),
         ],
+        NetworkPage::Neighbors => {
+            let full = width >= NEIGHBOR_DETAILS_FROM;
+            vec![
+                Some(open(Field::Address, Some(NetworkSort::Address))),
+                (width >= MAC_FROM).then_some(column(Field::Mac, MAC_WIDTH, Some(NetworkSort::Mac))),
+                full.then_some(column(Field::Vendor, VENDOR_WIDTH, None)),
+                Some(open(if full { Field::Host } else { Field::Name }, Some(NetworkSort::Name))),
+                Some(column(Field::State, NEIGHBOR_STATE_WIDTH, None)),
+                full.then_some(column(Field::Ports, PORTS_WIDTH, None)),
+                full.then_some(column(Field::Ping, PING_WIDTH, None)),
+                full.then_some(column(Field::Note, NOTE_WIDTH, None)),
+            ]
+        }
     };
     all.into_iter().flatten().collect()
 }
@@ -243,6 +271,43 @@ fn rate(value: Option<u64>) -> String {
 
 fn socket_rate(socket: &Socket, value: u64) -> String {
     rate(socket.received.map(|_| value))
+}
+
+fn neighbor_vendor(neighbor: &Neighbor) -> Option<&'static str> {
+    let mac = neighbor.mac?;
+    if mac.locally_administered() { Some(tr!(network_randomized_note)) } else { borg_core::vendor(mac) }
+}
+
+fn neighbor_label(network: &Network, neighbor: &Neighbor) -> String {
+    network
+        .host_name(neighbor.address)
+        .or_else(|| neighbor_vendor(neighbor))
+        .map_or_else(|| UNKNOWN.to_owned(), str::to_owned)
+}
+
+/// A neighbor's state in the tables, that only listening heard it, or that it is gone.
+fn neighbor_state(neighbor: &Neighbor, row: NeighborRow) -> &'static str {
+    match row.presence {
+        Presence::Offline(_) => tr!(network_offline_state),
+        Presence::Heard => neighbor.state.map_or(tr!(network_heard_state), |state| state.name()),
+        _ => neighbor.state.map_or("", |state| state.name()),
+    }
+}
+
+/// The scanned ports a neighbor took connections on, when it was scanned.
+fn open_ports(network: &Network, neighbor: &Neighbor) -> Option<String> {
+    let ports = network.open_ports(neighbor.address)?;
+    Some(ports.iter().map(ToString::to_string).collect::<Vec<_>>().join(PORT_SEPARATOR))
+}
+
+/// How fast a neighbor answered ping in this session's scan, rounded up to the millisecond.
+fn ping_time(rtt: Duration) -> String {
+    tr!(network_ping_time, ms = rtt.as_micros().div_ceil(MICROS_PER_MILLI))
+}
+
+/// When a host that is gone was last seen, `at` seconds since the epoch.
+fn seen(at: u64, clock: &Zoned) -> String {
+    format::modified(Some(UNIX_EPOCH + Duration::from_secs(at)), clock)
 }
 
 /// An interface's address to show first: IPv4 if it has one.

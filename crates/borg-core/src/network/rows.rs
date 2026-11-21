@@ -1,13 +1,18 @@
 //! Each page's rows, built from a sample and its traffic.
 
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     net::IpAddr,
 };
 
+const CIDR_SEPARATOR: char = '/';
+
+use borg_i18n::tr;
+
 use super::{
-    Haystack, Interface, NetworkSample, PortKey, Rate, Socket, TcpState, Traffic, Transport, filter::NetworkFilter,
-    model::service,
+    GatewayWatch, Haystack, Hearing, Interface, InternetRoute, LocalNetwork, Neighbor, NeighborEntry, NeighborMemory,
+    NeighborRow, NeighborState, Neighborhood, NetworkSample, PAGES, PortKey, Presence, Probed, Rate, Routed, Socket,
+    TcpState, Traffic, Transport, filter::NetworkFilter, model::service, vendor,
 };
 
 /// Who can reach a listening port.
@@ -86,6 +91,16 @@ pub(crate) struct Source<'a> {
     pub(crate) sample: &'a NetworkSample,
     pub(crate) traffic: &'a Traffic,
     pub(crate) hosts: &'a HashMap<IpAddr, Option<String>>,
+    pub(crate) neighborhood: &'a Neighborhood,
+    pub(crate) presence: &'a [Presence],
+    pub(crate) watch: &'a GatewayWatch,
+    pub(crate) scanned: &'a HashSet<IpAddr>,
+    pub(crate) probes: &'a HashMap<IpAddr, Probed>,
+    pub(crate) memory: &'a NeighborMemory,
+    pub(crate) places: &'a [LocalNetwork],
+    pub(crate) routed: &'a [Routed],
+    pub(crate) internet: &'a [InternetRoute],
+    pub(crate) hearing: &'a Hearing,
     pub(crate) filter: &'a NetworkFilter,
 }
 
@@ -140,6 +155,7 @@ impl Source<'_> {
             protocols: vec![row.transport.name()],
             interface: None,
             labels: vec![super::exposure_label(row.exposure).to_owned()],
+            ..Haystack::default()
         }
     }
 
@@ -211,6 +227,7 @@ impl Source<'_> {
             protocols: vec![socket.transport.name()],
             interface: None,
             labels: Vec::new(),
+            ..Haystack::default()
         }
     }
 
@@ -227,21 +244,119 @@ impl Source<'_> {
         Haystack {
             hosts: interface.addresses.iter().map(|(address, _)| address.to_string()).collect(),
             interface: Some(interface.name.clone()),
-            labels: [super::kind_label(interface.kind).to_owned()].into_iter().chain(interface.mac.clone()).collect(),
+            labels: vec![super::kind_label(interface.kind).to_owned()],
+            mac: interface.mac.clone(),
             ..Haystack::default()
         }
     }
 
+    pub(crate) fn neighbors(&self) -> Vec<NeighborRow> {
+        let heard: HashSet<IpAddr> = self
+            .neighborhood
+            .neighbors
+            .iter()
+            .map(|neighbor| neighbor.address)
+            .filter(|address| self.heard(*address))
+            .collect();
+        super::neighbors::rows(
+            self.neighborhood,
+            self.presence,
+            &self.sample.interfaces,
+            self.watch,
+            self.scanned,
+            &heard,
+        )
+    }
+
+    /// Whether listening heard a host, this session or before.
+    fn heard(&self, address: IpAddr) -> bool {
+        self.hearing.host(address).is_some()
+            || self.memory.host(self.places, address).is_some_and(|host| host.heard.is_some())
+    }
+
+    pub(crate) fn neighbor_haystack(&self, row: &NeighborRow) -> Haystack {
+        let neighbor = &self.neighborhood.neighbors[row.neighbor];
+        let announced = super::announced(self.hearing, self.memory, self.places, neighbor.address);
+        let heard_state = matches!(row.presence, Presence::Heard).then(|| tr!(network_heard_state));
+        Haystack {
+            hosts: self
+                .host_words(neighbor.address)
+                .chain(announced.names.iter().map(|name| name.text.clone()))
+                .collect(),
+            state: neighbor.state.map(NeighborState::name).or(heard_state),
+            protocols: announced.protocols.iter().map(|protocol| protocol.name()).collect(),
+            interface: Some(neighbor.interface.clone()),
+            ports: super::neighbors::open_ports(self.probes, self.memory, self.places, neighbor.address)
+                .map(<[u16]>::to_vec)
+                .unwrap_or_default(),
+            labels: neighbor_notes(row, neighbor)
+                .into_iter()
+                .chain(matches!(row.presence, Presence::Offline(_)).then(|| tr!(network_offline_state)))
+                .chain(row.heard.then(|| tr!(network_heard_state)))
+                .map(str::to_owned)
+                .chain(announced.model.iter().map(|model| model.text.clone()))
+                .chain(announced.kinds.iter().cloned())
+                .chain(announced.services.iter().cloned())
+                .chain(announced.client.iter().cloned())
+                .collect(),
+            mac: neighbor.mac.map(|mac| mac.to_string()),
+            vendor: neighbor.mac.and_then(vendor),
+            network: self.network_of(neighbor),
+            ..Haystack::default()
+        }
+    }
+
+    /// The network a host is on: the routed one holding it, or its interface's own subnet.
+    fn network_of(&self, neighbor: &Neighbor) -> Option<String> {
+        let IpAddr::V4(address) = neighbor.address else { return None };
+        if let Some(index) = super::neighbors::holding(self.routed, address) {
+            return Some(self.routed[index].cidr());
+        }
+        let place = self.places.iter().find(|place| place.interface == neighbor.interface && place.contains(address));
+        place.map(|place| format!("{}{CIDR_SEPARATOR}{}", place.network, place.prefix))
+    }
+
+    /// What a heading of the Neighbors page offers the filter: an interface's name, kind and
+    /// addresses, a routed network and the routers on its way, or the way to the internet.
+    pub(crate) fn entry_haystack(&self, entry: NeighborEntry) -> Haystack {
+        match entry {
+            NeighborEntry::Host(row) => self.neighbor_haystack(&row),
+            NeighborEntry::Interface(index) => {
+                self.sample.interfaces.get(index).map_or_else(Haystack::default, |interface| Haystack {
+                    network: super::neighbors::attached(std::slice::from_ref(interface))
+                        .first()
+                        .map(|(network, prefix)| format!("{network}{CIDR_SEPARATOR}{prefix}")),
+                    ..self.interface_haystack(interface)
+                })
+            }
+            NeighborEntry::Network(index) => self.routed.get(index).map_or_else(Haystack::default, |routed| Haystack {
+                hosts: routed.path().iter().map(ToString::to_string).collect(),
+                interface: Some(routed.interface.clone()),
+                network: Some(routed.cidr()),
+                ..Haystack::default()
+            }),
+            NeighborEntry::Internet(index) => {
+                self.internet.get(index).map_or_else(Haystack::default, |route| Haystack {
+                    hosts: route.gateways.iter().map(ToString::to_string).collect(),
+                    interface: Some(route.interface.clone()),
+                    labels: vec![tr!(network_internet).to_owned()],
+                    ..Haystack::default()
+                })
+            }
+        }
+    }
+
     /// Each page's rows that the filter keeps, and how many there are without it.
-    pub(crate) fn filtered(&self) -> (Rows, [usize; 4]) {
-        let (mut ports, mut processes, mut connections, mut interfaces) =
-            (self.ports(), self.processes(), self.connections(), self.interfaces());
-        let totals = [ports.len(), processes.len(), connections.len(), interfaces.len()];
+    pub(crate) fn filtered(&self) -> (Rows, [usize; PAGES]) {
+        let (mut ports, mut processes, mut connections, mut interfaces, mut neighbors) =
+            (self.ports(), self.processes(), self.connections(), self.interfaces(), self.neighbors());
+        let totals = [ports.len(), processes.len(), connections.len(), interfaces.len(), neighbors.len()];
         ports.retain(|row| self.filter.matches(&self.port_haystack(row)));
         processes.retain(|row| self.filter.matches(&self.process_haystack(row.pid)));
         connections.retain(|row| self.filter.matches(&self.connection_haystack(&self.sample.sockets[row.socket])));
         interfaces.retain(|row| self.filter.matches(&self.interface_haystack(&self.sample.interfaces[row.interface])));
-        (Rows { ports, processes, connections, interfaces }, totals)
+        neighbors.retain(|row| self.filter.matches(&self.neighbor_haystack(row)));
+        (Rows { ports, processes, connections, interfaces, neighbors }, totals)
     }
 }
 
@@ -251,4 +366,17 @@ pub(crate) struct Rows {
     pub(crate) processes: Vec<ProcessRow>,
     pub(crate) connections: Vec<ConnectionRow>,
     pub(crate) interfaces: Vec<InterfaceRow>,
+    pub(crate) neighbors: Vec<NeighborRow>,
+}
+
+pub fn neighbor_notes(row: &NeighborRow, neighbor: &Neighbor) -> Vec<&'static str> {
+    [
+        row.gateway.then(|| tr!(network_gateway_note)),
+        row.changed.map(|_| tr!(network_gateway_changed_note)),
+        row.shared.then(|| tr!(network_mac_shared_note)),
+        row.randomized(neighbor).then(|| tr!(network_randomized_note)),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
 }

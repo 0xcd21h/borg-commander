@@ -375,7 +375,6 @@ pub fn scan(
         cancelled: false,
         strings: None,
     };
-    // Strings are listed once each, ranked when the search ends; matches are listed as found.
     let mut strings = query.mode.strings().then(|| Strings::new(query, known));
     let mut seen = HashSet::new();
     let began = Instant::now();

@@ -1,10 +1,10 @@
 //! The server's side of borg cloud: the relay connection, pairing, and the calls of each paired computer.
 
-use super::caller::Caller;
+use super::caller::{Caller, Role};
 use super::{
     APPROVAL_WAIT, Answer, CLIENTS_SOCKET, CLIENTS_TIMEOUT, COMPUTERS_FILE, ClientConnection, Computer, Hello,
-    LINK_DIR, PAIR_CALL, PAIRING_TRIES, PRIVATE_FILE, RETRY_FIRST, RETRY_LAST, Shared, clean_name, client_status, same,
-    save, this_computer,
+    KeyChanged, LINK_DIR, NOT_PAIRED, PAIR_CALL, PAIRING_TRIES, PRIVATE_FILE, RETRY_FIRST, RETRY_LAST, Shared,
+    UNREADABLE_HELLO, clean_name, client_status, same, save, this_computer,
 };
 use crate::{
     agent::{Call, Reply, note},
@@ -13,24 +13,32 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use borg_core::{AgentEvent, Msg};
-use borg_link::{Channel, Identity, Relay, SECRET_LEN, fingerprint, hex, relay, respond, unhex};
+use borg_link::{Channel, Identity, KEY_LEN, PublicKey, Relay, SECRET_LEN, fingerprint, hex, relay, respond, unhex};
 use serde_json::json;
 use std::{
+    collections::HashMap,
     path::PathBuf,
     sync::{Arc, Mutex, atomic::AtomicUsize},
-    time::Instant,
+    time::{Duration, Instant},
 };
 use tokio::{
     io::AsyncWriteExt,
     net::UnixListener,
-    sync::{mpsc::UnboundedSender, oneshot},
+    sync::{OwnedSemaphorePermit, Semaphore, mpsc::UnboundedSender, oneshot},
     task::JoinSet,
 };
+
+/// Sessions this borg opens at once before their clients have said who they are. Anyone who
+/// knows its key can make the relay announce one.
+pub(super) const OPENING_LIMIT: usize = 16;
+/// How often the log says again that a computer reads how this host is doing.
+const READS_NOTED_EVERY: Duration = Duration::from_secs(60 * 60);
 
 /// What the relay connection and its sessions need.
 #[derive(Clone)]
 pub(super) struct Served {
-    pub(super) background_service: bool,
+    /// The Borgs registered with the background service, when this is the service's link.
+    pub(super) members: Option<crate::service::Members>,
     pub(super) relay: Relay,
     pub(super) identity: Identity,
     pub(super) shared: Arc<Mutex<Shared>>,
@@ -40,6 +48,10 @@ pub(super) struct Served {
     pub(super) calls: UnboundedSender<(Call, oneshot::Sender<Reply>)>,
     pub(super) messages: UnboundedSender<Msg>,
     pub(super) clients: Arc<AtomicUsize>,
+    /// What this Borg last read of the machine for a computer's hosts screen.
+    pub(super) overview: crate::host_overview::Overview,
+    /// When the log last said each computer reads how this host is doing, by its key.
+    pub(super) reads_noted: Arc<Mutex<HashMap<String, Instant>>>,
 }
 
 impl Served {
@@ -80,21 +92,26 @@ impl Served {
         let mut told = false;
         // Sessions outlast a registration the relay dropped: each has a socket of its own.
         let mut sessions = JoinSet::new();
+        let opening = Arc::new(Semaphore::new(OPENING_LIMIT));
         loop {
             match relay::Listener::register(&self.relay, &self.identity).await {
                 Ok(mut listener) => {
                     retry = RETRY_FIRST;
                     told = false;
+                    self.registered(true);
                     note(&self.messages, &borg_i18n::tr!(agent_cloud_registered, relay = self.relay.to_string()));
                     loop {
                         tokio::select! {
                             next = listener.next() => match next {
-                                Ok(Some(id)) => drop(sessions.spawn(self.clone().session(id))),
+                                Ok(Some(id)) => if let Ok(permit) = opening.clone().try_acquire_owned() {
+                                    drop(sessions.spawn(self.clone().session(id, permit)));
+                                },
                                 ended => {
                                     let error = match ended {
                                         Err(error) => format!("{error:#}"),
                                         _ => borg_i18n::tr!(agent_cloud_connection_closed).into(),
                                     };
+                                    self.registered(false);
                                     self.reconnecting(&error);
                                     break;
                                 },
@@ -114,19 +131,26 @@ impl Served {
         }
     }
 
+    fn registered(&self, registered: bool) {
+        self.shared.lock().expect("link lock").registered = registered;
+    }
+
     pub(super) fn reconnecting(&self, error: &str) {
         let message = borg_i18n::tr!(agent_cloud_reconnecting, error = error);
         note(&self.messages, &message);
         let _ = self.messages.send(Msg::Notice(message));
     }
 
-    pub(super) async fn session(self, id: String) {
+    pub(super) async fn session(self, id: String, opening: OwnedSemaphorePermit) {
         let Ok(socket) = relay::take(&self.relay, &id).await else { return };
         let Ok((mut channel, hello)) = respond(socket, &self.identity).await else { return };
+        drop(opening);
         let _ = match serde_json::from_slice::<Hello>(&hello) {
             Ok(Hello::Pair { secret, name }) => self.pair(channel, &secret, &name).await,
-            Ok(Hello::Session) => self.serve(channel).await,
-            Err(_) => refuse(&mut channel, "unreadable hello").await,
+            Ok(Hello::Session) => self.serve(channel, Role::Session).await,
+            Ok(Hello::Viewer) => self.serve(channel, Role::Viewer).await,
+            Ok(Hello::Monitor) => self.serve(channel, Role::Monitor).await,
+            Err(_) => refuse(&mut channel, UNREADABLE_HELLO).await,
         };
     }
 
@@ -139,7 +163,6 @@ impl Served {
             match shared.pairing.as_mut() {
                 Some(pairing) if !pairing.claimed && pairing.until > Instant::now() => {
                     if offered.is_some_and(|offered| same(&offered, &pairing.secret)) {
-                        // A link works once.
                         pairing.claimed = true;
                         true
                     } else {
@@ -162,7 +185,10 @@ impl Served {
         let code = channel.pairing_code();
         let ask = Call::new(PAIR_CALL, json!({ "name": name, "code": code.rows(true), "names": code.rows(false) }));
         self.calls.send((ask, reply)).context("borg closed")?;
-        let approved = matches!(tokio::time::timeout(APPROVAL_WAIT, answer).await, Ok(Ok(reply)) if reply.ok);
+        let approved = tokio::select! {
+            answered = tokio::time::timeout(APPROVAL_WAIT, answer) => matches!(answered, Ok(Ok(reply)) if reply.ok),
+            _ = channel.recv() => false,
+        };
         // The pairing lasts until the computer has its answer: with it gone and no computer
         // paired, borg would leave the relay and end this session first.
         if !approved {
@@ -174,7 +200,7 @@ impl Served {
             let mut shared = self.shared.lock().expect("link lock");
             shared.pairing = None;
             shared.computers.retain(|computer| computer.key != hex(&key));
-            shared.computers.push(Computer { name: name.clone(), key: hex(&key) });
+            shared.computers.push(Computer { name: name.clone(), key: hex(&key), changed: None });
             shared.computers.clone()
         };
         if let Some(state) = &self.state {
@@ -184,31 +210,91 @@ impl Served {
         let _ = self
             .messages
             .send(Msg::Agent(AgentEvent::Paired { computers: computers.into_iter().map(|c| c.name).collect() }));
-        let answer = Answer { ok: true, name: crate::agent::hostname(), error: String::new() };
-        channel.send(&serde_json::to_vec(&answer)?).await
+        channel.send(&serde_json::to_vec(&Answer::accepted())?).await
     }
 
     /// A paired computer's session: its calls go to the session as the local socket's do,
-    /// marked with the computer's name.
-    pub(super) async fn serve(&self, mut channel: Channel) -> Result<()> {
+    /// marked with the computer's name. A viewer or monitor connection is no agent, so it is not
+    /// counted as one; a monitor leaves a line in the log, at most once an hour for each
+    /// computer, so the reads stay visible here.
+    pub(super) async fn serve(&self, mut channel: Channel, role: Role) -> Result<()> {
         let key = hex(channel.peer());
         let computer = self.shared.lock().expect("link lock").computers.iter().find(|c| c.key == key).cloned();
         let Some(computer) = computer else {
-            return refuse(&mut channel, "this computer is not paired with this borg").await;
+            let answer =
+                Answer { ok: false, name: String::new(), error: NOT_PAIRED.into(), unpaired: true, rotation: false };
+            return channel.send(&serde_json::to_vec(&answer)?).await;
         };
-        let answer = Answer { ok: true, name: crate::agent::hostname(), error: String::new() };
-        channel.send(&serde_json::to_vec(&answer)?).await?;
-        let _connection =
-            ClientConnection::new(self.shared.clone(), self.clients.clone(), self.messages.clone(), computer.clone());
-        self.calls_of(&mut channel, &computer).await
+        channel.send(&serde_json::to_vec(&Answer::accepted())?).await?;
+        let _connection = (role == Role::Session).then(|| {
+            ClientConnection::new(self.shared.clone(), self.clients.clone(), self.messages.clone(), computer.clone())
+        });
+        if role == Role::Monitor && self.note_reads(&computer.key) {
+            note(&self.messages, &format!("{} reads how this host is doing", computer.name));
+        }
+        self.calls_of(&mut channel, &computer, role).await
+    }
+
+    /// Whether the log should say again that the computer with `key` reads how this host is
+    /// doing: the first time, and once an hour after.
+    fn note_reads(&self, key: &str) -> bool {
+        let mut noted = self.reads_noted.lock().expect("reads lock");
+        let now = Instant::now();
+        noted.retain(|_, at| now.saturating_duration_since(*at) < READS_NOTED_EVERY);
+        if noted.contains_key(key) {
+            return false;
+        }
+        noted.insert(key.to_owned(), now);
+        true
     }
 
     /// Answers a paired computer's calls until it goes, then gives back what it held.
-    async fn calls_of(&self, channel: &mut Channel, computer: &Computer) -> Result<()> {
-        let mut caller = Caller::new(self, computer);
+    async fn calls_of(&self, channel: &mut Channel, computer: &Computer, role: Role) -> Result<()> {
+        let mut caller = Caller::new(self, computer, role);
         let result = caller.serve(channel).await;
         caller.release().await;
         result
+    }
+
+    pub(super) fn change_key(&self, old: &str, new: &PublicKey) -> Result<Computer> {
+        let new_key = hex(new);
+        let (computer, unchanged) = {
+            let mut shared = self.shared.lock().expect("link lock");
+            let holds_old = shared.computers.iter().any(|computer| computer.key == old);
+            if let Some(swapped) =
+                shared.computers.iter().find(|computer| computer.key == new_key && computer.key != old)
+            {
+                anyhow::ensure!(!holds_old, "another paired computer has that key");
+                return Ok(swapped.clone());
+            }
+            let mut computers = shared.computers.clone();
+            let entry = computers.iter_mut().find(|computer| computer.key == old).context(NOT_PAIRED)?;
+            let unchanged = entry.key == new_key;
+            if !unchanged {
+                entry.changed = Some(KeyChanged { at: unix_now(), from: old.to_owned() });
+                entry.key = new_key.clone();
+            }
+            let computer = entry.clone();
+            if !unchanged {
+                if let Some(state) = &self.state {
+                    save(&state.join(LINK_DIR).join(COMPUTERS_FILE), &computers)?;
+                }
+                shared.computers = computers;
+            }
+            (computer, unchanged)
+        };
+        if !unchanged {
+            let was = unhex::<KEY_LEN>(old).map(|key| fingerprint(&key)).unwrap_or_default();
+            let message = borg_i18n::tr!(
+                agent_cloud_key_changed,
+                name = computer.name,
+                was = was,
+                fingerprint = fingerprint(new)
+            );
+            note(&self.messages, &message);
+            let _ = self.messages.send(Msg::Notice(message));
+        }
+        Ok(computer)
     }
 
     /// Hands `call` to the app and waits for its reply.
@@ -234,23 +320,43 @@ impl Served {
         })
     }
 
-    /// This borg's version, machine and named sessions, for the computer's list of hosts.
-    pub(super) fn host_info(&self) -> Reply {
+    /// This borg's version, machine and named sessions, for the computer's list of hosts, and
+    /// the machine's figures when the computer's hosts screen asks for them.
+    pub(super) async fn host_info(&self, args: &serde_json::Value) -> Reply {
         match self.sessions() {
-            Some(Ok(sessions)) => Reply::ok(
-                json!({
+            Some(Ok(sessions)) => {
+                let mut info = json!({
                     "version": env!("CARGO_PKG_VERSION"),
                     "hostname": this_computer(),
                     "os": std::env::consts::OS,
                     "arch": std::env::consts::ARCH,
-                    "service": self.background_service,
-                    "sessions": sessions.into_iter().filter(|entry| !entry.archived).collect::<Vec<_>>(),
-                })
-                .to_string(),
-            ),
+                    "service": self.members.is_some(),
+                    "sessions": sessions
+                        .into_iter()
+                        .filter(|entry| !entry.archived)
+                        .map(|entry| self.running(entry))
+                        .collect::<Vec<_>>(),
+                });
+                if args[super::OVERVIEW_ARG] == true {
+                    info[super::OVERVIEW_ARG] = json!(self.overview.figures().await);
+                }
+                Reply::ok(info.to_string())
+            }
             Some(Err(error)) => Reply::error(format!("{error:#}")),
             None => Reply::error("Borg has no state folder for sessions"),
         }
+    }
+
+    /// A session for the computer's list, marked when it runs in a terminal here.
+    fn running(&self, entry: NamedSession) -> serde_json::Value {
+        let terminal = self
+            .members
+            .as_ref()
+            .and_then(|members| members.place(&entry.id))
+            .is_some_and(|(place, _)| place == crate::service::Place::Terminal);
+        let mut described = json!(entry);
+        described["terminal"] = json!(terminal);
+        described
     }
 
     pub(super) fn list_sessions(&self) -> Reply {
@@ -271,6 +377,13 @@ impl Served {
 }
 
 pub(super) async fn refuse(channel: &mut Channel, error: &str) -> Result<()> {
-    let answer = Answer { ok: false, name: String::new(), error: error.to_owned() };
+    let answer = Answer { ok: false, name: String::new(), error: error.to_owned(), unpaired: false, rotation: false };
     channel.send(&serde_json::to_vec(&answer)?).await
+}
+
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_secs())
+        .unwrap_or_default()
 }

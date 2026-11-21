@@ -66,6 +66,7 @@ fn new_searches_and_collections_open_in_their_pane_with_independent_expansion() 
     start_search(
         &mut state,
         SearchRequest {
+            typos: false,
             skip: None,
             root: "/work".into(),
             query: "*".into(),
@@ -139,6 +140,7 @@ fn hidden_search_keeps_its_position_marks_filter_and_receives_late_results() {
     let effects = start_search(
         &mut state,
         SearchRequest {
+            typos: false,
             skip: None,
             root: "/work".into(),
             query: "*".into(),
@@ -158,7 +160,7 @@ fn hidden_search_keeps_its_position_marks_filter_and_receives_late_results() {
     state.settle();
     state.panels[0].move_by(1);
     state.panels[0].toggle_mark();
-    state.panels[0].filter_results("/work".into());
+    state.panels[0].filter_results("/work".into(), false);
     let path = state.panels[0].hovered_entry().unwrap().identity().to_path_buf();
     update(&mut state, Msg::Key(crossterm::event::KeyCode::Esc.into()), now);
     assert!(!state.panels[0].is_results());
@@ -225,12 +227,12 @@ fn same_names_keep_distinct_marks_and_focus_through_sort_and_filter() {
     panel.set_sort(Sort { key: SortKey::Size, reverse: true });
     assert_eq!(panel.hovered_entry().unwrap().identity(), selected);
     assert_eq!(panel.marked_count(), 1);
-    panel.filter_results("/b/".into());
+    panel.filter_results("/b/".into(), false);
     assert_eq!(panel.len(), 1);
     assert_eq!(panel.hovered_entry().unwrap().identity(), Path::new("/b/config.toml"));
     assert_eq!(panel.marked().next().unwrap().identity(), selected);
     assert_eq!(selected_paths(&panel), vec![selected]);
-    panel.filter_results(String::new());
+    panel.filter_results(String::new(), false);
     assert_eq!(panel.entries().len(), 3);
 }
 
@@ -268,6 +270,7 @@ fn cancelled_search_rejects_already_queued_batches() {
     let effects = start_search(
         &mut state,
         SearchRequest {
+            typos: false,
             skip: None,
             root: "/work".into(),
             query: "*".into(),
@@ -359,19 +362,20 @@ fn refreshing_a_search_preserves_filter_grouping_and_marks() {
     state.panels[0].open_results(
         ResultSource::Search {
             request: SearchRequest {
+                typos: false,
                 skip: None,
                 root: "/work".into(),
                 query: "*.toml".into(),
                 hidden: false,
                 options: Default::default(),
             },
-            progress: SearchProgress::default(),
+            progress: Default::default(),
         },
         entries,
         10,
     );
     state.panels[0].toggle_mark();
-    state.panels[0].filter_results("config".into());
+    state.panels[0].filter_results("config".into(), false);
     state.panels[0].group_results(ResultGroup::Folder);
     state.settings.preferences.show_hidden = true;
     let effect = state.reload(Side::Left);
@@ -395,13 +399,14 @@ fn tree_panel() -> Panel {
     panel.open_results(
         ResultSource::Search {
             request: SearchRequest {
+                typos: false,
                 skip: None,
                 root: "/work".into(),
                 query: "*".into(),
                 hidden: true,
                 options: crate::SearchOptions { kind: crate::SearchKind::FolderTree, ..Default::default() },
             },
-            progress: SearchProgress::default(),
+            progress: Default::default(),
         },
         entries,
         10,
@@ -436,9 +441,9 @@ fn tree_navigation_keeps_root_first_sorts_siblings_and_preserves_hidden_marks() 
     assert_eq!(panel.visible_entries().filter(|e| panel.is_marked(e)).count(), 0);
     panel.toggle_mark();
     assert_eq!(selected_paths(&panel), vec![PathBuf::from("/work/cache")]);
-    panel.filter_results("deep".into());
+    panel.filter_results("deep".into(), false);
     assert_eq!(paths(&panel), ["/work", "/work/cache", "/work/cache/deep"].map(PathBuf::from));
-    panel.filter_results(String::new());
+    panel.filter_results(String::new(), false);
     assert_eq!(panel.len(), 3);
     panel.set_sort(Sort { key: SortKey::Size, reverse: false });
     assert_eq!(paths(&panel), ["/work", "/work/src", "/work/cache"].map(PathBuf::from));
@@ -568,4 +573,100 @@ fn lazy_tree_children_reject_old_generations_and_keep_fresh_scan_status() {
     assert!(
         matches!(&state.panels[0].results.as_ref().unwrap().source, ResultSource::Search { progress, .. } if !progress.cached)
     );
+}
+
+#[test]
+fn alt_o_in_results_opens_the_folder_of_the_file_under_the_cursor() {
+    let (mut state, now) = state();
+    state.active = Side::Left;
+    let alt_o = Msg::Key(crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::Char('o'),
+        crossterm::event::KeyModifiers::ALT,
+    ));
+    let effects = update(&mut state, alt_o, now);
+    let generation = effects.iter().find_map(|effect| match effect {
+        Effect::List { side: Side::Right, dir, generation } if dir == Path::new("/a") => Some(*generation),
+        _ => None,
+    });
+    let Some(generation) = generation else { panic!("{effects:?}") };
+    assert_eq!(state.active, Side::Right);
+    let entries = vec![Entry { source: None, ..file("/a/config.toml", 10) }];
+    update(&mut state, Msg::Batch { side: Side::Right, generation, entries }, now);
+    update(&mut state, Msg::Listed { side: Side::Right, generation, error: None }, now);
+    assert_eq!(state.active_panel().hovered_entry().map(|entry| entry.name.as_str()), Some("config.toml"));
+    assert!(state.panel(Side::Left).is_results(), "the results stay");
+}
+
+fn search(state: &mut AppState, query: &str, typos: bool) -> u64 {
+    let request = SearchRequest {
+        typos,
+        skip: None,
+        root: "/work".into(),
+        query: query.into(),
+        hidden: false,
+        options: Default::default(),
+    };
+    start_search(state, request)
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Search { generation, .. } => Some(*generation),
+            _ => None,
+        })
+        .unwrap()
+}
+
+fn shown(state: &AppState) -> Vec<String> {
+    state.active_panel().visible_entries().map(|entry| entry.identity().display().to_string()).collect()
+}
+
+#[test]
+fn name_searches_open_best_match_first_and_count_close_matches() {
+    let (mut state, now) = state();
+    let generation = search(&mut state, "receipt", true);
+    assert_eq!(state.active_panel().sort(), Sort { key: SortKey::Match, reverse: false });
+    let entries = ["/work/a/b/receipt.pdf", "/work/reciept.pdf", "/work/old receipts.zip", "/work/receipt.pdf"]
+        .map(|path| file(path, 1));
+    update(&mut state, Msg::Batch { side: Side::Left, generation, entries: entries.to_vec() }, now);
+    update(&mut state, Msg::Listed { side: Side::Left, generation, error: None }, now);
+    state.settle();
+    assert_eq!(
+        shown(&state),
+        ["/work/receipt.pdf", "/work/a/b/receipt.pdf", "/work/old receipts.zip", "/work/reciept.pdf"]
+    );
+    let results = state.active_panel().results.as_ref().unwrap();
+    assert_eq!(results.close_matches, 1);
+    let matched: crate::Spans = std::iter::once(4..11).collect();
+    assert_eq!(results.spans(&file("/work/old receipts.zip", 1)), matched);
+
+    crate::actions::perform(&mut state, Action::SetSort(Side::Left, SortKey::Name), now);
+    assert_eq!(shown(&state)[0], "/work/old receipts.zip");
+    crate::actions::perform(&mut state, Action::ToggleReverse(Side::Left), now);
+    crate::actions::perform(&mut state, Action::SetSort(Side::Left, SortKey::Match), now);
+    assert_eq!(state.active_panel().sort(), Sort { key: SortKey::Match, reverse: false });
+    assert_eq!(shown(&state)[0], "/work/receipt.pdf");
+
+    search(&mut state, "*.pdf", true);
+    assert_eq!(state.active_panel().sort(), Sort::default(), "globs have nothing to rank");
+    assert!(state.active_panel().results.as_ref().unwrap().query.is_none());
+}
+
+#[test]
+fn leaving_results_sorted_by_match_lists_the_folder_by_name() {
+    let (mut state, _) = state();
+    search(&mut state, "notes", true);
+    state.panels[0].navigate("/work".into(), 99, None);
+    assert_eq!(state.panels[0].sort(), Sort::default());
+}
+
+#[test]
+fn the_filter_finds_names_closely_only_when_nothing_matches_it_as_typed() {
+    let (mut state, _) = state();
+    state.panels[0].filter_results("cnofig".into(), true);
+    assert_eq!(shown(&state), ["/a/config.toml", "/b/config.toml"]);
+    assert!(state.panels[0].results.as_ref().unwrap().filter_is_close());
+    state.panels[0].filter_results("cnofig".into(), false);
+    assert!(shown(&state).is_empty());
+    state.panels[0].filter_results("notes".into(), true);
+    assert_eq!(shown(&state), ["/a/notes.md"]);
+    assert!(!state.panels[0].results.as_ref().unwrap().filter_is_close());
 }

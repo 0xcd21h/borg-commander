@@ -3,15 +3,19 @@
 
 use anyhow::{Context, Result, bail, ensure};
 use futures::{SinkExt, StreamExt};
+use hkdf::Hkdf;
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
 use tokio::net::TcpStream;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, tungstenite::Message};
+use zeroize::Zeroize;
 
 use crate::key::{Identity, KEY_LEN, PublicKey};
 
 pub(crate) const NOISE: &str = "Noise_IK_25519_ChaChaPoly_BLAKE2s";
 /// Binds every handshake to this protocol, so a message from another one cannot pass for it.
 const PROLOGUE: &[u8] = b"borg-link 1";
-const NOISE_LIMIT: usize = 65_535;
+pub const NOISE_LIMIT: usize = 65_535;
 const TAG: usize = 16;
 /// Payload bytes per Noise message: what is left after the tag and the byte that says
 /// whether more of the message follows.
@@ -20,6 +24,11 @@ const MORE: u8 = 1;
 const LAST: u8 = 0;
 /// The largest message a channel carries.
 pub const MESSAGE_LIMIT: usize = 16 * 1024 * 1024;
+const ROTATION_LABEL: &[u8] = b"borg-link rotate 1";
+pub const PROOF_LEN: usize = 32;
+/// How long a client the relay joined may take to send its first message. Anyone who knows a
+/// server's key can ask the relay for it, so a client that says nothing is let go.
+pub const HELLO_WAIT: std::time::Duration = std::time::Duration::from_secs(15);
 
 pub type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
@@ -40,6 +49,14 @@ impl Channel {
     /// The code both ends of this channel show while pairing.
     pub fn pairing_code(&self) -> crate::PairingCode {
         crate::PairingCode::of(&self.handshake_hash)
+    }
+
+    pub fn rotation_proof(&self, new: &Identity) -> Option<[u8; PROOF_LEN]> {
+        rotation_proof(new, &self.peer, &self.handshake_hash)
+    }
+
+    pub fn proves_rotation(&self, own: &Identity, new: &PublicKey, proof: &[u8]) -> bool {
+        proves_rotation(own, new, &self.handshake_hash, proof)
     }
 
     pub async fn send(&mut self, message: &[u8]) -> Result<()> {
@@ -94,6 +111,30 @@ pub(crate) async fn next_binary(socket: &mut Socket) -> Result<Option<Vec<u8>>> 
     }
 }
 
+fn rotation_mac(secret: &[u8; KEY_LEN], handshake_hash: &[u8], new: &PublicKey) -> Hmac<Sha256> {
+    let mut key = [0; PROOF_LEN];
+    Hkdf::<Sha256>::new(None, secret).expand(ROTATION_LABEL, &mut key).expect("the key fits one block");
+    let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(&key).expect("HMAC takes a key of any size");
+    key.zeroize();
+    mac.update(handshake_hash);
+    mac.update(new);
+    mac
+}
+
+fn rotation_proof(new: &Identity, server: &PublicKey, handshake_hash: &[u8]) -> Option<[u8; PROOF_LEN]> {
+    let mut secret = new.shared_secret(server)?;
+    let proof = rotation_mac(&secret, handshake_hash, new.public()).finalize().into_bytes().into();
+    secret.zeroize();
+    Some(proof)
+}
+
+fn proves_rotation(own: &Identity, new: &PublicKey, handshake_hash: &[u8], proof: &[u8]) -> bool {
+    let Some(mut secret) = own.shared_secret(new) else { return false };
+    let proven = rotation_mac(&secret, handshake_hash, new).verify_slice(proof).is_ok();
+    secret.zeroize();
+    proven
+}
+
 fn builder(identity: &Identity) -> Result<snow::Builder<'_>> {
     Ok(snow::Builder::new(NOISE.parse()?).local_private_key(identity.private())?.prologue(PROLOGUE)?)
 }
@@ -115,10 +156,21 @@ pub async fn initiate(mut socket: Socket, identity: &Identity, server: &PublicKe
 
 /// Answers a channel a client opened over a socket the relay joined: the channel, with the
 /// client's key proven, and the client's hello.
-pub async fn respond(mut socket: Socket, identity: &Identity) -> Result<(Channel, Vec<u8>)> {
+pub async fn respond(socket: Socket, identity: &Identity) -> Result<(Channel, Vec<u8>)> {
+    respond_within(socket, identity, HELLO_WAIT).await
+}
+
+async fn respond_within(
+    mut socket: Socket,
+    identity: &Identity,
+    wait: std::time::Duration,
+) -> Result<(Channel, Vec<u8>)> {
     let mut handshake = builder(identity)?.build_responder()?;
     let mut buffer = vec![0; NOISE_LIMIT];
-    let first = next_binary(&mut socket).await?.context("the client closed the connection")?;
+    let first = tokio::time::timeout(wait, next_binary(&mut socket))
+        .await
+        .context("the client sent nothing in time")??
+        .context("the client closed the connection")?;
     let size = handshake.read_message(&first, &mut buffer).context("the client's hello failed to decrypt")?;
     let hello = buffer[..size].to_vec();
     let peer: PublicKey = handshake
@@ -131,3 +183,6 @@ pub async fn respond(mut socket: Socket, identity: &Identity) -> Result<(Channel
     let noise = handshake.into_transport_mode()?;
     Ok((Channel { socket, noise, peer, handshake_hash }, hello))
 }
+
+#[cfg(test)]
+mod tests;

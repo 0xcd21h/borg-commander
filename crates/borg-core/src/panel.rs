@@ -9,7 +9,7 @@ mod cursor;
 mod listing;
 mod results;
 
-pub use listing::order;
+pub use listing::{Ranks, order};
 
 const EAGER_MERGE_LIMIT: usize = 4096;
 const MERGE_GROWTH_DIVISOR: usize = 2;
@@ -63,6 +63,8 @@ pub enum SortKey {
     Modified,
     Source,
     Files,
+    /// How well search results match the query, best first.
+    Match,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -84,6 +86,16 @@ struct Incoming {
     generation: u64,
     focus: Option<Anchor>,
     refresh: bool,
+    row: Option<usize>,
+}
+
+/// Where the cursor stood in a folder the panel went down from: on which entry, and on which row
+/// of the screen.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Viewport {
+    dir: PathBuf,
+    entry: String,
+    row: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -102,6 +114,12 @@ pub struct Panel {
     listing: Listing,
     incoming: Option<Incoming>,
     focus: Option<Anchor>,
+    /// The folders above this one, each as the panel left it, so going back up looks the same.
+    trail: Vec<Viewport>,
+    /// The container whose folders the trail holds, or none for this machine's.
+    trail_mount: Option<String>,
+    /// The screen row the cursor keeps while the folder it returned to lists.
+    return_row: Option<usize>,
     replacing: bool,
     pub git: crate::GitPanel,
     pub backup: crate::BackupPanel,
@@ -109,6 +127,11 @@ pub struct Panel {
     pub mount: Option<crate::Mount>,
     /// A paired Borg session whose filesystem this panel shows.
     pub remote_mount: Option<RemoteMount>,
+    /// The archive whose files this panel shows.
+    pub archive: Option<crate::ArchiveMount>,
+    /// The Docker volume whose files this panel shows, read only.
+    pub volume: Option<crate::VolumeMount>,
+    pub vault: Option<crate::VaultMount>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -137,12 +160,34 @@ impl Panel {
             listing: Listing::Loading,
             incoming: None,
             focus: None,
+            trail: Vec::new(),
+            trail_mount: None,
+            return_row: None,
             replacing: false,
             git: crate::GitPanel::default(),
             backup: crate::BackupPanel::default(),
             mount: None,
             remote_mount: None,
+            archive: None,
+            volume: None,
+            vault: None,
         }
+    }
+
+    /// The folder a shell beside the panel works in: the panel's own, the one that holds the
+    /// archive it shows, or the one it showed before a volume.
+    pub fn shell_folder(&self) -> &Path {
+        self.archive
+            .as_ref()
+            .map(|mount| &mount.host)
+            .or_else(|| self.volume.as_ref().map(|volume| &volume.host))
+            .unwrap_or(&self.dir)
+    }
+
+    /// Whether the panel shows files from somewhere other than this machine's folders: a
+    /// container, a paired Borg or an archive.
+    pub fn foreign(&self) -> bool {
+        self.mount.is_some() || self.remote_mount.is_some() || self.archive.is_some()
     }
 
     pub fn dir(&self) -> &Path {
@@ -171,9 +216,12 @@ impl Panel {
     }
 
     pub fn git_repository(&self) -> Option<&borg_git::Repository> {
-        (!self.is_results() && self.remote_mount.is_none() && self.dir() == self.destination())
-            .then_some(self.git.repository.as_ref())
-            .flatten()
+        (!self.is_results()
+            && self.remote_mount.is_none()
+            && self.archive.is_none()
+            && self.dir() == self.destination())
+        .then_some(self.git.repository.as_ref())
+        .flatten()
     }
 
     pub fn mode(&self) -> ListingMode {
@@ -258,14 +306,18 @@ impl Panel {
         if self.marks.is_empty() { self.hovered_entry().into_iter().collect() } else { self.marked().collect() }
     }
 
+    fn page_step(&self) -> usize {
+        match self.mode {
+            ListingMode::Full => 1,
+            ListingMode::Brief => self.rows.max(1),
+        }
+    }
+
     fn clamp(&mut self) {
         self.cursor = self.cursor.min(self.len().saturating_sub(1));
         let capacity = self.capacity();
         let column = self.rows.max(1);
-        let page_step = match self.mode {
-            ListingMode::Full => 1,
-            ListingMode::Brief => column,
-        };
+        let page_step = self.page_step();
         if self.cursor < self.scroll {
             self.scroll = self.cursor - self.cursor % page_step;
         } else if self.cursor >= self.scroll + capacity {

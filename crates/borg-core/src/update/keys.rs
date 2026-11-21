@@ -19,7 +19,9 @@ pub(super) fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<
     if resting {
         return Vec::new();
     }
-    // A full-screen program gets the keys, unless a dialog shows over it.
+    if let Some(approval) = state.approval.take() {
+        return crate::agent::on_approval_key(state, approval, key, now);
+    }
     if state.shell.captured() && state.overlay.is_none() {
         return forward(state, key, now);
     }
@@ -32,6 +34,7 @@ pub(super) fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<
         && state.view == View::Panels
         && state.viewer.is_none()
         && state.overlay.is_none()
+        && !state.files_beside_focused()
         && (state.docker.typing() || crate::docker::tab_key(key).is_some())
     {
         return crate::docker::route_key(state, key, now);
@@ -63,23 +66,27 @@ fn console_scroll(state: &AppState, key: &KeyEvent) -> Option<Scroll> {
     }
 }
 
-/// The key for what shows in front of the panels: the editor or the viewer, unless an agent's
-/// approval shows over them, a field that pastes, the open window, a monitor beside the panels,
-/// or the editor in a panel.
+/// The key for what shows in front of the panels: the editor or the viewer, unless a job's
+/// question shows over them, a field that pastes, the open window, a screen over the panels
+/// unless the file panel it lends has the keys, or the editor in a panel.
 fn in_front(state: &mut AppState, key: &KeyEvent, now: Instant) -> Option<Vec<Effect>> {
-    let approval = matches!(state.overlay, Some(crate::Overlay::Approval(_)));
-    if state.editor.is_some() && !approval {
+    let asking = state.question_shows();
+    if state.editor.is_some() && !asking {
         return Some(crate::editor::on_key(state, crate::EditorSlot::Screen, key));
     }
-    if state.viewer.is_some() && !approval {
+    if state.viewer.is_some() && !asking {
         return Some(crate::viewer::on_key(state, key));
     }
+    let screen = state.view == View::Panels && !state.files_beside_focused();
     // Borg's own fields paste what was copied in Borg; elsewhere Ctrl-V stays the shell's.
     let field = state.overlay.is_some()
         || (state.activity.side.is_some()
-            && state.view == View::Panels
+            && screen
             && (state.activity.search_form.is_some() || state.activity.filtering))
-        || (state.network.typing() && state.network.is_open() && state.view == View::Panels);
+        || (state.network.typing() && state.network.is_open() && screen)
+        || (state.startup_items.typing() && state.startup_items.is_open() && screen)
+        || (state.alerts.typing() && state.alerts.is_open() && screen)
+        || (state.hosts.typing() && state.hosts.is_open() && screen);
     if field
         && crate::clipboard::is_paste(key)
         && let Some(text) = state.clipboard.latest().map(str::to_owned)
@@ -89,15 +96,31 @@ fn in_front(state: &mut AppState, key: &KeyEvent, now: Instant) -> Option<Vec<Ef
     if state.overlay.is_some() {
         return Some(overlays::on_key(state, key, now));
     }
+    if let Some(effects) = crate::screens::lent_key(state, key) {
+        return Some(effects);
+    }
     let panels = state.view == View::Panels;
-    if state.docker.is_open() && panels {
+    if panels && crate::context_menu::opens(key) && crate::editor::focused(state).is_none() {
+        return Some(crate::context_menu::open(state, None));
+    }
+    let screen = panels && !state.files_beside_focused();
+    if state.docker.is_open() && screen {
         return Some(crate::docker::route_key(state, key, now));
     }
-    if state.activity.side.is_some() && panels {
+    if state.activity.side.is_some() && screen {
         return Some(crate::activity::route_key(state, key, now));
     }
-    if state.network.is_open() && panels {
+    if state.network.is_open() && screen {
         return Some(crate::network::route_key(state, key, now));
+    }
+    if state.alerts.is_open() && screen {
+        return Some(crate::watch::route_key(state, key, now));
+    }
+    if state.startup_items.is_open() && screen {
+        return Some(crate::startup_items::route_key(state, key, now));
+    }
+    if state.hosts.is_open() && screen {
+        return Some(crate::hosts::route_key(state, key, now));
     }
     if let Some(crate::EditorSlot::Panel(side)) = crate::editor::focused(state) {
         return Some(crate::editor::on_panel_key(state, side, key, now));
@@ -148,12 +171,15 @@ fn panels_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect>
     effects
 }
 
-/// Esc backs out of one thing at a time: a file still opening in the viewer, results, then the
-/// side pane. Only an Esc with nothing to close, not even a notice, starts the Esc-digit
+/// Esc backs out of one thing at a time: a file still opening in the viewer, an archive still
+/// read for the first time, results, then the side pane. Only an Esc with nothing to close, not even a notice, starts the Esc-digit
 /// function keys (`prefix`), and a second Esc cancels.
 fn escape(state: &mut AppState, prefix: bool, now: Instant) -> Vec<Effect> {
-    if state.opening.take().is_some() {
-        return Vec::new();
+    if let Some(path) = state.opening.take() {
+        return crate::jobs::cancel_opening(state, &path);
+    }
+    if let Some(effect) = crate::archive::stop_reading(state) {
+        return vec![effect];
     }
     if state.active_panel().is_results() {
         let effects = crate::results::back(state);
@@ -179,6 +205,12 @@ fn results_action(state: &AppState, key: &KeyEvent) -> Option<Action> {
     if matches!(key.code, KeyCode::Tab | KeyCode::BackTab) {
         return Some(Action::SwitchPanel);
     }
+    if key.code == KeyCode::Char(REPLACE_KEY)
+        && key.modifiers == KeyModifiers::CONTROL
+        && crate::replace::contents_query(panel).is_some()
+    {
+        return Some(Action::ReplaceInFiles);
+    }
     let searching = panel.listing() == &crate::Listing::Loading
         && matches!(panel.results.as_ref().map(|r| &r.source), Some(crate::ResultSource::Search { .. }));
     (searching && key.code == KeyCode::Char('c') && key.modifiers == KeyModifiers::CONTROL)
@@ -186,6 +218,8 @@ fn results_action(state: &AppState, key: &KeyEvent) -> Option<Action> {
 }
 
 const FUNCTION_DIGITS: &str = "1234567890";
+/// With Ctrl, replaces the text a contents search found, as it replaces in the editor.
+const REPLACE_KEY: char = 'r';
 pub(crate) const ESCAPE_WINDOW: Duration = Duration::from_millis(1500);
 const ESCAPE: &[u8] = b"\x1b";
 
@@ -212,18 +246,33 @@ fn escaped_function(key: &KeyEvent) -> Option<KeyEvent> {
 
 pub(super) fn on_paste(state: &mut AppState, text: &str) -> Vec<Effect> {
     state.intro = None;
+    if state.approval.is_some() {
+        return Vec::new();
+    }
     if let Some(slot) = crate::editor::focused(state).filter(|_| state.overlay.is_none()) {
         return crate::editor::paste(state, slot, text);
     }
     if state.docker.is_open() && state.view == View::Panels && state.overlay.is_none() {
         return crate::docker::paste(state, text);
     }
-    if state.activity.side.is_some() && state.view == View::Panels {
+    if state.activity.side.is_some() && state.view == View::Panels && state.overlay.is_none() {
         crate::activity::paste(&mut state.activity, text);
         return Vec::new();
     }
     if state.network.is_open() && state.view == View::Panels && state.overlay.is_none() {
         crate::network::paste(state, text);
+        return Vec::new();
+    }
+    if state.alerts.is_open() && state.view == View::Panels && state.overlay.is_none() {
+        crate::watch::paste(state, text);
+        return Vec::new();
+    }
+    if state.startup_items.is_open() && state.view == View::Panels && state.overlay.is_none() {
+        crate::startup_items::paste(state, text);
+        return Vec::new();
+    }
+    if state.hosts.is_open() && state.view == View::Panels && state.overlay.is_none() {
+        crate::hosts::paste(state, text);
         return Vec::new();
     }
     if state.overlay.is_some() {
@@ -284,7 +333,9 @@ pub(super) fn forward(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec
             }
         }
         KeyCode::Char('c' | 'u') if key.modifiers == KeyModifiers::CONTROL => state.shell.clear_line(),
-        KeyCode::Char(_) if !key.modifiers.contains(KeyModifiers::CONTROL) => state.shell.mark_typed(),
+        KeyCode::Char(_) if !key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) => {
+            state.shell.mark_typed()
+        }
         _ => {}
     }
     effects

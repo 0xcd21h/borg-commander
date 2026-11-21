@@ -7,7 +7,15 @@ license.workspace      = true
 rust-version.workspace = true
 
 [dependencies]
+aes-gcm = { workspace = true }
+chacha20poly1305 = { workspace = true }
+hkdf = { workspace = true }
+hmac = { workspace = true }
+sha2 = { workspace = true }
 borg-i18n = { workspace = true }
+borg-rules = { workspace = true }
+borg-archive = { workspace = true }
+borg-drives = { workspace = true }
 borg-docker = { workspace = true }
 borg-git = { workspace = true }
 borg-gfx  = { workspace = true }
@@ -16,13 +24,17 @@ borg-term = { workspace = true }
 borg-vfs  = { workspace = true }
 borg-view = { workspace = true }
 borg-edit = { workspace = true }
+borg-crypt = { workspace = true }
 crossterm = { workspace = true }
 globset   = { workspace = true }
+jiff      = { workspace = true }
 ratatui   = { workspace = true }
 serde     = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
 unicode-width = { workspace = true }
 unicode-normalization = { workspace = true }
+zeroize = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

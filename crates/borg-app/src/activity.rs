@@ -16,20 +16,24 @@ use std::{
     },
     time::{Duration, Instant},
 };
-use sysinfo::{Pid, ProcessRefreshKind, ProcessStatus, ProcessesToUpdate, System, ThreadKind, UpdateKind};
+use sysinfo::{Pid, ProcessRefreshKind, ProcessStatus, ProcessesToUpdate, System, UpdateKind};
 use tokio::{sync::mpsc::UnboundedSender, task::JoinHandle};
 
 mod control;
+mod entropy;
 mod helper;
 mod maps;
 mod process_files;
 mod reading;
+pub(crate) mod system;
 
+#[cfg(target_os = "macos")]
+pub(crate) use helper::bounded_output;
 pub use helper::helper;
 use maps::{quick_maps, regions};
 pub use reading::Memory;
-pub(crate) use reading::search_for_agent;
-use reading::{capture, census, inspect, integrity, search_memory};
+pub(crate) use reading::{ProcessScan, ScanRequest, scan_for_agent, search_for_agent};
+use reading::{capture, census, inspect, integrity, scan_process, scan_with_rules, search_memory};
 
 const OUTPUT_LIMIT: usize = 8 * 1024 * 1024;
 const ERROR_LIMIT: usize = 8192;
@@ -65,6 +69,7 @@ struct Sampler {
     seen: HashSet<ProcessKey>,
     /// What each running program's signature says about reading its memory, read once.
     protections: HashMap<PathBuf, Option<MemoryProtection>>,
+    disks: system::DiskSampler,
 }
 impl Sampler {
     /// Samples every process. The `selected` one's signature is read whatever the time left,
@@ -75,7 +80,12 @@ impl Sampler {
         self.system.refresh_processes_specifics(
             ProcessesToUpdate::All,
             true,
-            ProcessRefreshKind::nothing().with_cpu().with_memory().with_disk_usage().with_exe(UpdateKind::OnlyIfNotSet),
+            ProcessRefreshKind::nothing()
+                .without_tasks()
+                .with_cpu()
+                .with_memory()
+                .with_disk_usage()
+                .with_exe(UpdateKind::OnlyIfNotSet),
         );
         let now = Instant::now();
         let elapsed = self.last.map(|last| now.duration_since(last).as_secs_f64()).filter(|seconds| *seconds > 0.0);
@@ -85,8 +95,6 @@ impl Sampler {
             .system
             .processes()
             .values()
-            // On Linux each thread of a process is listed too, with the whole process's memory.
-            .filter(|p| p.thread_kind() != Some(ThreadKind::Userland))
             .map(|p| {
                 let key = ProcessKey { pid: p.pid().as_u32(), start: p.start_time() };
                 let sampled = elapsed.filter(|_| self.seen.contains(&key));
@@ -134,6 +142,10 @@ impl Sampler {
             cpu: self.system.cpus().iter().map(|c| (c.cpu_usage().max(0.0) * 100.0) as u32).collect(),
             administrator: rustix::process::geteuid().is_root(),
             own: Some(own),
+            disk: self.disks.sample(),
+            load: Some(system::load()),
+            uptime: Some(system::uptime()),
+            threads: system::threads(),
         }
     }
 }
@@ -148,10 +160,19 @@ pub struct Monitor {
     cancelled: Arc<AtomicBool>,
     task: Option<JoinHandle<()>>,
     messages: UnboundedSender<Msg>,
+    /// The entropy scan of every process, which runs beside the monitor's own requests.
+    entropy: entropy::EntropyScanner,
 }
 impl Monitor {
     pub fn new(messages: UnboundedSender<Msg>) -> Self {
-        Self { sampler: Default::default(), cancelled: Default::default(), task: None, messages }
+        let entropy = entropy::EntropyScanner::new(messages.clone());
+        Self { sampler: Default::default(), cancelled: Default::default(), task: None, messages, entropy }
+    }
+    pub fn scan_entropy(&mut self, id: u64, scope: borg_core::EntropyScope, processes: Vec<ProcessKey>, admin: bool) {
+        self.entropy.start(id, scope, processes, admin);
+    }
+    pub fn stop_entropy(&self) {
+        self.entropy.stop();
     }
     pub fn cancel_search(&self) {
         self.cancelled.store(true, Ordering::Relaxed);

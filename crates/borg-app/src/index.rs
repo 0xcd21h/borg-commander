@@ -17,7 +17,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail, ensure};
-use borg_core::{Candidate, Msg, SearchKind, SearchQuery, SearchSettings};
+use borg_core::{Candidate, INDEX_SUFFIX, Msg, SearchKind, SearchQuery, SearchSettings};
 use borg_vfs::EntryKind;
 use sha2::{Digest, Sha256};
 use tokio::sync::mpsc::UnboundedSender;
@@ -31,6 +31,15 @@ const RANKED: usize = 200_000;
 const NONE: u32 = u32::MAX;
 const HIDDEN: u8 = 1;
 const LEFT_OUT: u8 = 2;
+/// The bytes of a folder's digest that name its index.
+const NAME_BYTES: usize = 16;
+
+/// The file name of `root`'s index in the cache's folder of indexes.
+pub(crate) fn file_name(root: &Path) -> String {
+    let digest = Sha256::digest(root.as_os_str().as_bytes());
+    let name: String = digest[..NAME_BYTES].iter().map(|byte| format!("{byte:02x}")).collect();
+    format!("{name}{INDEX_SUFFIX}")
+}
 
 #[derive(Debug, Clone, Copy)]
 struct Row {
@@ -235,14 +244,13 @@ impl Index {
         false
     }
 
-    /// The paths below `request.root` that match, best first: names that are the first word,
-    /// then names starting with it, then shallower and shorter paths. `None` when the folder
-    /// is not in the index, so a live search has to answer.
+    /// The paths below `request.root` that match, best first: by how well the names match,
+    /// then shallower and shorter paths. `None` when the folder is not in the index, so a live
+    /// search has to answer.
     pub fn search(&self, request: &borg_core::SearchRequest, query: &SearchQuery, limit: usize) -> Option<Search> {
         let within = self.folder(&request.root)?;
         let range = within..self.dirs[within as usize].end;
         let now = SystemTime::now();
-        let primary = query.primary().map(str::to_lowercase);
         let mut ranked = Vec::new();
         let mut limited = false;
         for (at, row) in self.rows.iter().enumerate() {
@@ -263,12 +271,7 @@ impl Index {
             {
                 continue;
             }
-            let name = borg_core::composed(&candidate.name()).to_lowercase();
-            let rank = match &primary {
-                Some(word) if name == *word => 0u8,
-                Some(word) if name.starts_with(word.as_str()) => 1,
-                _ => 2,
-            };
+            let Some(rank) = query.rank(&candidate.name()) else { continue };
             let mut depth = 0u16;
             let mut dir = row.dir;
             while dir != within && dir != NONE {
@@ -427,7 +430,7 @@ struct Shared {
 impl Indexes {
     pub fn new(cache: Option<PathBuf>, refresh: Duration) -> Self {
         Self(Arc::new(Shared {
-            dir: cache.map(|cache| cache.join("index")),
+            dir: cache.map(|cache| cache.join(borg_core::INDEX_DIR)),
             roots: Mutex::new(Vec::new()),
             refresh,
             loaded: Mutex::new(HashMap::new()),
@@ -442,9 +445,7 @@ impl Indexes {
     }
 
     fn file(&self, root: &Path) -> Option<PathBuf> {
-        let digest = Sha256::digest(root.as_os_str().as_bytes());
-        let name: String = digest[..16].iter().map(|byte| format!("{byte:02x}")).collect();
-        self.0.dir.as_ref().map(|dir| dir.join(format!("{name}.idx")))
+        self.0.dir.as_ref().map(|dir| dir.join(file_name(root)))
     }
 
     /// Replaces the indexed folders: indexes of folders no longer listed are deleted.
@@ -588,6 +589,7 @@ mod tests {
 
     fn request(root: &Path, query: &str, hidden: bool) -> borg_core::SearchRequest {
         borg_core::SearchRequest {
+            typos: false,
             root: root.into(),
             query: query.into(),
             hidden,
@@ -624,6 +626,23 @@ mod tests {
                 .search(&request(&root.path().join("missing"), "a", false), &SearchQuery::parse("a").unwrap(), 9)
                 .is_none()
         );
+    }
+
+    #[test]
+    fn indexes_find_names_with_typos_after_those_typed_right() {
+        let root = tree();
+        let index = Index::build(root.path(), &SearchSettings::default(), &AtomicBool::new(false)).unwrap();
+        let close = |query: &str| {
+            let request = borg_core::SearchRequest { typos: true, ..request(root.path(), query, false) };
+            let query = SearchQuery::parse(query).unwrap().with_typos(true);
+            let search = index.search(&request, &query, 100).unwrap();
+            search.paths.iter().map(|path| path.strip_prefix(&index.root).unwrap().display().to_string()).collect()
+        };
+        let found: Vec<String> = close("mian");
+        assert_eq!(found, ["docs/main", "src/main.rs", "src/lib/main.rs"]);
+        let found: Vec<String> = close("main | mian");
+        assert_eq!(found.last().map(String::as_str), Some("src/lib/mainframe.rs"));
+        assert!(found.len() == 4 && close("nots").first().is_some_and(|first| first == "notes.md"));
     }
 
     #[test]

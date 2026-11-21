@@ -19,6 +19,12 @@ pub enum Task {
     Docker,
     /// The network screen waiting for its first sample.
     Network,
+    /// The startup items screen reading its places.
+    StartupItems,
+    /// The Alerts page reading its log.
+    Alerts,
+    /// The hosts screen waiting for the list of paired hosts.
+    Hosts,
     /// The quick view or Info pane preparing its contents.
     Preview,
     RemoteCatalog,
@@ -65,7 +71,7 @@ pub(crate) fn sync(state: &mut AppState, now: Instant) {
         if state.panel(side).loading() {
             active.push(Task::Listing(side));
         }
-        let job = state.jobs.iter().any(|job| job.shown_on == side);
+        let job = state.jobs.iter().any(|job| job.running() && job.kind.in_footer() && job.shown_on == side);
         let operation = state.operation.as_ref().is_some_and(|op| state.shell.running && op.side == side);
         let sizes = state.sizing.as_ref().is_some_and(|scan| scan.side == side);
         let docker = state.docker.files.iter().any(|work| work.side == side);
@@ -80,8 +86,19 @@ pub(crate) fn sync(state: &mut AppState, now: Instant) {
     if state.network.is_open() && !state.network.loaded && state.network.pending.is_some() {
         active.push(Task::Network);
     }
+    if state.startup_items.is_open() && state.startup_items.pending.is_some() {
+        active.push(Task::StartupItems);
+    }
+    if state.alerts.is_open() && state.alerts.pending.is_some() {
+        active.push(Task::Alerts);
+    }
+    if state.hosts.is_open() && !state.hosts.listed && state.hosts.error.is_none() {
+        active.push(Task::Hosts);
+    }
     let docker = &state.docker;
-    if docker.is_open() && (!docker.loaded && docker.pending.is_some() || !docker.working.is_empty()) {
+    let disk = &docker.disk;
+    let measuring = disk.open && (disk.loading.is_some() || disk.reading.is_some() || disk.opening.is_some());
+    if docker.is_open() && (!docker.loaded && docker.pending.is_some() || !docker.working.is_empty() || measuring) {
         active.push(Task::Docker);
     }
     if state.aside.is_some_and(|aside| state.peeked.as_ref().is_none_or(|peeked| peeked.aside != aside)) {

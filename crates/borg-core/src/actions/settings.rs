@@ -13,6 +13,18 @@ pub(super) fn flip(state: &mut AppState, flag: impl FnOnce(&mut Preferences) -> 
     vec![Effect::SaveConfig]
 }
 
+/// Turns the process watcher on or off. Turned on with nowhere to send its alerts, it says
+/// that they stay on this machine.
+pub(super) fn toggle_process_watch(state: &mut AppState) -> Vec<Effect> {
+    let effects = flip(state, |prefs| &mut prefs.process_watch);
+    if state.settings.preferences.process_watch
+        && let Some(unsent) = crate::Unsent::configured(state.settings.alert_delivery)
+    {
+        state.notice = Some(unsent.line());
+    }
+    effects
+}
+
 /// Changes a preference that changes the screen's layout, and saves it.
 pub(super) fn preference(state: &mut AppState, change: impl FnOnce(&mut Preferences)) -> Vec<Effect> {
     change(&mut state.settings.preferences);
@@ -20,11 +32,12 @@ pub(super) fn preference(state: &mut AppState, change: impl FnOnce(&mut Preferen
     vec![Effect::SaveConfig]
 }
 
-/// Turns the agent's log on or off; turned off, it forgets what it held.
+/// Turns the agent's log on or off; turned off, it forgets what it held, on disk too.
 pub(super) fn toggle_agent_log(state: &mut AppState) -> Vec<Effect> {
-    let effects = flip(state, |prefs| &mut prefs.agent_log);
+    let mut effects = flip(state, |prefs| &mut prefs.agent_log);
     if !state.settings.preferences.agent_log {
         state.agent.log.clear();
+        effects.push(Effect::ForgetAgentLog);
     }
     effects
 }
@@ -54,9 +67,9 @@ pub(super) fn toggle_after_command(state: &mut AppState) -> Vec<Effect> {
 }
 
 /// Adds the active folder to the folders indexed for instant search, or removes it.
-pub(super) fn toggle_index(state: &mut AppState) -> Vec<Effect> {
+pub(super) fn toggle_index(state: &mut AppState, now: Instant) -> Vec<Effect> {
     let panel = state.active_panel();
-    if panel.is_results() || panel.mount.is_some() || panel.remote_mount.is_some() {
+    if panel.is_results() || panel.foreign() {
         return Vec::new();
     }
     let dir = panel.dir().to_path_buf();
@@ -65,11 +78,17 @@ pub(super) fn toggle_index(state: &mut AppState) -> Vec<Effect> {
     if let Some(at) = roots.iter().position(|root| *root == dir) {
         roots.remove(at);
         state.indexing = None;
-        state.notice = Some(tr!(index_removed, folder = folder));
+        let removed = tr!(index_removed, folder = folder);
+        if !crate::jobs::end_index(state, &dir, crate::How::Cancelled, removed.clone(), now) {
+            state.notice = Some(removed);
+        }
     } else {
         roots.push(dir.clone());
-        state.indexing = Some(dir);
-        state.notice = Some(tr!(index_started, folder = folder));
+        state.indexing = Some(dir.clone());
+        crate::jobs::begin_index(state, dir, now);
+        if !state.settings.preferences.job_notifications {
+            state.notice = Some(tr!(index_started, folder = folder));
+        }
     }
     vec![Effect::SetIndexRoots(state.settings.index_roots.clone())]
 }

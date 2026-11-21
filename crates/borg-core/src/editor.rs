@@ -5,9 +5,11 @@
 use borg_i18n::tr;
 use std::{path::PathBuf, time::SystemTime};
 
+use borg_crypt::{TEXT_LIMIT, sealed::Seal};
 use borg_edit::Buffer;
 use borg_view::Query;
 use crossterm::event::KeyCode;
+use zeroize::Zeroize as _;
 
 use crate::{AppState, Aside, Effect, LineInput, Side, View, find_bar::FindBar, viewer::Landing};
 
@@ -27,6 +29,7 @@ const PAINT_LINE_LIMIT: usize = 20_000;
 const UNPAINTED: &str = "\n";
 /// Rows the editor's title and status lines take from the screen.
 pub const EDITOR_CHROME: u16 = 2;
+const BYTES_PER_KIB: usize = 1024;
 
 /// Where an editor shows: over the whole screen, or in a panel in place of its files.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -70,6 +73,12 @@ pub enum SaveError {
     /// The file on disk is no longer the one the editor read.
     Changed,
     Failed(String),
+    /// The save failed after it changed the file and putting the old text back failed too,
+    /// so that text stays in `backup`.
+    KeptOld {
+        error: String,
+        backup: PathBuf,
+    },
 }
 
 /// A dialog over the editor. Its fields and then its buttons share one focus, counted from 0.
@@ -180,15 +189,21 @@ pub struct Editor {
     closed: bool,
     pub slot: EditorSlot,
     pub(crate) beside: Option<Beside>,
+    /// The archive entry the file was unpacked from, which each save writes back into.
+    pub packed: Option<crate::PackedFile>,
+    pub seal: Option<Seal>,
 }
 
 impl Editor {
     fn new(file: EditorFile, slot: EditorSlot) -> Self {
-        let language = borg_view::language_of(&file.path, file.text.lines().next().unwrap_or_default());
+        let EditorFile { path, mut text, stamp } = file;
+        let language = borg_view::language_of(&path, text.lines().next().unwrap_or_default());
+        let buffer = Buffer::new(&text);
+        text.zeroize();
         Self {
-            buffer: Buffer::new(&file.text),
-            path: file.path,
-            stamp: file.stamp,
+            buffer,
+            path,
+            stamp,
             top: 0,
             left: 0,
             prompt: None,
@@ -202,7 +217,15 @@ impl Editor {
             closed: false,
             slot,
             beside: None,
+            packed: None,
+            seal: None,
         }
+    }
+
+    /// The path the editor's title shows: the entry's place in its archive, for a file unpacked
+    /// from one.
+    pub fn shown_path(&self) -> &std::path::Path {
+        self.packed.as_ref().map_or(&self.path, |packed| &packed.shown)
     }
 
     /// The width of the line numbers and the space after them.
@@ -307,14 +330,21 @@ impl Editor {
     }
 
     fn save(&mut self, close: bool, force: bool) -> Vec<Effect> {
+        let mut text = self.buffer.text();
+        if self.seal.is_some() && text.len() > TEXT_LIMIT {
+            text.zeroize();
+            self.note = Some(tr!(editor_sealed_too_long, kib = TEXT_LIMIT / BYTES_PER_KIB));
+            return Vec::new();
+        }
         self.saving = Some((self.buffer.revision(), close));
         self.note = None;
         vec![Effect::SaveFile {
             path: self.path.clone(),
-            bytes: self.buffer.text().into_bytes(),
+            bytes: text.into_bytes(),
             expected: self.stamp,
             force,
             slot: self.slot,
+            seal: self.seal.clone(),
         }]
     }
 
@@ -369,7 +399,7 @@ pub(crate) fn open(state: &mut AppState, path: PathBuf, slot: EditorSlot) -> Vec
 /// ready with `query` to step on through the others. A file the editor leaves to the viewer
 /// opens there on the match.
 pub(crate) fn open_at(state: &mut AppState, path: PathBuf, slot: EditorSlot, query: Query, offset: u64) -> Vec<Effect> {
-    state.landing = Some(Landing { path: path.clone(), query, offset });
+    state.landing = Some(Landing::Match { path: path.clone(), query, offset });
     vec![Effect::OpenEditor { path, slot }]
 }
 
@@ -393,18 +423,17 @@ pub(crate) fn opened(state: &mut AppState, slot: EditorSlot, result: Result<Edit
     let beside = state.beside.take_if(|(side, _)| slot == EditorSlot::Panel(*side)).map(|(_, beside)| beside);
     match result {
         Ok(file) => {
-            let landing = state.landing.take_if(|landing| landing.path == file.path);
+            let landing = state.landing.take_if(|landing| landing.path() == file.path);
             let mut editor = Editor::new(file, slot);
             let reread = holder(state, slot).as_ref().and_then(|held| held.beside);
             editor.beside = beside.or(reread);
             let (rows, columns) = text_size(state, &editor);
-            if let Some(landing) = landing {
-                land(&mut editor, &landing, rows);
+            if let Some(Landing::Match { query, offset, .. }) = &landing {
+                land(&mut editor, query, *offset, rows);
             }
             editor.follow(rows, columns);
             editor.paint(rows);
             if let EditorSlot::Panel(side) = slot {
-                // The panel's files give way to the editor, and previews to both.
                 state.active = side;
                 state.aside = None;
                 state.preview_focused = false;
@@ -421,7 +450,7 @@ pub(crate) fn opened(state: &mut AppState, slot: EditorSlot, result: Result<Edit
             vec![crate::viewer::request(state, path)]
         }
         Err(OpenError::Failed(path, error)) => {
-            state.landing.take_if(|landing| landing.path == path);
+            state.landing.take_if(|landing| landing.path() == path);
             state.notice = Some(tr!(editor_open_failed, name = display_name(&path), error = error));
             Vec::new()
         }
@@ -432,7 +461,25 @@ fn display_name(path: &std::path::Path) -> String {
     path.file_name().unwrap_or(path.as_os_str()).to_string_lossy().into_owned()
 }
 
-pub(crate) fn saved(state: &mut AppState, slot: EditorSlot, result: Result<FileStamp, SaveError>) -> Vec<Effect> {
+pub(crate) fn seal(state: &mut AppState, slot: EditorSlot, seal: Seal) {
+    if let Some(editor) = holder(state, slot).as_mut() {
+        editor.seal = Some(seal);
+    }
+}
+
+/// Marks the editor in `slot` as holding a file unpacked from an archive.
+pub(crate) fn pack(state: &mut AppState, slot: EditorSlot, packed: crate::PackedFile) {
+    if let Some(editor) = holder(state, slot).as_mut() {
+        editor.packed = Some(packed);
+    }
+}
+
+pub(crate) fn saved(
+    state: &mut AppState,
+    slot: EditorSlot,
+    result: Result<FileStamp, SaveError>,
+    now: std::time::Instant,
+) -> Vec<Effect> {
     let Some(editor) = holder(state, slot).as_mut() else { return Vec::new() };
     let Some((revision, close)) = editor.saving.take() else { return Vec::new() };
     match result {
@@ -441,17 +488,30 @@ pub(crate) fn saved(state: &mut AppState, slot: EditorSlot, result: Result<FileS
             if editor.buffer.revision() == revision {
                 editor.buffer.mark_saved();
             }
-            editor.note = Some(tr!(editor_saved).into());
+            let packed = editor.packed.clone().map(|packed| (packed, editor.path.clone()));
+            editor.note = Some(match (&packed, &editor.seal) {
+                (Some((packed, _)), _) => tr!(editor_saved_into_archive, name = display_name(&packed.archive)),
+                (None, Some(seal)) => tr!(editor_saved_encrypted, format = crate::format_name(seal.format())),
+                (None, None) => tr!(editor_saved).into(),
+            });
+            let beside = editor.beside;
+            let mut effects = match packed {
+                Some((packed, source)) => crate::archive::save(state, &packed, source, now),
+                None => Vec::new(),
+            };
             if close {
-                let beside = editor.beside;
-                return close_editor(state, slot, beside);
+                effects.extend(close_editor(state, slot, beside));
             }
+            return effects;
         }
         Err(SaveError::Changed) => {
             editor.saving = Some((revision, close));
             editor.prompt = Some(EditorPrompt::Changed { focus: 0 });
         }
         Err(SaveError::Failed(error)) => editor.note = Some(tr!(editor_save_failed, error = error)),
+        Err(SaveError::KeptOld { error, backup }) => {
+            editor.note = Some(tr!(editor_save_failed_kept, error = error, path = backup.display().to_string()));
+        }
     }
     Vec::new()
 }

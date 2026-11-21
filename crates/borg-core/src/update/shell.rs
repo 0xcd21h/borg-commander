@@ -12,10 +12,7 @@ use crate::{AfterCommand, AppState, Effect, ShellView, View, actions, command::C
 /// was typed.
 pub(super) fn observe(state: &mut AppState, view: ShellView, echoed: bool) -> Vec<Effect> {
     let retyped = state.shell.observed.line != view.line;
-    state.shell.observe(view);
-    if echoed {
-        state.shell.unechoed = false;
-    }
+    state.shell.observe(view, echoed);
     if retyped {
         crate::folders::line_changed(state);
     }
@@ -41,15 +38,12 @@ pub(super) fn remote_output(
             for signal in signals {
                 status.note(&signal);
             }
-            status.observe(view);
+            status.observe(view, echoed);
         }
         return Vec::new();
     }
     let effects = signals.into_iter().flat_map(|signal| on_signal(state, signal, now)).collect();
-    state.shell.observe(view);
-    if echoed {
-        state.shell.unechoed = false;
-    }
+    state.shell.observe(view, echoed);
     effects
 }
 
@@ -60,7 +54,6 @@ pub(super) fn remote_closed(state: &mut AppState, machine: String, session: Stri
     state.remote_consoles.remove(&key);
     let ended = state.ending_remote.take_if(|ending| *ending == key).is_some();
     let error = if ended { tr!(remote_shell_ended, machine = machine) } else { error };
-    // Either way the console stays closed until the session is chosen again.
     state.failed_remote_console = Some(key);
     state.remote_console_failure = Some(error.clone());
     if matches!(
@@ -98,8 +91,7 @@ pub(crate) fn shell_ready(state: &AppState) -> bool {
 }
 
 fn sync_cwd(state: &mut AppState) -> Option<Effect> {
-    let dir = state.active_panel().dir();
-    // A shell follows only a panel on its own machine: the host's, or its container's.
+    let dir = state.active_panel().shell_folder();
     if !shell_ready(state) || state.shell.cwd == dir || !state.console_owns_panel() {
         return None;
     }
@@ -131,7 +123,7 @@ pub(super) fn request_shell_exit(state: &mut AppState, token: String, now: Insta
     state.screensaver = false;
     let effects = actions::perform(state, crate::Action::Quit, now);
     if let Some(crate::Overlay::Confirm(confirm)) = &mut state.overlay {
-        if state.jobs.is_empty() && state.docker.shells.is_empty() {
+        if !state.jobs.iter().any(crate::Job::running) && state.docker.shells.is_empty() {
             confirm.message = tr!(quit_shell_exit).into();
         } else {
             confirm.message = format!("{}\n{}", tr!(quit_shell_exit), confirm.message);
@@ -194,8 +186,9 @@ pub(super) fn on_signal(state: &mut AppState, signal: ShellSignal, now: Instant)
         }
         ShellSignal::CommandEnd { .. } => Vec::new(),
         ShellSignal::Cwd { path, .. } => {
-            let follow =
-                path != state.shell.cwd && path != state.active_panel().destination() && state.console_owns_panel();
+            let panel = state.active_panel();
+            let shown = path == panel.destination() || path == panel.shell_folder();
+            let follow = path != state.shell.cwd && !shown && state.console_owns_panel();
             state.shell.cwd = path.clone();
             if follow { vec![state.navigate(state.active, path, None)] } else { Vec::new() }
         }
@@ -204,6 +197,9 @@ pub(super) fn on_signal(state: &mut AppState, signal: ShellSignal, now: Instant)
 
 fn finish_command(state: &mut AppState, exit: Option<i32>) -> Vec<Effect> {
     crate::install::finished(state, exit);
+    crate::service::finished(state, exit);
+    crate::update_offer::finished(state, exit);
+    crate::docker::command_ended(state);
     let full_screen = std::mem::take(&mut state.shell.went_full_screen);
     let Some(operation) = state.operation.take() else {
         if state.shell.return_view == View::Panels

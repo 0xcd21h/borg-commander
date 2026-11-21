@@ -20,14 +20,14 @@ pub(super) fn tools() -> Value {
         },
         {
             "name": "read",
-            "description": format!("Reads without asking the user. With `path` (a location; the active panel's folder when left out): a folder's entries, or a text file's lines numbered like `cat -n`: the first 2000, or `lines` such as \"120-180\", \"120-\" or \"-50\" (the last 50), or only those containing the text `find`. Quote lines without their numbers when you edit. With `source` \"processes\": the `limit` (default 40) busiest processes on the machine Borg runs on, by `sort` \"memory\" (default) or \"cpu\". With `source` \"containers\": the Docker containers, their state and Compose project. With `source` \"ports\", \"connections\" or \"interfaces\": what the network screen lists, measured over one second: the listening ports with who can reach each and the process behind it, the connections busiest first with their rates and host names, or the interfaces with their addresses and traffic; `find` filters as the screen's filter does (words, port:443, proc:name, host:name, state:listen, !word) and `limit` caps the rows (default 100). A capture file (.pcap, .pcapng or .cap) on the machine Borg runs on reads as the summary `capture` answers with, narrowed by `find` with the same filter words (proto:dns, host:name, pid:4100), and `limit` caps each list (default {SUMMARY_ROWS}); with `packet`, a packet's number as the summary's FIRST column or a packet's neighbours give it, it reads that packet's layers and its bytes in hex. {LOCATIONS}"),
+            "description": format!("Reads without asking the user. With `path` (a location; the active panel's folder when left out): a folder's entries, or a text file's lines numbered like `cat -n`: the first 2000, or `lines` such as \"120-180\", \"120-\" or \"-50\" (the last 50), or only those containing the text `find`. Quote lines without their numbers when you edit. With `source` \"processes\": the `limit` (default 40) busiest processes on the machine Borg runs on, by `sort` \"memory\" (default) or \"cpu\". With `source` \"containers\": the Docker containers, their state and Compose project. With `source` \"ports\", \"connections\" or \"interfaces\": what the network screen lists, measured over one second: the listening ports with who can reach each and the process behind it, the connections busiest first with their rates and host names, or the interfaces with their addresses and traffic; `find` filters as the screen's filter does (words, port:443, proc:name, host:name, state:listen, !word) and `limit` caps the rows (default 100). With `source` \"startup\": what the startup items screen lists, newest change first: every launch agent and daemon, systemd unit and timer, cron and anacron job, periodic script, XDG autostart entry, rc.local, ld.so.preload library, shell startup file and authorized SSH key of the user Borg runs as, each with its file and line, owner, modification time, what it runs, whether its program is on disk, and the rules (Borg's and the user's YARA rules) the file or its program matched; `find` keeps items containing every word and none after `!`, and `limit` caps the items (default 100). Use it to see what was set to start recently. A capture file (.pcap, .pcapng or .cap) on the machine Borg runs on reads as the summary `capture` answers with, narrowed by `find` with the same filter words (proto:dns, host:name, pid:4100), and `limit` caps each list (default {SUMMARY_ROWS}); with `packet`, a packet's number as the summary's FIRST column or a packet's neighbours give it, it reads that packet's layers and its bytes in hex. {LOCATIONS}"),
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "path": { "type": "string" },
                     "lines": { "type": "string" },
                     "find": { "type": "string" },
-                    "source": { "type": "string", "enum": ["processes", "containers", "ports", "connections", "interfaces"] },
+                    "source": { "type": "string", "enum": ["processes", "containers", "ports", "connections", "interfaces", "startup"] },
                     "limit": { "type": "integer", "minimum": 1 },
                     "sort": { "type": "string", "enum": ["memory", "cpu"] },
                     "packet": { "type": "integer", "minimum": 1 }
@@ -49,6 +49,22 @@ pub(super) fn tools() -> Value {
                     "admin": { "type": "boolean" }
                 },
                 "required": ["pid"]
+            },
+            "annotations": read_only,
+        },
+        {
+            "name": "scan",
+            "description": format!("Scans with YARA rules and checks code integrity on the machine Borg runs on, as Rule matches in Ctrl-F's Look for and Y and I in the memory map do. With `path` (a file, or a folder and every file below it on the same file system, hidden ones included), it runs the rules over each file up to {file_mib} MiB without asking, and stops after {files} files, {findings} matches or {seconds} seconds. With `pid` (get PIDs from read with source \"processes\"), it reads the memory the process filled itself after the user approves it in Borg, once per process: one approval covers scan and search_memory. `check` \"integrity\" compares the process's code with the files it was loaded from and looks for injected code and libraries; \"rules\" runs the rules; \"both\" is the default for a process. Each memory check stops after {seconds} seconds, {memory_gib} GiB of memory scanned or {findings} findings. The rules are Borg's own and the user's rules folder; `rules` replaces them with YARA rule text of your own, up to {inline_kib} KiB, compiled on its own with include turned off, so you can draft a rule from evidence, try it on a folder or a process, and refine it. Rule text that does not compile comes back as an error with its line and column. The answer lists findings worst first: severity, kind, the rule and where it comes from (borg, the path of the user's rule file, or inline), the file and offset or the address and memory region, up to {evidence} bytes of evidence as quoted text or hex, what the rule looks for and what else could explain it. Then come how much was read, what could not be read, whether the scan finished, and rule files left out because they do not compile. `limit` caps the findings listed (default 100). A finding is a lead to look into. Memory can hold passwords and keys: quote evidence only as far as the task needs. Where the system refuses to read the process, `admin` true asks the user for their password to read it as administrator. {LOCATIONS} Containers are not scanned.", file_mib = borg_core::CONTENTS_SIZE_LIMIT / (1024 * 1024), files = crate::rule_scan::FILE_LIMIT, findings = crate::rule_scan::FINDING_LIMIT, seconds = crate::rule_scan::TIME_LIMIT.as_secs(), memory_gib = crate::rule_scan::SCAN_LIMIT / (1024 * 1024 * 1024), inline_kib = borg_rules::INLINE_LIMIT / 1024, evidence = borg_rules::EVIDENCE_BYTES),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string" },
+                    "pid": { "type": "integer", "minimum": 1 },
+                    "check": { "type": "string", "enum": ["rules", "integrity", "both"] },
+                    "rules": { "type": "string" },
+                    "limit": { "type": "integer", "minimum": 1 },
+                    "admin": { "type": "boolean" }
+                }
             },
             "annotations": read_only,
         },
@@ -152,13 +168,30 @@ pub(super) fn routing_tools() -> Vec<Value> {
     ]
 }
 
+/// The tool only `borg mcp` offers that reads every paired host at once.
+pub(super) fn hosts_tool() -> Value {
+    json!({
+        "name": "hosts",
+        "description": "Lists every paired host with how it is doing, as Borg's hosts page shows it: whether it answers (answering, not answering in time, offline, or failed) and when it last answered, its Borg version and system, CPU use, the load over 1, 5 and 15 minutes against its cores, memory and swap, the fullest filesystem, the process watcher's unread alerts and frozen processes, and its containers. Each host comes with its concerns (load, memory, disk, watcher or containers, as warning or alert) and its target ID: pass it to use_session or as the session argument of any other tool to work on that host. Asks every host once, 8 at a time, waiting up to 5 seconds for each. Reading changes nothing on the hosts, so it needs no approval. Versions, systems, session names, mounts and errors are what each host says about itself, kept to one line of up to 200 characters. The answer is text, and the same as data in the structured content.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "filter": {
+                    "type": "string",
+                    "description": "Words that narrow the hosts, as the hosts page's filter does: each must appear in the host's name, Borg version or system, and none written after !. For example \"web !staging\"."
+                }
+            }
+        }
+    })
+}
+
 /// The tools only `borg mcp remote` offers: it runs on the user's computer, so it can copy
 /// files between that and the server.
 pub(super) fn transfer_tools() -> Vec<Value> {
     vec![
         json!({
             "name": "download",
-            "description": "Copies a file from the machine Borg runs on to this computer, where you run. `path` is a location there; `to` is a path here: a folder keeps the file's name, and ~/Downloads is used when it is left out. The relay carries about 2 MB a second.",
+            "description": "Copies a file from the machine Borg runs on into the Downloads folder of this computer, where you run. `path` is a location there; `to` optionally names a file or a folder inside ~/Downloads, and a folder keeps the file's name. A file already there is never replaced. The relay carries about 2 MB a second.",
             "inputSchema": {
                 "type": "object",
                 "properties": { "path": { "type": "string" }, "to": { "type": "string" } },
@@ -167,7 +200,7 @@ pub(super) fn transfer_tools() -> Vec<Value> {
         }),
         json!({
             "name": "upload",
-            "description": "Copies a file from this computer, where you run, to `to`, a location on the machine Borg runs on, after the user approves it in Borg there. Up to 1 GiB; the relay carries about 2 MB a second.",
+            "description": "Copies a file from this computer, where you run, to `to`, a location on the machine Borg runs on, after the user approves it in Borg there, seeing which file it is. Up to 1 GiB; the relay carries about 2 MB a second.",
             "inputSchema": {
                 "type": "object",
                 "properties": { "from": { "type": "string" }, "to": { "type": "string" } },

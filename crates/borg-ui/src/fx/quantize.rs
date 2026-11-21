@@ -22,17 +22,24 @@ fn nearest(rgb: Rgb, palette: &Palette) -> u8 {
     if distance(palette.indexed(cube), rgb) <= distance(palette.indexed(grey), rgb) { cube } else { grey }
 }
 
-fn downsample(color: Color, palette: &Palette) -> Color {
+/// The colours of one frame already matched to the palette. A frame holds a handful of colours
+/// across thousands of cells, so each is matched once.
+type Matched = std::collections::HashMap<(u8, u8, u8), u8>;
+
+fn downsample(color: Color, palette: &Palette, matched: &mut Matched) -> Color {
     match color {
-        Color::Rgb(r, g, b) => Color::Indexed(nearest(Rgb::new(r, g, b), palette)),
+        Color::Rgb(r, g, b) => {
+            Color::Indexed(*matched.entry((r, g, b)).or_insert_with(|| nearest(Rgb::new(r, g, b), palette)))
+        }
         other => other,
     }
 }
 
 pub fn quantize(buf: &mut Buffer, palette: &Palette) {
+    let mut matched = Matched::new();
     for cell in &mut buf.content {
-        cell.fg = downsample(cell.fg, palette);
-        cell.bg = downsample(cell.bg, palette);
+        cell.fg = downsample(cell.fg, palette, &mut matched);
+        cell.bg = downsample(cell.bg, palette, &mut matched);
     }
 }
 
@@ -46,6 +53,6 @@ mod tests {
         assert_eq!(nearest(Rgb::new(255, 0, 0), &palette), 196);
         assert_eq!(nearest(Rgb::new(250, 250, 250), &palette), 231);
         assert_eq!(nearest(Rgb::new(120, 120, 122), &palette), 243);
-        assert_eq!(downsample(Color::Cyan, &palette), Color::Cyan);
+        assert_eq!(downsample(Color::Cyan, &palette, &mut Matched::new()), Color::Cyan);
     }
 }

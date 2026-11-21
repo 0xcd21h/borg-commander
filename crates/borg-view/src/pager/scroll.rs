@@ -30,6 +30,9 @@ impl Pager {
     /// Marks `found` as the match stepped to and scrolls to it, when it is off the page, with a
     /// third of the page above it.
     pub fn reveal(&mut self, found: Range<u64>) -> io::Result<()> {
+        if let Some(layout) = self.hex_layout() {
+            return self.reveal_hex(layout, found);
+        }
         self.current = Some(found.clone());
         let start = self.previous_line_start(found.start + 1)?;
         let line = self.line_at(start)?;
@@ -106,12 +109,14 @@ impl Pager {
     }
 
     pub fn scroll_left(&mut self) -> io::Result<()> {
-        self.column = self.column.saturating_sub(HORIZONTAL_STEP);
+        if !self.hex {
+            self.column = self.column.saturating_sub(HORIZONTAL_STEP);
+        }
         self.refresh()
     }
 
     pub fn scroll_right(&mut self) -> io::Result<()> {
-        if !self.wrap {
+        if !self.wrap && !self.hex {
             self.column += HORIZONTAL_STEP;
         }
         self.refresh()
@@ -126,6 +131,9 @@ impl Pager {
     }
 
     pub(super) fn last_top(&self) -> io::Result<Position> {
+        if let Some(layout) = self.hex_layout() {
+            return Ok(self.last_hex_top(layout));
+        }
         let len = self.len();
         if len == 0 {
             return Ok(Position { line: 0, row: 0 });

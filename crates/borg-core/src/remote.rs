@@ -86,6 +86,14 @@ pub struct RemoteClient {
     pub name: String,
     pub fingerprint: String,
     pub connections: Option<usize>,
+    #[serde(default)]
+    pub key_changed: Option<KeyChange>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KeyChange {
+    pub when: String,
+    pub was: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -101,10 +109,21 @@ pub struct RemoteBrowser {
     pub client_selected: usize,
     pub deleting: Option<(String, String)>,
     pub forgetting: Option<String>,
+    /// The host being updated, until it comes back on the new version.
+    pub updating: Option<String>,
+    /// The list holds one host's sessions for the hosts screen, which its questions return to.
+    pub from_overview: bool,
+}
+
+impl RemoteBrowser {
+    /// Whether the list waits for a removal, a forgetting or an update to finish.
+    pub fn busy(&self) -> bool {
+        self.deleting.is_some() || self.forgetting.is_some() || self.updating.is_some()
+    }
 }
 
 pub(crate) fn on_key(state: &mut AppState, mut browser: RemoteBrowser, key: &KeyEvent) -> Vec<Effect> {
-    if browser.deleting.is_some() || browser.forgetting.is_some() {
+    if browser.busy() {
         if key.code == KeyCode::Esc {
             state.overlay = None;
         }
@@ -124,6 +143,11 @@ pub(crate) fn on_key(state: &mut AppState, mut browser: RemoteBrowser, key: &Key
     }
     let key = &crate::keyboard::latin(key);
     if browser.show_clients { clients_key(state, browser, key.code) } else { sessions_key(state, browser, key) }
+}
+
+/// Where a question the list asked returns to: the list, or the hosts screen it was opened for.
+pub(crate) fn back_to(browser: RemoteBrowser) -> Option<Overlay> {
+    (!browser.from_overview).then_some(Overlay::Remotes(browser))
 }
 
 fn show(state: &mut AppState, browser: RemoteBrowser) -> Vec<Effect> {
@@ -162,7 +186,8 @@ fn clients_key(state: &mut AppState, mut browser: RemoteBrowser, code: KeyCode) 
 }
 
 /// The keys of the list of remote sessions: moving, mounting one in the panel or mirroring it,
-/// renaming, deleting a session or forgetting its machine, R to read the list again, and Esc.
+/// renaming, deleting a session or forgetting its machine, U to update the machine, R to read
+/// the list again, and Esc.
 fn sessions_key(state: &mut AppState, mut browser: RemoteBrowser, key: &KeyEvent) -> Vec<Effect> {
     let last = browser.choices.len().saturating_sub(1);
     if let Some(selected) = moved(browser.selected, last, key.code) {
@@ -186,6 +211,8 @@ fn sessions_key(state: &mut AppState, mut browser: RemoteBrowser, key: &KeyEvent
         }
         KeyCode::Enter => open_choice(state, browser, true),
         KeyCode::Char('m') | KeyCode::Char('M') => open_choice(state, browser, false),
+        KeyCode::Char('u') | KeyCode::Char('U') => ask_update(state, browser),
+        KeyCode::Char('o') | KeyCode::Char('O') => crate::hosts::open(state),
         _ => show(state, browser),
     }
 }
@@ -224,8 +251,27 @@ fn ask_delete(state: &mut AppState, mut browser: RemoteBrowser, forget: bool) ->
     Vec::new()
 }
 
+/// U asks before updating the chosen machine, which needs a session there to reach it.
+pub(crate) fn ask_update(state: &mut AppState, mut browser: RemoteBrowser) -> Vec<Effect> {
+    let Some(choice) = browser.choices.get(browser.selected) else { return Vec::new() };
+    if choice.session.is_none() {
+        browser.error = Some(tr!(remote_host_no_session, machine = choice.host_name()));
+        return show(state, browser);
+    }
+    state.overlay = Some(Overlay::Confirm(crate::Confirm {
+        title: tr!(remote_host_update_title),
+        message: tr!(remote_host_update_confirm, machine = choice.host_name()),
+        purpose: crate::ConfirmPurpose::RemoteHostUpdate {
+            machine: choice.machine.clone(),
+            browser: Box::new(browser),
+        },
+        accept: false,
+    }));
+    Vec::new()
+}
+
 /// F2 asks for a new name for the chosen machine, or with Shift for its session.
-fn ask_rename(state: &mut AppState, browser: RemoteBrowser, session: bool) -> Vec<Effect> {
+pub(crate) fn ask_rename(state: &mut AppState, browser: RemoteBrowser, session: bool) -> Vec<Effect> {
     let Some(choice) = browser.choices.get(browser.selected) else { return Vec::new() };
     if choice.identity.is_empty() || (session && choice.session.is_none()) {
         return Vec::new();
@@ -242,12 +288,13 @@ fn ask_rename(state: &mut AppState, browser: RemoteBrowser, session: bool) -> Ve
             browser: Box::new(browser),
         },
         option_focused: false,
+        typed: None,
     }));
     Vec::new()
 }
 
 /// Enter mounts the chosen session in the panel, and M mirrors it instead.
-fn open_choice(state: &mut AppState, mut browser: RemoteBrowser, mount: bool) -> Vec<Effect> {
+pub(crate) fn open_choice(state: &mut AppState, mut browser: RemoteBrowser, mount: bool) -> Vec<Effect> {
     let Some(choice) = browser.choices.get(browser.selected) else { return Vec::new() };
     let Some(session) = choice.session.clone() else {
         browser.error = Some(tr!(remote_host_no_session, machine = choice.host_name()));
@@ -276,6 +323,8 @@ pub(crate) fn browse(state: &mut AppState) -> Vec<Effect> {
         client_selected: 0,
         deleting: None,
         forgetting: None,
+        updating: None,
+        from_overview: false,
     }));
     vec![Effect::OpenRemotes]
 }
@@ -323,6 +372,8 @@ pub(crate) fn mirror(state: &mut AppState, machine: String, session: String) -> 
             client_selected: 0,
             deleting: None,
             forgetting: None,
+            updating: None,
+            from_overview: false,
         }));
     }
     vec![Effect::MirrorRemote { machine, session }]
@@ -385,6 +436,46 @@ pub(crate) fn deleted(
         });
     }
     effects
+}
+
+/// How an update of a paired host went, as the Borg that asked for it saw the host come back.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HostUpdate {
+    /// It moved to this version.
+    Moved(String),
+    /// It runs this version, the latest already.
+    Current(String),
+}
+
+pub(crate) fn updated(state: &mut AppState, machine: String, result: Result<HostUpdate, String>) -> Vec<Effect> {
+    let name = state
+        .overlay
+        .as_ref()
+        .and_then(|overlay| match overlay {
+            Overlay::Remotes(browser) => browser.choices.iter().find(|choice| choice.machine == machine),
+            _ => None,
+        })
+        .map_or_else(|| machine.clone(), |choice| choice.host_name().to_owned());
+    let outcome = result.map(|update| match update {
+        HostUpdate::Moved(version) => tr!(remote_host_updated, machine = name, version = version),
+        HostUpdate::Current(version) => tr!(remote_host_current, machine = name, version = version),
+    });
+    match state.overlay.as_mut() {
+        Some(Overlay::Remotes(browser)) if browser.updating.as_ref() == Some(&machine) => {
+            browser.updating = None;
+            match outcome {
+                Ok(notice) => {
+                    state.notice = Some(notice);
+                    browser.error = None;
+                    browser.loading = true;
+                    return vec![Effect::OpenRemotes];
+                }
+                Err(error) => browser.error = Some(error),
+            }
+        }
+        _ => state.notice = Some(outcome.unwrap_or_else(|error| error)),
+    }
+    Vec::new()
 }
 
 pub(crate) fn forgotten(state: &mut AppState, machine: String, result: Result<(), String>) -> Vec<Effect> {
@@ -559,4 +650,20 @@ pub(crate) fn clients(state: &mut AppState, clients: Vec<RemoteClient>) {
         .and_then(|selected| clients.iter().position(|client| client.fingerprint == selected))
         .unwrap_or_else(|| browser.client_selected.min(clients.len().saturating_sub(1)));
     browser.clients = Some(clients);
+}
+
+pub(crate) fn computer_key_locked(state: &mut AppState, wrong: bool) {
+    let prompting = matches!(&state.overlay, Some(Overlay::Prompt(prompt)) if prompt.purpose == crate::PromptPurpose::ComputerKeyPassword);
+    if state.overlay.is_some() && !prompting {
+        state.notice = Some(tr!(cloud_key_locked).into());
+        return;
+    }
+    state.overlay = Some(Overlay::Prompt(crate::Prompt {
+        title: tr!(cloud_unlock_title),
+        label: if wrong { tr!(cloud_unlock_wrong) } else { tr!(cloud_unlock_label) }.into(),
+        input: crate::LineInput::default(),
+        purpose: crate::PromptPurpose::ComputerKeyPassword,
+        option_focused: false,
+        typed: None,
+    }));
 }

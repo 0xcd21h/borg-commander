@@ -1,8 +1,8 @@
 //! Opening the monitor, asking for fresh data on time, and taking it in.
 
 use super::{
-    Activity, ActivityData, ActivityPage, ActivityRequest, FILE_PREVIEW_TOP, HISTORY, MemoryHistory, PROCESS_LIMIT,
-    REFRESH, chrome_rows, merge_strings,
+    Activity, ActivityData, ActivityPage, ActivityRequest, FILE_PREVIEW_TOP, FindingsReport, HISTORY, MemoryHistory,
+    PROCESS_LIMIT, REFRESH, chrome_rows, merge_strings,
 };
 use crate::{AppState, Effect};
 use borg_i18n::tr;
@@ -14,8 +14,7 @@ pub(crate) fn open(state: &mut AppState) -> Vec<Effect> {
         return Vec::new();
     }
     state.overlay = None;
-    crate::docker::close(state);
-    crate::network::close(state);
+    crate::screens::close_others(state, crate::screens::Screen::Activity);
     state.activity.side = Some(state.active);
     state.activity.from_network = false;
     state.activity.preview_focused = false;
@@ -56,7 +55,10 @@ pub(crate) fn sync_file_preview(state: &mut AppState) -> Option<Effect> {
     let area = state.layout(state.epoch).panels[side.other().index()];
     let size = (
         usize::from(area.width.saturating_sub(2)),
-        usize::from(area.height.saturating_sub(chrome_rows(ActivityPage::FileDetails) + FILE_PREVIEW_TOP)),
+        usize::from(
+            area.height
+                .saturating_sub(chrome_rows(&state.activity, ActivityPage::FileDetails, area) + FILE_PREVIEW_TOP),
+        ),
     );
     let activity = &mut state.activity;
     if let Some(preview) = activity.file_preview.as_mut().filter(|preview| preview.path == path) {
@@ -102,7 +104,8 @@ pub(crate) fn sync(state: &mut AppState, now: Instant) -> Vec<Effect> {
     let list_rect = layout.panels[side.index()];
     let activity = &mut state.activity;
     if !list_rect.is_empty() {
-        activity.keep_visible(activity.list, usize::from(list_rect.height.saturating_sub(chrome_rows(activity.list))));
+        let chrome = chrome_rows(activity, activity.list, list_rect);
+        activity.keep_visible(activity.list, usize::from(list_rect.height.saturating_sub(chrome)));
     }
     if activity.preview_due.is_some_and(|due| due <= now) {
         activity.preview_due = None;
@@ -164,19 +167,9 @@ pub(crate) fn receive(state: &mut AppState, id: u64, result: Result<ActivityData
             activity.retry = retry;
         }
         Ok(ActivityData::Integrity(report)) => {
-            // Unread memory leaves checks undone, which the administrator retry can finish.
-            activity.retry = (report.unreadable > 0).then(|| request.clone());
-            activity.integrity = Some(report);
-            activity.finding_cursor = 0;
-            activity.tops[4] = 0;
-            activity.page = ActivityPage::Snapshot;
-            activity.list = ActivityPage::Integrity;
-            activity.preview_focused = false;
-            activity.search_progress = None;
-            let retry = activity.retry.clone();
-            activity.schedule_preview(now);
-            activity.retry = retry;
+            show_findings(activity, FindingsReport::Integrity(report), &request, now)
         }
+        Ok(ActivityData::Rules(report)) => show_findings(activity, FindingsReport::Rules(report), &request, now),
         Ok(ActivityData::Sample(mut sample)) => {
             sample.processes.truncate(PROCESS_LIMIT);
             let keys: HashSet<_> = sample.processes.iter().map(|p| p.key).collect();
@@ -196,6 +189,7 @@ pub(crate) fn receive(state: &mut AppState, id: u64, result: Result<ActivityData
                 }
             }
             activity.sample = sample;
+            activity.average_cpu(now);
             activity.rebuild();
             revealed = activity.revealing.take().filter(|&(pid, _)| activity.select_pid(pid));
         }
@@ -205,6 +199,7 @@ pub(crate) fn receive(state: &mut AppState, id: u64, result: Result<ActivityData
             activity.region_cursor = selected.and_then(|key| activity.find_row(&key)).unwrap_or(0);
             activity.retry = None;
             activity.schedule_preview(now);
+            super::entropy::land_on_region(activity, now);
         }
         Ok(ActivityData::Files(files)) => {
             let selected = activity.files.get(activity.file_cursor).map(|f| (f.descriptor.clone(), f.name.clone()));
@@ -220,8 +215,10 @@ pub(crate) fn receive(state: &mut AppState, id: u64, result: Result<ActivityData
             activity.census_cursor = activity.census_cursor.min(census.pages.len().saturating_sub(1));
             activity.census = Some(census);
             activity.retry = None;
+            super::entropy::land_on_page(activity);
         }
         Ok(ActivityData::Control(report)) => notice = super::control::receive(activity, request, report),
+        Ok(ActivityData::Entropy(_)) => {}
         Ok(ActivityData::Snapshot(snapshot)) => {
             activity.previous = activity
                 .snapshot
@@ -251,4 +248,20 @@ pub(crate) fn receive(state: &mut AppState, id: u64, result: Result<ActivityData
     if revealed.is_some_and(|(_, control)| control) {
         super::open_control(state);
     }
+}
+
+/// Shows what a check found in place of the list, with the first finding's bytes.
+fn show_findings(activity: &mut Activity, report: FindingsReport, request: &ActivityRequest, now: Instant) {
+    // Unread memory leaves checks undone, which the administrator retry can finish.
+    activity.retry = (report.unreadable() > 0).then(|| request.clone());
+    activity.findings = Some(report);
+    activity.finding_cursor = 0;
+    activity.tops[4] = 0;
+    activity.page = ActivityPage::Snapshot;
+    activity.list = ActivityPage::Findings;
+    activity.preview_focused = false;
+    activity.search_progress = None;
+    let retry = activity.retry.clone();
+    activity.schedule_preview(now);
+    activity.retry = retry;
 }

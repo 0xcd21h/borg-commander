@@ -28,6 +28,7 @@ pub(super) fn prompt(
             input: LineInput::new(value),
             purpose,
             option_focused: false,
+            typed: None,
         }),
     )
 }
@@ -37,15 +38,9 @@ pub(super) fn open_menu(state: &mut AppState, menu: usize) -> Vec<Effect> {
     show(state, Overlay::Menu(MenuCursor { menu, item }))
 }
 
-/// F9: opens the menu last used, at its item when that can still be chosen, or the menu over
-/// the active panel.
+/// F9: opens the menu where it was left, or the menu over the active panel the first time.
 pub(super) fn open_menu_bar(state: &mut AppState, side: Side) -> Vec<Effect> {
-    let all = menus(state);
-    let resumed = state.last_menu.and_then(|last| {
-        let menu = all.get(last.menu)?;
-        let usable = |index: &usize| menu.item(*index).is_some_and(|item| item.enabled);
-        Some(MenuCursor { item: last.item.filter(usable).or_else(|| menu.first_enabled()), ..last })
-    });
+    let resumed = state.last_menu.as_ref().and_then(|place| place.resume(&menus(state)));
     match resumed {
         Some(cursor) => show(state, Overlay::Menu(cursor)),
         None => open_menu(state, if side == Side::Left { 0 } else { RIGHT_MENU }),
@@ -68,17 +63,18 @@ pub(super) fn confirm_quit(state: &mut AppState) -> Vec<Effect> {
     if crate::editor::ask_unsaved(state) {
         return Vec::new();
     }
-    let message = if state.jobs.is_empty() && !state.docker.shells.is_empty() {
+    let running = state.jobs.iter().filter(|job| job.running()).count();
+    let message = if running == 0 && !state.docker.shells.is_empty() {
         match state.docker.shells.len() {
             1 => tr!(quit_shells_one).into(),
             count => tr!(quit_shells_many, count = count),
         }
-    } else if state.jobs.is_empty() {
+    } else if running == 0 {
         tr!(quit_borg_commander).into()
-    } else if state.jobs.len() == 1 {
+    } else if running == 1 {
         tr!(quit_jobs_one).into()
     } else {
-        tr!(quit_jobs_many, count = state.jobs.len())
+        tr!(quit_jobs_many, count = running)
     };
     show(state, Overlay::Confirm(Confirm { title: tr!(quit), message, purpose: ConfirmPurpose::Quit, accept: false }))
 }

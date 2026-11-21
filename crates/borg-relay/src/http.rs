@@ -54,13 +54,18 @@ fn parse(head: &[u8]) -> Head {
         let value = value.trim();
         match name.trim().to_ascii_lowercase().as_str() {
             "upgrade" => upgrade |= value.eq_ignore_ascii_case("websocket"),
-            // The first address is the client's; the proxies it passed add theirs after it.
-            "x-forwarded-for" => forwarded_for = value.split(',').next().and_then(|first| first.trim().parse().ok()),
+            "x-forwarded-for" => forwarded_for = nearest_proxy_saw(value),
             "x-real-ip" => real_ip = value.parse().ok(),
             _ => {}
         }
     }
     Head { path, upgrade, forwarded: forwarded_for.or(real_ip) }
+}
+
+/// The address the proxy in front of the relay saw: the last one in the header, which that
+/// proxy added. Everything before it came with the request, where a client can write anything.
+fn nearest_proxy_saw(forwarded_for: &str) -> Option<IpAddr> {
+    forwarded_for.rsplit(',').next().and_then(|last| last.trim().parse().ok())
 }
 
 /// Answers a plain request: health checks and a line saying what this is.
@@ -137,7 +142,7 @@ mod tests {
 
     #[test]
     fn a_head_tells_upgrades_paths_and_the_forwarded_client() {
-        let head = parse(b"GET /v1/connect/ab HTTP/1.1\r\nHost: relay\r\nUpgrade: websocket\r\nX-Forwarded-For: 203.0.113.7, 10.0.0.2");
+        let head = parse(b"GET /v1/connect/ab HTTP/1.1\r\nHost: relay\r\nUpgrade: websocket\r\nX-Forwarded-For: 10.0.0.2, 203.0.113.7");
         assert_eq!(
             head,
             Head { path: "/v1/connect/ab".into(), upgrade: true, forwarded: Some("203.0.113.7".parse().unwrap()) }
@@ -147,5 +152,12 @@ mod tests {
             plain,
             Head { path: "/health".into(), upgrade: false, forwarded: Some("2001:db8::1".parse().unwrap()) }
         );
+    }
+
+    #[test]
+    fn an_address_the_client_wrote_itself_is_not_the_one_limits_count_by() {
+        let claimed =
+            parse(b"GET / HTTP/1.1\r\nX-Forwarded-For: 198.51.100.1\r\nX-Forwarded-For: 192.0.2.9, 203.0.113.7");
+        assert_eq!(claimed.forwarded, Some("203.0.113.7".parse().unwrap()));
     }
 }

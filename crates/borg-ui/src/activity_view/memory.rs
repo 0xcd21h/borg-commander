@@ -1,15 +1,22 @@
-//! The memory overview: the meters, the history chart and the largest processes.
+//! The memory overview: the meters, the history chart, the largest processes, and the
+//! inspected process's place in the process tree.
 
-use super::{Page, SIZE_WIDTH, dim, emphasis, heading, row, size, text};
+use super::{Page, SIZE_WIDTH, dim, emphasis, heading, percent, row, size, text};
 use crate::{Rgb, format, look::Look};
-use borg_core::{Activity, DEFAULT_NICE, HISTORY, MemoryProtection, MemoryRegion, MemoryTotals};
-use borg_i18n::tr;
+use borg_core::{Activity, DEFAULT_NICE, HISTORY, Kin, MemoryProtection, MemoryRegion, MemoryTotals, Relative};
+use borg_i18n::{Count, count, tr};
 use ratatui::{buffer::Buffer, layout::Rect, style::Modifier};
 use unicode_width::UnicodeWidthStr;
 
 const TILE_WIDTH: u16 = 12;
 const METER_WIDTH: u16 = 20;
 const CHART_ROWS: u16 = 20;
+/// Rows the chart's title and time axis take around its plot.
+const CHART_FRAME: u16 = 2;
+/// Rows above the process tree's processes: a blank one after the chart, then the title.
+const FAMILY_HEADER: u16 = 2;
+/// Cells each level of the process tree indents by.
+const FAMILY_INDENT: usize = 2;
 const BLOCKS: [char; 7] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇'];
 const LEFT_BLOCKS: [char; 7] = ['▏', '▎', '▍', '▌', '▋', '▊', '▉'];
 const BYTE_UNITS: [&str; 6] = ["K", "M", "G", "T", "P", "E"];
@@ -39,7 +46,16 @@ pub(super) fn sizes(totals: &MemoryTotals) -> [String; 3] {
 }
 
 /// A horizontal bar filled to `fraction`, shaded along the theme accent.
-pub(super) fn meter(buf: &mut Buffer, area: Rect, fraction: f64, look: &Look<'_>) {
+/// How a meter colors its filled cells.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Fill {
+    /// Along the theme's accent, from the empty end to the full one.
+    Accent,
+    /// In the notice color, for something that runs short.
+    Warning,
+}
+
+pub(crate) fn meter(buf: &mut Buffer, area: Rect, fraction: f64, tone: Fill, look: &Look<'_>) {
     let theme = look.theme;
     let accent = look.accent();
     let eighths = (fraction.clamp(0.0, 1.0) * f64::from(area.width) * 8.0).round() as u32;
@@ -52,7 +68,10 @@ pub(super) fn meter(buf: &mut Buffer, area: Rect, fraction: f64, look: &Look<'_>
             }
             _ => {
                 let symbol = if fill == 8 { '█' } else { LEFT_BLOCKS[fill as usize - 1] };
-                let color = accent.at(f32::from(x) / f32::from(area.width.max(2) - 1));
+                let color = match tone {
+                    Fill::Accent => accent.at(f32::from(x) / f32::from(area.width.max(2) - 1)),
+                    Fill::Warning => look.fg(theme.styles.notice),
+                };
                 cell.set_char(symbol).set_style(theme.styles.overlay.fg(color.into()));
             }
         }
@@ -80,7 +99,7 @@ pub(super) fn metrics(page: &mut Page<'_>, totals: &MemoryTotals, whole: Option<
         let note = tr!(memory_footprint_share, percent = percent);
         let width = METER_WIDTH.min(line.right().saturating_sub(x).saturating_sub(note.width() as u16 + 1));
         if width >= 4 {
-            meter(page.buf, Rect { x, width, ..line }, fraction, look);
+            meter(page.buf, Rect { x, width, ..line }, fraction, Fill::Accent, look);
             let note_area = Rect { x: x + width + 1, width: line.right().saturating_sub(x + width + 1), ..line };
             text(page.buf, note_area, note, dim(theme));
         }
@@ -110,7 +129,7 @@ pub(super) fn memory(activity: &Activity, look: &Look<'_>, body: Rect, buf: &mut
         (tr!(activity_resident), size(p.resident)),
         (tr!(activity_peak), size(history.map(|h| h.peak))),
         (tr!(activity_since), change(activity.growth(p.key))),
-        (tr!(activity_cpu_tile), p.cpu.map_or_else(|| "—".into(), |v| format!("{:.1}%", f64::from(v) / 100.0))),
+        (tr!(activity_cpu_tile), percent(activity.cpu(p.key))),
         (tr!(activity_virtual), size(p.virtual_bytes)),
     ];
     if let Some(nice) = p.nice.filter(|&nice| nice != DEFAULT_NICE) {
@@ -153,9 +172,60 @@ pub(super) fn memory(activity: &Activity, look: &Look<'_>, body: Rect, buf: &mut
         text(buf, row(body, y), note, emphasis(theme));
         y += 2;
     }
-    let chart_area =
-        Rect { y: body.y.saturating_add(y).min(body.bottom()), height: body.height.saturating_sub(y), ..body };
+    let rest = Rect { y: body.y.saturating_add(y).min(body.bottom()), height: body.height.saturating_sub(y), ..body };
+    let family = activity.family();
+    let family_rows = family_rows(&family, rest.height);
+    let chart_area = Rect { height: rest.height - family_rows, ..rest };
     chart(tr!(memory_chart_title), history.map_or(&[][..], |h| &h.values[..]), Unit::Bytes, look, chart_area, buf);
+    let family_area = Rect { y: chart_area.bottom(), height: family_rows, ..rest };
+    family_tree(activity, &family, look, family_area, buf);
+}
+
+/// Rows the process tree takes below the chart: all it needs where the chart leaves room, and
+/// otherwise up to half of what is left. A process alone in its tree gets none.
+fn family_rows(family: &[Relative], height: u16) -> u16 {
+    if family.len() < 2 {
+        return 0;
+    }
+    let needed = u16::try_from(family.len()).unwrap_or(u16::MAX).saturating_add(FAMILY_HEADER);
+    let room = height.saturating_sub(CHART_ROWS + CHART_FRAME).max(height / 2);
+    if room <= FAMILY_HEADER { 0 } else { needed.min(room) }
+}
+
+/// The processes the inspected one descends from, the process itself, and everything it
+/// started, each indented under the process that started it. When they do not all fit, the
+/// process and the ones closest above it stay, and a last line counts the ones left out.
+fn family_tree(activity: &Activity, family: &[Relative], look: &Look<'_>, area: Rect, buf: &mut Buffer) {
+    let theme = look.theme;
+    if area.height <= FAMILY_HEADER {
+        return;
+    }
+    text(buf, row(area, 1), tr!(activity_family_title), theme.styles.overlay.add_modifier(Modifier::BOLD));
+    let lines = usize::from(area.height - FAMILY_HEADER);
+    let selected = family.iter().position(|relative| relative.kin == Kin::Selected).unwrap_or_default();
+    let (start, shown) = if family.len() <= lines {
+        (0, lines)
+    } else {
+        let shown = lines - 1;
+        ((selected + 1).saturating_sub(shown), shown)
+    };
+    let indent_limit = usize::from(area.width / 2);
+    for (offset, relative) in family.iter().skip(start).take(shown).enumerate() {
+        let process = &activity.sample.processes[relative.index];
+        let line = row(area, FAMILY_HEADER + offset as u16);
+        let indent = " ".repeat(relative.depth.saturating_mul(FAMILY_INDENT).min(indent_limit));
+        let style = if relative.kin == Kin::Selected { heading(theme) } else { theme.styles.overlay };
+        let resident = size(process.resident);
+        let size_x = line.right().saturating_sub(resident.width() as u16);
+        let name_width = size_x.saturating_sub(line.x).saturating_sub(1);
+        text(buf, Rect { width: name_width, ..line }, format!("{indent}{} {}", process.key.pid, process.name), style);
+        text(buf, Rect { x: size_x, width: line.right() - size_x, ..line }, resident, dim(theme));
+    }
+    let left_out = family.len().saturating_sub(start + shown);
+    if left_out > 0 {
+        let line = row(area, FAMILY_HEADER + shown as u16);
+        text(buf, line, tr!(activity_family_more, processes = count(left_out, Count::Process)), dim(theme));
+    }
 }
 
 /// What a chart's values measure.

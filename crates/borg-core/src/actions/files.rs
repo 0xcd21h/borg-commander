@@ -8,27 +8,37 @@ use std::{
 
 use borg_i18n::tr;
 
-use super::{dialogs::prompt, shell::interactive, shell::run_operation};
+use super::{dialogs::prompt, shell::interactive};
 use crate::{
     Action, AppState, Confirm, ConfirmPurpose, EditorSlot, Effect, FirstMatch, Overlay, Panel, PromptPurpose, Side,
-    ops::{self, ArchiveFormat, DEFAULT_ARCHIVE_SUFFIX},
+    ops::{self, DEFAULT_ARCHIVE_SUFFIX},
 };
 
-/// F3: views the hovered file, from this machine, a container or a remote Borg.
-pub(super) fn view(state: &mut AppState, side: Side) -> Vec<Effect> {
+/// F3: views the hovered file, from this machine, a container, a remote Borg or an archive. On a
+/// folder or `..` of this machine it counts sizes in the background instead.
+pub(super) fn view(state: &mut AppState, side: Side, now: Instant) -> Vec<Effect> {
     let panel = state.panel(side);
+    if panel.archive.is_some() {
+        return crate::archive::view(state, side, now);
+    }
     if panel.mount.is_some() {
         return hovered_file(state).map(|path| crate::docker::view(state, &path)).unwrap_or_default();
     }
     if panel.remote_mount.is_some() {
         return remote_view(state, side);
     }
+    if let Some(effects) = crate::measure::count_folders(state, side, now) {
+        return effects;
+    }
     let Some(path) = hovered_file(state) else { return Vec::new() };
     if crate::network::is_capture(&path) && state.settings.preferences.system_plugin {
         return vec![Effect::OpenCapture(path)];
     }
-    match first_match(state.panel(side), &path) {
-        Some(FirstMatch { query, offset }) => crate::viewer::open_at(state, path, query, offset),
+    if let Some(FirstMatch { query, offset }) = first_match(state.panel(side), &path) {
+        return crate::viewer::open_at(state, path, query, offset);
+    }
+    match first_high(state.panel(side), &path) {
+        Some(offset) => crate::viewer::open_on_bytes(state, path, offset),
         None => crate::viewer::open(state, path),
     }
 }
@@ -36,6 +46,11 @@ pub(super) fn view(state: &mut AppState, side: Side) -> Vec<Effect> {
 /// Where a contents search found its first match in the file at `path`.
 fn first_match(panel: &Panel, path: &Path) -> Option<FirstMatch> {
     panel.results.as_ref()?.first_match(path)
+}
+
+/// Where a search for packed programs found the first high-entropy code in the one at `path`.
+fn first_high(panel: &Panel, path: &Path) -> Option<u64> {
+    panel.results.as_ref()?.first_high(path)
 }
 
 pub(super) fn remote_view(state: &mut AppState, side: Side) -> Vec<Effect> {
@@ -51,7 +66,10 @@ pub(super) fn remote_view(state: &mut AppState, side: Side) -> Vec<Effect> {
 
 /// Opens the hovered file in Borg's editor, full screen or in a panel, on the match a contents
 /// search found in it.
-pub(super) fn edit_hovered(state: &mut AppState, slot: EditorSlot) -> Vec<Effect> {
+pub(super) fn edit_hovered(state: &mut AppState, slot: EditorSlot, now: Instant) -> Vec<Effect> {
+    if state.active_panel().archive.is_some() {
+        return crate::archive::edit(state, slot, now);
+    }
     let Some(path) = hovered_file(state) else { return Vec::new() };
     match first_match(state.active_panel(), &path) {
         Some(FirstMatch { query, offset }) => crate::editor::open_at(state, path, slot, query, offset),
@@ -61,14 +79,14 @@ pub(super) fn edit_hovered(state: &mut AppState, slot: EditorSlot) -> Vec<Effect
 
 /// Alt-E: opens the hovered file in a panel's editor, in place of the panel's files, or beside
 /// results in the other panel, so the list stays in view.
-pub(super) fn edit_in_panel(state: &mut AppState, side: Side) -> Vec<Effect> {
+pub(super) fn edit_in_panel(state: &mut AppState, side: Side, now: Instant) -> Vec<Effect> {
     if !state.panel(side).is_results() {
-        return edit_hovered(state, EditorSlot::Panel(side));
+        return edit_hovered(state, EditorSlot::Panel(side), now);
     }
     if hovered_file(state).is_none() || !crate::editor::ready_beside(state, side.other()) {
         return Vec::new();
     }
-    edit_hovered(state, EditorSlot::Panel(side.other()))
+    edit_hovered(state, EditorSlot::Panel(side.other()), now)
 }
 
 /// Opens the hovered file in the editor the shell names.
@@ -83,6 +101,16 @@ pub(super) fn edit_external(state: &mut AppState) -> Vec<Effect> {
 /// panels show.
 pub(super) fn copy(state: &mut AppState, side: Side) -> Vec<Effect> {
     let other = side.other();
+    if state.panel(side).archive.is_some() {
+        if !crate::archive::takes_copies(state, other) {
+            state.notice = Some(tr!(archive_copy_destination).into());
+            return Vec::new();
+        }
+        return transfer(state, tr!(copy), |sources| PromptPurpose::Unpack { sources, moving: false });
+    }
+    if state.panel(other).archive.is_some() {
+        return pack(state, side, tr!(copy), false);
+    }
     if state.panel(side).remote_mount.is_some() || state.panel(other).remote_mount.is_some() {
         return copy_remote(state, side);
     }
@@ -132,7 +160,22 @@ pub(super) fn move_selection(state: &mut AppState, side: Side) -> Vec<Effect> {
         state.notice = Some(tr!(move_needs_a_real_destination_folder).into());
         return Vec::new();
     }
+    if state.panel(side).archive.is_some() {
+        return transfer(state, tr!(move), |sources| PromptPurpose::Unpack { sources, moving: true });
+    }
+    if state.panel(side.other()).archive.is_some() {
+        return pack(state, side, tr!(move), true);
+    }
     transfer(state, tr!(move), |sources| PromptPurpose::Move { sources })
+}
+
+/// F5 and F6 into the archive the other panel shows, from a folder of this machine.
+fn pack(state: &mut AppState, side: Side, title: &'static str, moving: bool) -> Vec<Effect> {
+    if state.panel(side).foreign() {
+        state.notice = Some(tr!(archive_pack_source).into());
+        return Vec::new();
+    }
+    transfer(state, title, |sources| PromptPurpose::Pack { sources, moving })
 }
 
 /// F8: asks before deleting the selection; in a collection it only takes the references out.
@@ -170,13 +213,14 @@ pub(super) fn confirm_delete(state: &mut AppState) -> Vec<Effect> {
         return Vec::new();
     }
     let message = tr!(delete_permanently, describe_selection(state.active_panel(), &sources));
+    let (check, effects) = crate::delete_check::start(state, &sources);
     state.overlay = Some(Overlay::Confirm(Confirm {
         title: tr!(delete),
         message,
-        purpose: ConfirmPurpose::Delete { sources },
-        accept: !state.active_panel().is_results(),
+        purpose: ConfirmPurpose::Delete { sources, check },
+        accept: false,
     }));
-    Vec::new()
+    effects
 }
 
 pub(super) fn compress(state: &mut AppState) -> Vec<Effect> {
@@ -191,15 +235,6 @@ pub(super) fn compress(state: &mut AppState) -> Vec<Effect> {
     };
     let default = format!("{stem}{DEFAULT_ARCHIVE_SUFFIX}");
     prompt(state, tr!(compress), &tr!(archive_as, describe(&sources)), &default, PromptPurpose::Compress { sources })
-}
-
-/// Unpacks the hovered archive into the folder of the panel on `to`.
-pub(super) fn extract(state: &mut AppState, to: Side, now: Instant) -> Vec<Effect> {
-    let dest = state.panel(to).dir().to_path_buf();
-    let Some(entry) = state.active_panel().hovered_entry() else { return Vec::new() };
-    let Some(format) = ArchiveFormat::detect(&entry.name) else { return Vec::new() };
-    let command = ops::extract(&entry.name, format, &dest);
-    run_operation(state, tr!(extract), &command, None, now)
 }
 
 fn hovered_file(state: &AppState) -> Option<PathBuf> {

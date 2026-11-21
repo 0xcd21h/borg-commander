@@ -2,7 +2,7 @@
 
 use super::{CLIENTS_LIMIT, CLIENTS_SOCKET, CLIENTS_TIMEOUT, COMPUTERS_FILE, Computer, LINK_DIR, Shared, load};
 use crate::agent::note;
-use borg_core::{AgentEvent, Msg, RemoteClient};
+use borg_core::{AgentEvent, KeyChange, Msg, RemoteClient};
 use borg_link::{KEY_LEN, fingerprint, unhex};
 use std::{
     path::Path,
@@ -22,11 +22,29 @@ pub(super) fn client_status(shared: &Shared) -> Vec<RemoteClient> {
         .computers
         .iter()
         .map(|computer| RemoteClient {
-            name: computer.name.clone(),
-            fingerprint: unhex::<KEY_LEN>(&computer.key).map(|key| fingerprint(&key)).unwrap_or_default(),
             connections: Some(shared.connections.get(&computer.key).copied().unwrap_or_default()),
+            ..remote_client(computer)
         })
         .collect()
+}
+
+fn key_fingerprint(key: &str) -> String {
+    unhex::<KEY_LEN>(key).map(|key| fingerprint(&key)).unwrap_or_default()
+}
+
+fn remote_client(computer: &Computer) -> RemoteClient {
+    let key_changed = computer.changed.as_ref().map(|change| KeyChange {
+        when: jiff::Timestamp::from_second(i64::try_from(change.at).unwrap_or_default())
+            .map(|at| at.to_zoned(jiff::tz::TimeZone::system()).strftime("%Y-%m-%d").to_string())
+            .unwrap_or_default(),
+        was: key_fingerprint(&change.from),
+    });
+    RemoteClient {
+        name: computer.name.clone(),
+        fingerprint: key_fingerprint(&computer.key),
+        connections: None,
+        key_changed,
+    }
 }
 
 pub(super) struct ClientConnection {
@@ -77,12 +95,5 @@ pub async fn paired_clients(state: &Path) -> Vec<RemoteClient> {
     if let Ok(Ok(clients)) = tokio::time::timeout(CLIENTS_TIMEOUT, status).await {
         return clients;
     }
-    load::<Computer>(&state.join(LINK_DIR).join(COMPUTERS_FILE))
-        .into_iter()
-        .map(|computer| RemoteClient {
-            name: computer.name,
-            fingerprint: unhex::<KEY_LEN>(&computer.key).map(|key| fingerprint(&key)).unwrap_or_default(),
-            connections: None,
-        })
-        .collect()
+    load::<Computer>(&state.join(LINK_DIR).join(COMPUTERS_FILE)).iter().map(remote_client).collect()
 }

@@ -1,5 +1,8 @@
 //! The network screen's filter. Every word must match a row: a plain word anywhere in it,
-//! `field:value` in one field, and either one after `!` only where it does not match.
+//! `field:value` in one field, and either one after `!` only where it does not match. A whole
+//! address after `host:` means that address alone, so `host:192.168.1.1` leaves out `192.168.1.10`.
+
+use std::net::IpAddr;
 
 const NEGATION: char = '!';
 const SEPARATOR: char = ':';
@@ -13,9 +16,15 @@ enum Field {
     State,
     Protocol,
     Interface,
+    Mac,
+    Vendor,
+    Network,
 }
 
-const FIELDS: [(&str, Field); 9] = [
+const MAC_DASH: char = '-';
+const MAC_COLON: char = ':';
+
+const FIELDS: [(&str, Field); 12] = [
     ("port", Field::Port),
     ("proc", Field::Process),
     ("process", Field::Process),
@@ -25,6 +34,9 @@ const FIELDS: [(&str, Field); 9] = [
     ("proto", Field::Protocol),
     ("if", Field::Interface),
     ("interface", Field::Interface),
+    ("mac", Field::Mac),
+    ("vendor", Field::Vendor),
+    ("net", Field::Network),
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,10 +70,19 @@ impl Term {
             },
             Some(Field::Process) => row.process.as_deref().is_some_and(contains),
             Some(Field::Pid) => row.pid.is_some_and(|pid| pid.to_string() == self.value),
-            Some(Field::Host) => row.hosts.iter().any(|host| contains(host)),
+            Some(Field::Host) => match self.value.parse::<IpAddr>() {
+                Ok(address) => row.hosts.iter().any(|host| host.parse() == Ok(address)),
+                Err(_) => row.hosts.iter().any(|host| contains(host)),
+            },
             Some(Field::State) => row.state.is_some_and(contains),
             Some(Field::Protocol) => row.protocols.iter().any(|protocol| protocol.eq_ignore_ascii_case(&self.value)),
             Some(Field::Interface) => row.interface.as_deref().is_some_and(contains),
+            Some(Field::Mac) => row
+                .mac
+                .as_deref()
+                .is_some_and(|mac| mac.contains(&self.value.replace(MAC_DASH, &MAC_COLON.to_string()))),
+            Some(Field::Vendor) => row.vendor.is_some_and(contains),
+            Some(Field::Network) => row.network.as_deref().is_some_and(contains),
         };
         found != self.negated
     }
@@ -80,6 +101,10 @@ impl NetworkFilter {
     pub(crate) fn matches(&self, row: &Haystack) -> bool {
         self.terms.iter().all(|term| term.matches(row))
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.terms.is_empty()
+    }
 }
 
 /// What a row offers the filter.
@@ -96,6 +121,10 @@ pub(crate) struct Haystack {
     pub(crate) interface: Option<String>,
     /// Words a plain search finds that no field holds, such as a label the row shows.
     pub(crate) labels: Vec<String>,
+    pub(crate) mac: Option<String>,
+    pub(crate) vendor: Option<&'static str>,
+    /// The network a host is on or reached through, or the one a heading names.
+    pub(crate) network: Option<String>,
 }
 
 impl Haystack {
@@ -111,5 +140,35 @@ impl Haystack {
             .chain(self.protocols.iter().map(|protocol| (*protocol).to_owned()))
             .chain(self.interface.iter().cloned())
             .chain(self.labels.iter().cloned())
+            .chain(self.mac.iter().cloned())
+            .chain(self.vendor.map(str::to_owned))
+            .chain(self.network.iter().cloned())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn row(hosts: &[&str]) -> Haystack {
+        Haystack { hosts: hosts.iter().map(|host| (*host).to_owned()).collect(), ..Haystack::default() }
+    }
+
+    #[test]
+    fn a_whole_address_after_host_keeps_that_address_alone() {
+        let router = NetworkFilter::parse("host:192.168.1.1");
+        assert!(router.matches(&row(&["192.168.1.1", "router.lan"])));
+        assert!(!router.matches(&row(&["192.168.1.10"])));
+        assert!(!router.matches(&row(&["192.168.1.19", "printer.lan"])));
+        assert!(NetworkFilter::parse("host:2001:DB8::1").matches(&row(&["2001:db8::1"])));
+        assert!(!NetworkFilter::parse("!host:192.168.1.1").matches(&row(&["192.168.1.1"])));
+        assert!(NetworkFilter::parse("!host:192.168.1.1").matches(&row(&["192.168.1.10"])));
+    }
+
+    #[test]
+    fn part_of_an_address_or_a_name_after_host_still_keeps_whatever_contains_it() {
+        assert!(NetworkFilter::parse("host:192.168.1").matches(&row(&["192.168.1.10"])));
+        assert!(NetworkFilter::parse("host:Example").matches(&row(&["203.0.113.9", "www.example.com"])));
+        assert!(!NetworkFilter::parse("host:example").matches(&row(&["203.0.113.9"])));
     }
 }

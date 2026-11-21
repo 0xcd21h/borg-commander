@@ -1,0 +1,12 @@
+[Unit]
+Description=Sync notes
+# a comment
+[Service]
+Type=simple
+User=sam
+ExecStart=-/usr/bin/env NOTES=1 \
+    /opt/notes/sync --watch
+Restart=always
+
+[Install]
+WantedBy=default.target

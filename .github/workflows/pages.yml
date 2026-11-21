@@ -9,6 +9,7 @@ on:
       - 'docs/translations/**'
       - 'docs/themes/**'
       - 'docs/showcase/**'
+      - 'docs/brand/**'
       - 'Cargo.toml'
       - 'scripts/check-public-content.py'
       - '.github/workflows/pages.yml'

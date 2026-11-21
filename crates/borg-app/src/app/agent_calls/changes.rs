@@ -2,7 +2,6 @@
 
 use super::{App, Flow, fail, text};
 use crate::agent::{self, Call, Location, Reply, Spot, Target, Work};
-use crate::app::{DOCKER_SCRATCH, render::from_origin};
 use anyhow::Result;
 use borg_core::{AgentEvent, Ask, AskKind, DiffLine, Msg};
 use borg_i18n::tr;
@@ -77,8 +76,7 @@ impl App {
             Spot::Container { name, path, .. } => (path.display().to_string(), tr!(agent_container_place, name = name)),
         };
         let kind = if before.is_some() { AskKind::Edit } else { AskKind::Create };
-        let place = from_origin(place, call.origin.as_deref());
-        let ask = Ask { kind, summary, place, body };
+        let ask = Ask { kind, summary, place, origin: call.origin.clone(), body };
         let id = self.agent.ask(reply, Work::Write { spot, before, after });
         if call.origin.as_ref().is_some_and(|origin| self.approve_all.contains(origin)) {
             return self.agent_answer(id, true);
@@ -89,6 +87,12 @@ impl App {
     /// Asks the user to approve running a command on the host or in a container.
     pub(super) fn ask_to_run(&mut self, call: Call, reply: Sender<Reply>) -> Result<Flow> {
         let Some(command) = text(&call, "command") else { return fail(reply, "run needs a command".into()) };
+        if !agent::shown_as_typed(&command) {
+            return fail(
+                reply,
+                "run takes printable text and line breaks only: the approval dialog cannot show tabs, escapes or other control characters".into(),
+            );
+        }
         let at = text(&call, "at");
         let mut reply = reply;
         let target = match at.as_deref().map(|at| agent::locate(&self.state, at)) {
@@ -111,7 +115,6 @@ impl App {
                         format!("The shell in {name} is running something; try again when it is back at its prompt."),
                     );
                 }
-                // A folder runs the command there; the container alone keeps the shell's.
                 let named = at
                     .as_deref()
                     .and_then(|at| at.trim().strip_prefix(agent::DOCKER_SCHEME))
@@ -132,8 +135,9 @@ impl App {
         let ask = Ask {
             kind: AskKind::Run,
             summary: command.clone(),
-            place: from_origin(agent::place(&target), call.origin.as_deref()),
-            body: command.lines().map(DiffLine::plain).collect(),
+            place: agent::place(&target),
+            origin: call.origin.clone(),
+            body: command.lines().map(DiffLine::code).collect(),
         };
         let id = self.agent.ask(reply, Work::Run { command, target });
         if call.origin.as_ref().is_some_and(|origin| self.approve_all.contains(origin)) {
@@ -171,7 +175,7 @@ impl App {
     ) -> Result<Flow> {
         use crate::agent::{self, Reply, Work};
         use base64::Engine as _;
-        use borg_core::{AgentEvent, Ask, AskKind, DiffLine};
+        use borg_core::AgentEvent;
         let Some(token) = call.args["token"].as_str().map(str::to_owned) else {
             let (Some(path), Some(size)) = (call.args["path"].as_str(), call.args["size"].as_u64()) else {
                 drop(reply.send(Reply::error("put needs a path and a size")));
@@ -179,15 +183,12 @@ impl App {
             };
             let location = agent::locate(&self.state, path);
             let Some((spot, _, reply)) = self.spot(&location, &call, reply) else { return Ok(Flow::Continue) };
-            // Small sizes show as bytes; larger ones as the panels show them, with the bytes.
             let shown = if size < 10_000 {
                 format!("{size} bytes")
             } else {
                 format!("{} ({size} bytes)", borg_ui::size_text(size))
             };
-            let place = from_origin(shown.clone(), call.origin.as_deref());
-            let body = vec![DiffLine::plain(spot.uri()), DiffLine::plain(shown)];
-            let ask = Ask { kind: AskKind::Upload, summary: spot.uri(), place, body };
+            let ask = borg_core::upload_ask(spot.uri(), call.args["from"].as_str(), shown, call.origin.clone());
             let id = self.agent.ask(reply, Work::Upload { spot, size });
             if call.origin.as_ref().is_some_and(|origin| self.approve_all.contains(origin)) {
                 return self.agent_answer(id, true);
@@ -258,7 +259,7 @@ impl App {
             }
             Work::Upload { spot, size } => {
                 let token = borg_link::hex(&borg_link::secret());
-                let scratch = self.runtime_dir.join(DOCKER_SCRATCH);
+                let scratch = self.runtime_dir.join(borg_core::DOCKER_SCRATCH);
                 drop(reply.send(match crate::agent::Upload::begin(spot, size, &scratch, &token) {
                     Ok(upload) => {
                         self.uploads.insert(token.clone(), upload);

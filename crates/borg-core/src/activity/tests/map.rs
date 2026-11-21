@@ -1,6 +1,8 @@
-//! The memory map: regions, groups, open files, the page census and integrity findings.
+//! The memory map: regions, groups, open files, the page census, integrity findings and rule
+//! matches.
 
 use super::*;
+use borg_rules::{Evidence, Level, RuleMatch};
 
 #[test]
 fn integrity_findings_replace_the_map_preview_their_evidence_and_go_back_with_esc() {
@@ -28,6 +30,7 @@ fn integrity_findings_replace_the_map_preview_their_evidence_and_go_back_with_es
         region: address.map(|_| region.clone()),
         address,
         length: 8,
+        note: None,
     };
     let report = IntegrityReport {
         process: state.activity.selected.unwrap(),
@@ -41,7 +44,7 @@ fn integrity_findings_replace_the_map_preview_their_evidence_and_go_back_with_es
     };
     let id = state.activity.pending.as_ref().unwrap().0;
     receive(&mut state, id, Ok(ActivityData::Integrity(report)), now);
-    assert_eq!((state.activity.list, state.activity.page), (ActivityPage::Integrity, ActivityPage::Snapshot));
+    assert_eq!((state.activity.list, state.activity.page), (ActivityPage::Findings, ActivityPage::Snapshot));
     assert!(state.activity.search_progress.is_none());
     assert!(state.activity.retry.is_some(), "unread memory can be checked again as administrator");
     assert_eq!(state.activity.marked(), Some(0x11010..0x11018));
@@ -173,7 +176,7 @@ fn the_page_map_takes_a_census_of_the_region_and_opens_the_page_under_its_cursor
     assert_eq!(region.start, start);
     assert_eq!(*mapped, [(heap.start, heap.end), (code.start, code.end)], "only readable mappings count");
     let process = state.activity.selected.unwrap();
-    let pages = [vec![PageClass::Zero; 32], vec![PageClass::Text; 32]].concat();
+    let pages = [vec![CensusPage::unread(PageClass::Zero); 32], vec![CensusPage::unread(PageClass::Text); 32]].concat();
     let census = MemoryCensus { process, start, end: heap.end, page: PAGE, stride: 1, pages, residency: true };
     receive(&mut state, *id, Ok(ActivityData::Census(census)), now);
     assert!(state.activity.census.is_some() && !state.activity.preview_waiting());
@@ -379,4 +382,113 @@ fn regions_group_by_purpose_rank_by_footprint_and_collapse_library_segments_per_
     let tagged = |name: &str| MemoryRegion { name: name.into(), permissions: "rw-".into(), ..Default::default() };
     assert_eq!(tagged("Memory Tag 253").group(None), MemoryGroup::Heap);
     assert_eq!(tagged("Memory Tag 22").group(None), MemoryGroup::Other);
+}
+
+#[test]
+fn y_scans_the_process_with_rules_and_r_scans_it_again() {
+    let (mut state, now) = state();
+    open(&mut state);
+    sample(&mut state, vec![process(2, 10, 200)], now);
+    state.activity.paused = true;
+    key(&mut state, KeyCode::Enter);
+    let id = state.activity.pending.as_ref().unwrap().0;
+    let region = MemoryRegion { start: 0x10000, end: 0x20000, permissions: "rw-".into(), ..Default::default() };
+    receive(&mut state, id, Ok(ActivityData::Regions(vec![region.clone()])), now);
+    let effects = key(&mut state, KeyCode::Char('y'));
+    assert!(matches!(&effects[..], [Effect::Activity { request: ActivityRequest::Rules { admin: false, .. }, .. }]));
+    let effects = on_key(&mut state, &KeyEvent::new(KeyCode::Char('c'), crossterm::event::KeyModifiers::CONTROL));
+    assert!(matches!(&effects[..], [Effect::CancelMemorySearch]));
+
+    let found = RuleMatch {
+        rule: "reverse_shell".into(),
+        namespace: borg_rules::BUILT_IN.into(),
+        level: Level::Alert,
+        description: None,
+        false_positives: None,
+        evidence: Some(Evidence { string: "$dev_tcp".into(), offset: 0x20, length: 6, bytes: b"bash -".to_vec() }),
+    };
+    let report = RulesReport {
+        process: state.activity.selected.unwrap(),
+        findings: vec![rule_finding(&found, &region, 0x10000)],
+        rules: 15,
+        scanned: 0x10000,
+        total: 0x10000,
+        unreadable: 0,
+        complete: true,
+    };
+    let id = state.activity.pending.as_ref().unwrap().0;
+    receive(&mut state, id, Ok(ActivityData::Rules(report)), now);
+    assert_eq!((state.activity.list, state.activity.page), (ActivityPage::Findings, ActivityPage::Snapshot));
+    assert!(state.activity.retry.is_none(), "nothing was left unread");
+    assert_eq!(state.activity.marked(), Some(0x10020..0x10026));
+    let effects = key(&mut state, KeyCode::Char('r'));
+    assert!(matches!(&effects[..], [Effect::Activity { request: ActivityRequest::Rules { .. }, .. }]));
+    state.activity.pending = None;
+    route_key(&mut state, &KeyCode::Esc.into(), now);
+    assert_eq!(state.activity.list, ActivityPage::Regions);
+}
+
+#[test]
+fn a_rule_finding_names_its_rule_its_source_and_evidence_and_keeps_the_rules_caveat() {
+    let region = MemoryRegion { start: 0x4000, end: 0x8000, permissions: "rw-".into(), ..Default::default() };
+    let mut found = RuleMatch {
+        rule: "miner".into(),
+        namespace: "/home/me/.config/borg-commander/rules/coins.yar".into(),
+        level: Level::Notice,
+        description: Some("A pool address".into()),
+        false_positives: Some("Your own miner".into()),
+        evidence: Some(Evidence { string: "$pool".into(), offset: 0x10, length: 4, bytes: b"pool".to_vec() }),
+    };
+    let finding = rule_finding(&found, &region, 0x5000);
+    assert_eq!((finding.kind, finding.severity), (FindingKind::RuleMatch, Severity::Notice));
+    assert_eq!((finding.address, finding.length), (Some(0x5010), 4));
+    assert_eq!(finding.detail, "miner from coins.yar · $pool matched \"pool\" · A pool address");
+    assert_eq!(finding.caveat(), "Your own miner");
+
+    found.evidence = None;
+    found.false_positives = None;
+    let finding = rule_finding(&found, &region, 0x5000);
+    assert_eq!(finding.detail, "miner from coins.yar · A pool address");
+    assert_eq!((finding.address, finding.length), (Some(0x5000), 0));
+    assert_eq!(finding.caveat(), FindingKind::RuleMatch.caveat());
+}
+
+#[test]
+fn evidence_reads_as_text_when_it_is_text_and_as_hex_otherwise() {
+    assert_eq!(evidence_text(b"bash -i"), "\"bash -i\"");
+    assert_eq!(evidence_text(&[b'a'; 50]), format!("\"{}…\"", "a".repeat(40)));
+    assert_eq!(evidence_text(&[0x7F, b'E', b'L', b'F']), "7f 45 4c 46");
+    assert_eq!(evidence_text(&[0; 20]), format!("{} …", ["00"; 16].join(" ")));
+}
+
+#[test]
+fn a_scan_asks_with_the_process_its_program_the_checks_and_the_agents_own_rules() {
+    use crate::{AskKind, ScanChecks, ScanSubject, approval_place, scan_ask};
+    let program = std::path::Path::new("/usr/bin/sample");
+    let subject = ScanSubject { name: "sample", pid: 4100, program: Some(program) };
+    let rules = "rule marker {\n  strings: $a = \"x\"\n  condition: $a\n}";
+    let ask = scan_ask(subject, ScanChecks::Both, Some(rules), Some("laptop".into()));
+    let lines: Vec<_> = ask.body.iter().map(|line| line.text.as_str()).collect();
+    assert_eq!(
+        (ask.kind, ask.summary.as_str(), approval_place(&ask).as_str()),
+        (AskKind::Scan, "sample · PID 4100", "asked from laptop")
+    );
+    assert_eq!(
+        lines[..3],
+        [
+            "Process: sample · PID 4100",
+            "Program: /usr/bin/sample",
+            "Checks: code integrity · the agent's own rules, shown below"
+        ]
+    );
+    assert!(lines[4].contains("up to 64 bytes") && lines[4].contains("until Borg quits"), "{}", lines[4]);
+    assert_eq!(lines[6..], ["rule marker {", "  strings: $a = \"x\"", "  condition: $a", "}"]);
+
+    let subject = ScanSubject { program: None, ..subject };
+    let ask = scan_ask(subject, ScanChecks::Integrity, None, None);
+    let lines: Vec<_> = ask.body.iter().map(|line| line.text.as_str()).collect();
+    assert_eq!(lines[..2], ["Process: sample · PID 4100", "Checks: code integrity"]);
+    assert_eq!(lines.len(), 4, "no rules to show: {lines:?}");
+    let ask = scan_ask(subject, ScanChecks::Rules, None, None);
+    assert_eq!(ask.body[1].text, "Checks: Borg's rules and yours");
 }

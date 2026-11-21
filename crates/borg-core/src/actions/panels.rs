@@ -29,8 +29,8 @@ pub(super) fn switch(state: &mut AppState) -> Vec<Effect> {
     Vec::new()
 }
 
-/// Enter on the hovered row: opens a group or folder, runs a program, or views a file.
-pub(super) fn open(state: &mut AppState, side: Side) -> Vec<Effect> {
+/// Enter on the hovered row: opens a group, folder or archive, runs a program, or views a file.
+pub(super) fn open(state: &mut AppState, side: Side, now: Instant) -> Vec<Effect> {
     let panel = state.panel(side);
     match panel.hovered() {
         Some(Row::Group { .. }) => {
@@ -44,6 +44,11 @@ pub(super) fn open(state: &mut AppState, side: Side) -> Vec<Effect> {
             let path = entry.path(panel.dir());
             crate::docker::view(state, &path)
         }
+        Some(Row::Entry(entry)) if crate::archive::opens(entry) => {
+            let archive = entry.path(panel.dir());
+            crate::archive::enter(state, side, archive)
+        }
+        Some(Row::Entry(_)) if panel.archive.is_some() => crate::archive::view(state, side, now),
         Some(Row::Entry(entry)) if entry.executable => {
             let command = if panel.is_results() {
                 CommandLine::default().path(&entry.path(panel.dir()))
@@ -81,6 +86,17 @@ pub(super) fn step_out(state: &mut AppState, side: Side) -> Vec<Effect> {
     leave(state, side).into_iter().collect()
 }
 
+/// Ctrl-PgDn: enters the hovered folder or archive, and never runs or views a file.
+pub(super) fn enter(state: &mut AppState, side: Side) -> Vec<Effect> {
+    let panel = state.panel(side);
+    let archive =
+        panel.hovered_entry().filter(|entry| crate::archive::opens(entry)).map(|entry| entry.path(panel.dir()));
+    match archive {
+        Some(archive) if !panel.foreign() || panel.archive.is_some() => crate::archive::enter(state, side, archive),
+        _ => descend(state, side).into_iter().collect(),
+    }
+}
+
 fn descend(state: &mut AppState, side: Side) -> Option<Effect> {
     if matches!(state.panel(side).hovered(), Some(Row::Group { .. })) {
         state.panel_mut(side).toggle_group();
@@ -98,6 +114,15 @@ fn leave(state: &mut AppState, side: Side) -> Option<Effect> {
     }
     if state.panel(side).mount.is_some() && state.panel(side).dir().parent().is_none() {
         return crate::docker::unmount(state, side);
+    }
+    if crate::archive::at_top(state, side) {
+        return crate::archive::unmount(state, side);
+    }
+    if crate::docker::at_volume_root(state, side) {
+        return crate::docker::leave_volume(state, side);
+    }
+    if crate::vault::at_root(state, side) {
+        return crate::vault::leave(state, side);
     }
     if state.panel(side).is_results() {
         return crate::results::back(state).into_iter().next();
@@ -125,9 +150,13 @@ pub(super) fn swap(state: &mut AppState) -> Vec<Effect> {
 }
 
 /// Alt-O: opens the active panel's folder in the other panel, in place of the preview, a
-/// container's or a remote machine's files there. Search results give the folder the search
-/// started from.
+/// container's or a remote machine's files there. In search results and collections it opens
+/// the folder of the file under the cursor, as Reveal original does.
 pub(super) fn same_folder(state: &mut AppState) -> Vec<Effect> {
+    let panel = state.active_panel();
+    if panel.is_results() && panel.hovered_entry().is_some() {
+        return crate::results::reveal(state);
+    }
     let other = state.active.other();
     let folder = match shown_folder(state.active_panel()) {
         Ok(folder) => folder,
@@ -142,12 +171,15 @@ pub(super) fn same_folder(state: &mut AppState) -> Vec<Effect> {
     }
     state.aside = None;
     state.preview_focused = false;
-    crate::folders::open(state, other, folder)
+    crate::folders::open(state, other, folder, None)
 }
 
 /// The folder on this machine that a panel shows, or why it shows none.
 fn shown_folder(panel: &Panel) -> Result<PathBuf, &'static str> {
-    if panel.mount.is_some() || panel.remote_mount.is_some() {
+    if panel.archive.is_some() {
+        return Err(tr!(archive_one_panel));
+    }
+    if panel.foreign() {
         return Err(tr!(same_folder_local_only));
     }
     match panel.results.as_ref().map(|results| &results.source) {
@@ -174,8 +206,9 @@ pub(super) fn set_listing(state: &mut AppState, side: Side, mode: ListingMode) -
     Vec::new()
 }
 
+/// Sorts by `key` in the order the panel has, except that the best matches always come first.
 pub(super) fn set_sort(state: &mut AppState, side: Side, key: SortKey) -> Vec<Effect> {
-    let reverse = state.panel(side).sort().reverse;
+    let reverse = key != SortKey::Match && state.panel(side).sort().reverse;
     state.panel_mut(side).set_sort(Sort { key, reverse });
     Vec::new()
 }

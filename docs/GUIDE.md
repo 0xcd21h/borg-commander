@@ -22,21 +22,58 @@ otherwise uses `~/.local/bin` and adds it to your shell's startup file. When it 
 starts borg; set `BORG_NO_RUN=1` to skip that, or `BORG_INSTALL_DIR` to choose the folder.
 If the same version is already installed, running the installer again skips the download.
 
+The installer can also set borg up as a
+[service that starts at boot](#named-sessions-and-the-background-service). The service is optional.
+With it, sessions you keep with `borg service keep NAME` stay running with no terminal open, and a
+paired computer reaches this machine after a restart. In a terminal the installer asks once before
+it starts borg, and the default answer is n. Set `BORG_SERVICE=1` to set the service up without
+the question, as in an unattended install, or `BORG_SERVICE=0` to skip the question. The setup
+runs `borg service install`, `enable` and `start`, which use sudo unless you are root. Without a
+terminal and without the variable, the installer leaves the service alone. You can set it up later
+inside borg, from F9 → Remote → **Background service…**. Where systemd or launchd is missing, as
+in most containers, the installer skips the step and says why. If the setup fails, borg stays
+installed and the installer prints the commands to finish by hand. On Linux, the
+[root part of the watcher](#the-watcher-as-root) stays a separate step: install it with
+`borg service watch install` when you want it.
+
 To build from source, you need Rust 1.97 or newer:
 
 ```sh
 cargo install --locked --git https://github.com/0xcd21h/borg-commander borg-app
 ```
 
-Homebrew support is ready and will work once the tap is published:
+On Linux, the build also compiles the process watcher's eBPF programs, which need a nightly
+compiler and `bpf-linker`. When they are missing, the build stops and prints the two commands that
+install them. To build without the programs, set `BORG_NO_EBPF=1`. The watcher then hears the
+kernel's process events instead:
+
+```sh
+BORG_NO_EBPF=1 cargo install --locked --git https://github.com/0xcd21h/borg-commander borg-app
+```
+
+With Homebrew on macOS or Linux:
 
 ```sh
 brew install 0xcd21h/tap/borg-commander
 ```
 
+Homebrew installs Borg as `borg` and as `borgcmd`. BorgBackup also has a `borg` command, and
+where BorgBackup is installed, Homebrew keeps `borg` for it, so Borg runs as `borgcmd`.
+
 Run `borg` in the folder you want to browse. F10 quits, and Ctrl-O switches from the console
 back to the panels. To update, run `borg update` for a downloaded copy, or use Homebrew or cargo
-if you installed it that way. `borg --version` prints the installed version.
+if you installed it that way. Borg installs an update only when the release carries the project's
+signature. If the signature is missing or wrong, the copy you have stays as it is.
+`borg --version` prints the installed version. Open sessions move to
+the new version and keep their shells (see [Updating with sessions open](#updating-with-sessions-open)).
+
+Once a day, Borg looks for a new release. When one is out, Borg offers it once the panels show and
+you have not touched the keyboard or mouse for 2 seconds. **Enter** runs `borg update` in Borg's
+shell, or the Homebrew or cargo command when one of those installed Borg. **S** skips that version,
+and Borg offers the next one once it is out. **Esc** closes the offer, and Borg asks again a day
+later. **N** turns the daily check off by setting `update-check = false` in the config, and
+`update-check = true` turns it back on. Borg keeps the time of the last check and the version you
+skipped in `update-check` in its state folder.
 
 ## Themes and icons
 
@@ -73,9 +110,11 @@ preview.
   `ext:rs,toml`, `type:file`, `type:dir`, `type:link`, `size:>10M`, `size:1M..50M`, `mod:<7d`
   (changed in the last week), `mod:>1y` and `in:src` (a folder anywhere in the path). Recent
   searches are listed below the form, with those made in the same folder first; click one, or
-  press Ctrl-P and Ctrl-N in the query field, to reuse it. Names match in any alphabet whatever
+  press Ctrl-P and Ctrl-N in the query field, to reuse it. The dialog opens with the query and
+  the choices you last left in it, set to the folder you are in. Names match in any alphabet whatever
   the case of a glob, and accented letters match however the file system stores them. Matches
-  close to the search folder appear first, while the rest of the tree is still being read.
+  close to the search folder appear first, while the rest of the tree is still being read. Plain
+  words also find [names with typos](#names-with-typos).
 - **Alt-K:** collect the marked files, or the current file, into a collection in the other panel.
   A collection holds references, so the file's contents are not copied.
 - **Alt-V:** choose a saved collection from a scrollable list that shows how many entries each
@@ -91,7 +130,45 @@ preview.
 - **Alt-W:** maximize or restore the active result pane. Results open in a normal pane by
   default. The `[+]` (maximize), `[=]` (restore), and `[-]` (fold) controls in the title bar can
   be clicked. Folding hides the view; Alt-Shift-R brings it back with its layout and selection.
-- **Ctrl-S:** filter the results by name or source path. An empty filter shows everything.
+- **Ctrl-S:** filter the results by name or source path. An empty filter shows everything. When
+  nothing matches the filter as typed, it shows the names that match it closely.
+
+### Names with typos
+
+A misspelled or half-remembered name still turns up. While **Also find names with typos and
+shuffled digits** is checked in the Ctrl-F dialog, which it is by default, a plain word also finds
+names that match it closely:
+
+- **Typos:** a word of 4 to 8 letters may have one typo, and a longer word two. A missing, extra
+  or wrong letter counts as one typo, and so do two neighboring letters typed the wrong way around,
+  so `reciept` finds `receipt.pdf`. The first letter has to be right, or swapped with the second.
+  Words of 3 letters or fewer match only as typed. Below 6 letters, a word that stops inside a
+  longer word of the name costs one more typo, so `note` finds `nose.txt` and leaves out
+  `notification.log`.
+- **Shuffled digits:** a number of 4 digits or more finds a whole number in the name with the same
+  digits in any order, so `1986` finds `scan_8619.pdf`. Digits are never added, dropped or
+  changed, so `2024` never finds `2023`.
+- **Letters left out:** from 4 letters on, `qtrly` finds `quarterly-sales.csv`. Each word of the
+  name is entered at its start, and the letters have to cover at least half of every word they
+  touch.
+
+Close matching passes over spaces, dashes, dots and underscores, so `meetingnotes` finds
+`Meeting Notes.md`, and over accents, so `resume` finds `Résumé.pdf`. A word with both letters
+and digits matches them apart: `invoice8619` finds `Invoice 1986.pdf`. A word with an uppercase
+letter still matches case, and names in Chinese, Japanese and Korean match only as typed.
+
+Quoted words, globs, paths, `-word` and the filters always match exactly, and so do size scans.
+Add `typos:no` to a query to leave close matches out once, or `typos:yes` to include them while
+the box is cleared. Set `typos = false` under `[search]` to start with the box cleared; quick find
+and the results filter follow that setting too.
+
+Results open with the best matches first: names that are the word, then names that start with it,
+have it at the start of a word, or have it anywhere, then names with fewer typos before those with
+more, then shuffled digits, then letters left out. When a query has several words, a name ranks by
+its worst one. Shallower folders and shorter names come first among equals. The letters that
+matched are underlined, and the context line counts the close matches, which count toward the
+20,000 limit like any other. Click a column heading to sort another way, and choose **Search →
+Sort by match** to bring back the match order.
 
 ### Searching inside files
 
@@ -115,13 +192,113 @@ the context line counts the files read. Binary files (a NUL byte in the first 8 
 64 MiB stay unread and are counted as binary or too large. Ctrl-C stops the search, and it stops at
 20,000 files like any search.
 
+Ctrl-R in the results, or **Replace in files…** in the File menu, replaces the text in the marked
+files, or in every file the results show when none is marked. Type what goes in its place and press
+Enter; leave the field empty to remove the text. A second question names the text and the files and
+starts on **No**. Press Y to change them. Borg keeps no copy of the old text. The search's switches
+apply, so a whole-word search replaces whole words, and with a regular expression `$1` puts back the
+first group. Borg writes each file the way its editor saves, so permissions and links stay. It skips
+encrypted files and files that are not text, are larger than 32 MiB, or changed while the job ran.
+The job shows in Alt-J, and the results refresh when it ends.
+
+### Scanning files with rules
+
+Set **Look for** to **Rule matches** in the Ctrl-F dialog to scan the files below the folder with
+YARA rules: those Borg ships and your own. The name pattern, **Minimum size** and **Leave out build
+output, caches and ignored files** still apply. The rules decide what to look for, so the dialog
+drops **Containing** and **Minimum files**.
+
+Each result shows in the **Match** column the worst rule the file matched, how many more it
+matched, and the first bytes that rule found, as quoted text or as hex. F3 opens the file in the
+viewer at those bytes with the find bar on them, and F4 and the quick view land there too. The
+context line counts the files scanned and the rules that ran. Files over 64 MiB stay unread and
+count as too large, and the scan stops at 20,000 files like any search. Ctrl-C stops it.
+
+Borg's own rules look for:
+
+- `reverse_shell`: an interactive shell over `/dev/tcp`, `nc` or `socat` running a shell, or a
+  shell spawned on a pseudo-terminal.
+- `download_and_run`: a script downloaded and piped straight into a shell.
+- `decode_and_run`: base64 decoded and run as a shell command or as Python code.
+- `crypto_miner`: a mining pool address, or the settings of a common miner.
+- `upx_packed`: an executable packed with UPX, which unpacks itself in memory.
+- `execve_shellcode`: the shell path exploit code builds before it starts a shell.
+- `ssh_key_planted`: a public key appended to an `authorized_keys` file.
+- `reboot_job_fetch`: a cron job that runs at every boot and downloads, decodes or runs something
+  from a temporary folder.
+- `password_prompt`: an AppleScript dialog that asks for a password with the answer hidden, as
+  macOS stealers do.
+- `launch_agent_from_temp`: a macOS launch agent or daemon that starts a program from a temporary
+  or shared folder.
+- `preload_write`: a write to `/etc/ld.so.preload`, which loads a library into every program on
+  Linux.
+- `history_wiping`: shell history turned off, or system logs emptied.
+- `agent_unattended`: an AI coding agent started with its approvals turned off, as the Nx
+  supply-chain attack did to search machines for secrets.
+- `hidden_prompt`: a run of invisible Unicode tag characters, which can hide instructions for AI
+  models in prompts, rule files and web pages.
+- `pickle_runs_code`: a pickle, the format Python and PyTorch save models in, that runs a command
+  when it is loaded.
+
+Put your own rules in the `rules` folder beside `config.toml`: `~/.config/borg-commander/rules`,
+or the same folder under `$XDG_CONFIG_HOME` or `$BORG_CONFIG_DIR`. Borg reads every `.yar` and
+`.yara` file there and in the folders below, each in a namespace of its own, so two files can
+use the same rule names. Each file compiles by itself. A file with an error is left out whole,
+the status line names it with the compiler's message, the context line counts the files left
+out, and the other files still run. Since every file loads on its own, a file that uses `include`
+is left out too, and the files it includes run by themselves.
+
+Rules can import the `hash`, `math`, `string`, `time`, `elf`, `macho`, `pe`, `dotnet` and `dex`
+modules; a file that imports `magic`, `cuckoo` or `console` is left out. The variables `filename`,
+`filepath` and `extension` hold the scanned file's name, path and extension, as rule sets written
+for THOR and LOKI expect, and `filetype` and `owner` are empty. A rule's `severity` meta sets how
+much a match matters: `alert`, `critical` or `high` make an alert, `warning`, `medium` or
+`suspicious` a warning, and `notice`, `low` or `info` a notice. Without it, a `score` of 80 or
+more makes an alert, 60 or more a warning, and less a notice. A rule with neither counts as a
+warning. Its `description` and `false_positives` show with each match.
+
+Borg ships no public rule sets, because their licenses differ. Download the ones you trust into
+the rules folder, and check each license before you use it at work:
+
+- [YARA Forge](https://yarahq.github.io/) packages tested rules from many public sources; each
+  rule keeps its source's license.
+- [signature-base](https://github.com/Neo23x0/signature-base) is free for non-commercial use
+  (CC BY-NC 4.0).
+- [Elastic's protection artifacts](https://github.com/elastic/protections-artifacts) come under
+  the Elastic License 2.0.
+- [ReversingLabs' rules](https://github.com/reversinglabs/reversinglabs-yara-rules) come under
+  the MIT license.
+
+Rules match patterns of bytes and know nothing of intent. Installers, security tools and their
+test data match too, and a file that no rule matches can still be malicious. Treat matches as
+leads. [Scanning memory with rules](#scanning-memory-with-rules) says what a scan cannot see.
+
+### Finding packed executables
+
+Set **Look for** to **Packed executables** in the Ctrl-F dialog to list the programs below the
+folder whose code is as dense as compressed or encrypted bytes. Packers and protectors leave code
+like that, and so does malware that hides its code until it runs. Borg reads the parts of each
+ELF, Mach-O and PE file that the loader maps executable, every slice of a universal Mach-O binary
+included, and measures the entropy of up to 1,024 blocks of 4 KiB spread evenly over them. A
+program is listed when at least 70% of those blocks reach 7.2 bits per byte. Code compiled the
+usual way stays well below that. The name pattern, **Minimum size** and **Leave out build output,
+caches and ignored files** still apply, and the dialog drops **Containing** and **Minimum files**.
+
+The **Match** column gives the share of high blocks and the highest entropy found, such as
+"97% high · max 8". F3 opens the program in the viewer's hex rows at the first high block, with
+the entropy strip described under [Viewer and quick view](#viewer-and-quick-view) beside them.
+The context line counts the programs read and the other files, which hold no code Borg knows how
+to find. Ctrl-C stops the search, and it stops at 20,000 files like any search. A packed program
+shows its real code only while it runs, and [Entropy scan of every
+process](#entropy-scan-of-every-process) looks at programs that way.
+
 ### Working with results
 
 Click a column heading to sort by it, and click again to reverse the order. The Left and Right
-menus also offer sorting, and the Search menu adds sorting by source folder and grouping by
-folder or file type. Enter on a group heading folds the group; Insert marks the matching files
-in it. Marks are kept when you sort or filter, and the footer also counts marked files that the
-filter hides.
+menus also offer sorting, and the Search menu adds **Sort by match**, sorting by source folder,
+and grouping by folder or file type. Enter on a group heading folds the group; Insert marks the
+matching files in it. Marks are kept when you sort or filter, and the footer also counts marked
+files that the filter hides.
 
 F3 and Ctrl-Q open the original file, and after a search for text they open it at its first match.
 The quick view follows the cursor through the results and shows each file at its match, with the
@@ -132,7 +309,8 @@ collection, F5 adds references to it instead. F6 needs a real folder as its dest
 collection, F8 removes references and leaves the files alone; in search results, F8 asks to
 delete the original files. Shift-F8 deletes the original files from a collection too, after
 you confirm. When both a folder and files inside it are marked, the job handles the folder once.
-**Reveal original** opens the file's folder in the other panel. Left or Esc hides the results,
+**Reveal original** or Alt-O opens the file's folder in the other panel, with the cursor on
+the file. Left or Esc hides the results,
 and Alt-Shift-R brings them back where you left them. Tab switches between panels even when the
 shell has an unfinished command. The shell always stays in a real folder. F10 always asks before
 quitting.
@@ -211,10 +389,19 @@ To measure sizes while keeping ordinary file panels open, press **Alt-I** or cho
 **Search → Count sizes in background**. Borg scans every folder below the current one, including
 hidden files, and fills in each folder's total as it finishes. You can keep browsing or use the
 console while it runs. Folders still being measured show a growing total marked `≥`, and totals
-stay when you leave a folder and come back. The panel footer shows progress; press **Alt-I**
-again, or click the footer, to stop the scan and keep the totals measured so far. Starting a
-copy, move, or delete job stops a size scan in progress. Finished scans share their cache with
-the size tree and Folder totals.
+stay when you leave a folder and come back. The panel footer shows progress, and the count runs as
+a job in Alt-J. Press **Alt-I** again, or click the footer, to stop every count under way and keep
+the totals measured so far. Starting a copy, move, or delete job stops the size counts in progress.
+Finished scans share their cache with the size tree and Folder totals.
+
+Press **F3** on a folder to count that folder alone, as in other two-panel commanders. Its row
+shows the growing total and then the final one, and the File menu names the action **Count size**
+while the shortcut bar reads **Count**. With folders marked, F3 on any folder counts the marked ones one
+after another in a single job and leaves marked files out. F3 on `..` counts the folder the panel
+shows, as Alt-I does. Each press starts a job in Alt-J, and a count you start while another runs
+waits for it. F3 on a folder that a count already measures, such as one inside the folder being
+counted, starts nothing and says which count covers it. Cancel a count in Alt-J and the next one
+waiting starts. F3 on a file still opens the viewer, and links to folders are not counted.
 
 ### Saved size scans
 
@@ -248,17 +435,19 @@ click both rows. Notices replace the second row for a moment.
 | Up, Down, PgUp, PgDn, Home, End | Move |
 | Enter, Right | Open a folder / run or view a file |
 | Left | Go to the parent folder |
+| Ctrl-PgDn / Ctrl-PgUp | Open the folder or archive under the cursor / go to the parent folder |
 | Tab | Switch panels, or move into the quick preview and back to the file list |
 | Ctrl-O | Show the shell / return to the panels |
 | Alt-I | Count folder sizes in the background / stop counting |
 | Ctrl-S | Quick find in the folder |
 | Ctrl-\ | Folder hotlist: jump to a pinned or recent folder |
-| Ctrl-Q | Quick view: preview the file under the cursor (text, picture or folder) in the other panel |
-| Ctrl-L | Info: show size, permissions, owner, dates and free space in the other panel |
+| Ctrl-Q | Quick view: preview the file under the cursor (text, picture or folder) in the other panel; after Tab, `/` or F7 finds text in it |
+| Ctrl-L | Info: show size, permissions, owner, dates, free space and the drive in the other panel |
 | Insert, Ctrl-T, Shift-Up/Down | Mark files |
 | `+` `-` `*` | Select, unselect or invert by pattern (`*.rs`, `build/`) |
 | Alt-Enter | Put the marked names (or the current one) on the command line; on `..`, the parent folder's path |
 | Ctrl-Insert / Alt-Shift-Insert | Copy the marked names / their full paths |
+| Shift-F10 | Context menu: what you can copy from the item under the cursor and the keys that act on it |
 | Shift-Enter, Ctrl-J | Insert a line break at the cursor on the command line; Enter runs the command, Ctrl-C clears it |
 | Alt-A / Alt-Shift-A | Put the path of this panel's / the other panel's folder on the command line |
 | Shift-PgUp / Shift-PgDn | Scroll back and forth through console output |
@@ -269,16 +458,20 @@ click both rows. Notices replace the second row for a moment.
 | Alt-H | Remote hosts: paired machines and their sessions |
 | Alt-Shift-Left/Right | Resize the panels |
 | Ctrl-U | Swap panels |
-| Alt-O | Open this panel's folder in the other panel |
-| Alt-J | Jobs: pause or cancel running copies, moves and deletes |
+| Alt-O | Open this panel's folder in the other panel; in search results or a collection, the folder of the file under the cursor |
+| Alt-J | Jobs: the copies, moves, searches and scans that run or ended, to fold, pause, cancel or open |
+| Alt-G | Open what the newest finished job made: its folder, its results, its hits or its open ports |
+| Alt-X | Close the job notes on screen, leaving their jobs in Alt-J |
 | Alt-M | Activity monitor: processes and memory |
 | Alt-C | Docker: Compose projects and containers |
 | Alt-N | Network: ports, connections and traffic |
+| Alt-U | Startup items: what starts on its own, newest change first |
+| Alt-L | Alerts: what the process watcher found |
 | Alt-T | Time Machine: what backups leave out, on macOS |
 | Alt-E | Edit the selected file in this panel, in place of its files, or in the other panel beside results |
 | F1 | About |
 | F2 | File menu |
-| F3 | View (text or picture) |
+| F3 | View (text or picture); on a folder or `..`, count its size in the background |
 | F4 / Shift-F4 | Edit in Borg's editor / in `$VISUAL` or `$EDITOR` |
 | F5 / F6 | Copy / move to the other panel |
 | F7 | Create a folder |
@@ -293,6 +486,11 @@ command. Multi-line commands, typed or recalled from history, make the prompt ar
 the panels shorter, so the cursor always stays visible. All of your shell's usual editing and
 completion keys keep working.
 
+Going back to the parent folder puts the cursor on the folder you came from, on the same screen
+row, with the list scrolled as it was when you went in. If files came or went in the meantime, or
+the panel changed height, the cursor still lands on that folder, as close to its old row as the
+list allows.
+
 Alt-Enter types names as the shell sees them from the panel's folder. On `..` it types the full path
 of the parent folder, because the parent's name alone would point inside the current folder. In
 search results and collections it types full paths, since their files come from different folders.
@@ -303,6 +501,13 @@ into Borg's own fields, such as dialogs and the memory search, even where the te
 reach your clipboard. On the command line Ctrl-V belongs to the shell, so paste there with your
 terminal's paste shortcut. The File menu offers both copy actions for keyboards without an
 Insert key. Copies too large for the terminal to pass on stay in Borg.
+
+F9 opens the menu bar where you left it: the same menu, on the entry you chose or stopped at, or on
+the nearest one when that entry cannot be chosen right now. Left and Right move between the menus,
+Up, Down, Home and End move through a menu, Enter chooses, and Esc closes. When the titles are wider
+than the screen, the bar moves to show the open menu's title, and ◀ or ▶ marks more menus past an
+end. A menu taller than the screen scrolls as you move through it, with ▲ or ▼ in its border where
+more entries are hidden.
 
 If your terminal keeps the F-keys for itself, press **Esc, then a digit** within 1.5 seconds:
 Esc 1 to Esc 9 act as F1 to F9, and Esc 0 as F10. For example, Esc 9 opens the menus and Esc 5 copies.
@@ -321,8 +526,9 @@ language and to the first letter of each button in Borg's language, such as S fo
 
 ## Mouse and console
 
-Click a row to move the cursor to it, double-click to open it, and right-click to mark it. Click
-the menu bar or the shortcut bar to use them. The mouse wheel scrolls through the panel.
+Click a row to move the cursor to it, double-click to open it, and right-click it to open its
+context menu. Click the menu bar or the shortcut bar to use them. The mouse wheel scrolls through
+the panel, or through a menu while one is open.
 
 Dialogs work with the mouse too. Click a row in a list to choose it; in the theme and language
 pickers, Remote hosts and Remote access, a second click confirms it. The wheel scrolls lists such
@@ -342,12 +548,57 @@ you are typing. Shift-PgUp and Shift-PgDn scroll by a page, Shift-Home jumps to 
 output, and Shift-End returns to the live prompt, as does typing. To copy visible output, select
 it the way your terminal allows, usually by Shift-dragging, then use its normal copy shortcut.
 
+### Context menu
+
+Right-click a row, or press Shift-F10, to see what you can do with the item under the cursor. The
+menu names the item in its frame, starts with what you can copy from it, and then lists the keys
+that act on it, so it also reminds you of them. Up and Down pick an entry, Enter or a click runs
+it, and Esc closes the menu. Terminals that send the Menu key open it too. A right-click puts the
+cursor on the row first; to mark rows with the mouse, choose **Mark** in the menu.
+
+What the menu offers depends on the row:
+
+- **Files and folders**: **Copy path**, **Copy name** and **Copy folder path**, then View, Edit,
+  Copy, Move and Delete, and **Mark**, which marks the row as Insert does. With files marked, it
+  acts on all of them, and each copy holds one line per file. In results it also offers
+  **Reveal original**, and Delete becomes **Remove / actions**. On a contents search result,
+  **Copy path and line** copies `path:line` for the first match, ready for an editor that opens a
+  file at a line.
+- **Processes** in the activity monitor: **Copy PID**, **Copy name** and **Copy program path**,
+  then **Signal or priority…** (K), **Open files** (2), **Memory map** (1) and
+  **Network traffic** (Alt-N).
+- **Open files** of a process: **Copy path**, and View for a regular file.
+- **Containers**: **Copy ID** and **Copy name**, then the Docker menu's Start, Stop, Restart,
+  Pause, Files and Shell.
+- **Network** rows: **Copy address**, **Copy remote address** or **Copy PID**, whichever the row is
+  reached by. A row with a process adds **Copy PID**, **Show in activity monitor** and
+  **Signal or priority…**. A neighbor offers **Copy IP address**, **Copy MAC address**,
+  **Scan ports…** (P), **Port scans…** (O), **Scan network…** (S), **Discover networks…** (D),
+  **Listen for neighbors…** (H) and **Save report…** (Ctrl-S), and a host that is offline or that
+  only listening heard adds **Forget host** (F8). **Port scans…** is dimmed until the host has a
+  scan, and while Borg listens, **Stop listening** takes the place of **Listen for neighbors…**. A
+  heading of the Neighbors page offers **Copy address** or **Copy network**, **Scan network…**,
+  **Discover networks…**, **Listen for neighbors…** and **Save report…**, and a network Borg
+  remembers adds **Forget network** (F8).
+- **Alerts**: **Copy PID**, **Copy program path** and **Copy command**, then
+  **Show in activity monitor**, **Resume**, **Kill** and **Allow**.
+- **Startup items**: **Copy path**, **Copy program path** and **Copy command**, then
+  **Show in panel**, View and Edit.
+
+Copies reach the clipboard the same way Ctrl-Insert's do, and the notice line shows what was
+copied. An entry acts only on the item the menu names. If that item stops being the one under the
+cursor while the menu is open, for example when the process list sorts itself again, choosing an
+entry does nothing and asks you to open the menu again. Delete, Kill and the signals still ask
+before they act, as they do from their keys.
+
 ### Jumping to folders
 
 Type `cd ` on the command line and Borg lists folders to jump to right above it: your hotlist first,
 marked ★, then the folders the panels opened, newest first. Each word you add narrows the list and
-can match anywhere in the path, so `cd pro bo` finds `~/Projects/borg`. Folders whose name matches
-the last word come first, next to the command line. Press Up to step into the list. While the list
+can match anywhere in the path as the list shows it, so `cd pro bo` finds `~/Projects/borg`. Your
+home folder shows as `~`, so a word from its own path, such as `me` in `/home/me`, matches no folder
+inside it. A word that starts with `/` matches the full path instead. Folders whose name matches the
+last word come first, next to the command line. Press Up to step into the list. While the list
 shows, Up and Down move only through it and stop at both ends, so the panel's cursor keeps its
 place. Enter opens the chosen folder in the active panel. Tab puts it on the command line after
 `cd ` without running it, escaping spaces and other characters the shell would split or expand, and
@@ -380,9 +631,11 @@ and a second Esc closes the window. The hotlist holds up to 256 folders.
 Alt-O or **Command → Same folder in other panel** opens the active panel's folder in the other
 panel, so both show the same place. The folder takes the place of the quick view, Info, or a
 container's or remote machine's files there. If the other panel showed search results or a
-collection, Alt-Shift-R there brings them back. From search results, Alt-O opens the folder the
-search started from. A collection has no folder of its own, and container and remote folders open in
-one panel only, so in those Alt-O shows a notice, as it does while the other panel holds an editor.
+collection, Alt-Shift-R there brings them back. In search results and collections, Alt-O opens the
+folder of the file under the cursor, with the cursor on the file, as **Reveal original** does. Until
+a search finds something, Alt-O opens the folder it started from. Container and remote folders open
+in one panel only, so in those Alt-O shows a notice, as it does in an empty collection and while the
+other panel holds an editor.
 While you type a command, Alt-O goes to the shell.
 
 The hotlist is saved in `config.toml` under `[folders]`. Borg remembers the last 64 folders the
@@ -413,7 +666,13 @@ panels are idle. **Refresh status** in the Git menu checks again right away.
 project, with containers that are not part of a project at the end. The other panel shows the
 selected container: its status, ports, networks, mounts, command, and restart policy, plus live
 CPU, memory, network, and disk use with a chart of the last minute. For a project, it shows the
-project's folder, its containers, and their combined use. Esc closes the view.
+project's folder, its containers, and their combined use. Esc closes the view and keeps its
+filter for the next time.
+
+CPU shows as two figures. **Now %** is the latest reading, and **Avg %** is the average of the last few
+seconds, as in the activity monitor, so it holds steady while a container works in bursts. A list
+too narrow for both shows **Avg %** alone. The details show the same pair as **CPU now** and
+**CPU avg**, and a project adds up both over its running containers.
 
 | Key | Action |
 | --- | --- |
@@ -424,12 +683,20 @@ project's folder, its containers, and their combined use. Esc closes the view.
 | F | Browse the container's files |
 | E, Alt-2 | Open a shell in the container, or go back to its open shell |
 | Alt-1 | Show the container's overview again, also from inside its shell |
+| D | Show disk use, or the containers again |
 | `/` | Filter by name, service, image or project |
+| Alt-O | Open the folder of the Compose file beside the list |
 | Tab | Switch between the list and the details |
 | Alt-W | Maximize the focused pane |
 
 Stop and restart ask for confirmation first. On a project, an action only affects the
 containers it would change, so Start starts only the stopped ones.
+
+**Alt-O** opens the folder of the Compose file that started the container or project in the
+other panel, with the cursor on the file, or the project's folder when Compose names no file.
+The list stays as it was, as in the activity monitor (see
+[Activity and memory](#activity-and-memory)). A container that Compose did not start has no folder
+on this computer, so Alt-O says so, and **F** browses its files instead.
 
 ### Container files
 
@@ -465,6 +732,94 @@ while shells are open).
 
 The plugin uses the `docker` CLI and its current context, so it works with Docker Desktop,
 OrbStack, Colima, and remote engines alike. You can turn it off in Options → Plugins.
+
+### Disk use and cleanup
+
+**D** in the Docker view, or **F9 → Docker → Disk use**, shows what Docker keeps on disk in place
+of the container list, one row per kind: **Build cache**, **Dangling images**, **Unused images**,
+**Images in use**, **Stopped containers**, **Unused anonymous volumes**, **Unused named volumes**,
+**Volumes in use**, and **Unused networks**. Each row has a count, a size, and what removing it
+frees, and the top line adds up everything you can reclaim. Borg measures with
+`docker system df --verbose` in the background, which can take a while on a busy engine. **R**
+measures again, and Borg does the same when the next command at the prompt ends after **F8**
+typed one.
+
+Dangling images are builds nothing names any more, usually because their tag moved to a newer
+build. Unused images have a name, and no container was made from them. Images and volumes that
+containers use, running or stopped, stay until those containers are removed, so their rows free
+nothing. An image frees only the layers no other image shares, which is why its reclaimable size
+can be far below its size.
+
+→ or Enter unfolds a kind into its items, biggest first, and ← folds it again. The other panel
+shows the selected item: an image's tags, ID, shared size, creation time, and container count; a
+build cache record's type, whether it is shared or in use, and when a build last used it; a
+container's image and status; a volume's facts, which the next paragraphs describe. Sizes Docker
+could not measure show as `?`, and `/` filters every kind at once. It also finds volumes by their
+Compose project and by the containers and images that use them.
+
+Volume rows fill the room the Name column has to spare with **Last used**, **Created**,
+**Project**, and **Used by**, as many as fit, and Alt-W maximizes the pane to show them all.
+Project is the Compose project that made the volume. Used by lists the containers that mount it,
+running or stopped. Anonymous volumes go by the first 12 characters of their ID.
+
+**Last used** reads **in use** while a container that mounts the volume runs. Otherwise it gives
+the day the last of those containers stopped, which Docker records exactly. Once the containers are
+removed, Docker keeps no record of the volume's use. Where Borg reads a volume's files directly, it
+also looks at when they last changed, and a later change shows as that day with `~` in front. That
+day is an estimate: reading a file leaves no trace, so the volume may have been used since. An
+empty cell means Borg knows neither.
+
+The other panel shows the full time of the last use and of the creation, the **Compose** project
+with the volume's name in it, and the **Driver** when the volume uses a driver other than `local`
+or has options. Each container that mounts the volume gets a line with its state and the path it
+mounts the volume at. For an anonymous volume, these are the containers it was **Made for**, with
+their images. Docker forgets that container once it is removed. **Folder** and **Holds** show where
+the files are on this machine and what is at the volume's top.
+
+Enter on a volume shows its files in the panel, read only. The title marks the panel with ▥ and
+**read only**, and paths start at the volume's top. **F3** views files, and **F5** copies files out
+to the other panel. Borg refuses anything that would change the volume: editing, moving, deleting,
+new folders, packing, and copies into it. `..` at the volume's top returns the panel to the folder
+it showed before, and the command line stays in that folder all along. A session saved while a
+panel shows a volume opens that folder next time.
+
+Borg reads a volume's files directly when they are on this machine. With OrbStack on macOS, they
+are in OrbStack's share in `~/OrbStack/docker/volumes`, which macOS treats as a network volume:
+allow your terminal app Network Volumes in System Settings › Privacy & Security › Files & Folders.
+On Linux, Borg reads the volume's folder when the engine runs on the same machine and Borg may open
+it, as with rootless Docker or when Borg runs as root. Search and sizes then work as in any folder.
+
+Elsewhere, such as with Docker Desktop, a remote context, or Docker on Linux where only root reads
+its folders, Borg shows the files through a helper container. The helper runs the `busybox` image,
+pinned to one build, with no network, a read-only file system, and no privilege beyond reading
+files, and it mounts the volume read only. The first time, Borg asks before Docker downloads the
+image, about 2 MB, which then stays on the engine as `borg-commander/volume-helper`. The footer
+shows **Downloading busybox…** or **Starting the helper container…** until the panel opens. Borg
+removes the helper when the panel leaves the volume or when Borg quits, and a helper left behind
+stops by itself after a day. Search and sizes only work on the host there, as in a container's
+files, and disk use doesn't count the helper among the containers that use the volume.
+
+Once a measurement ends, Borg reads the volumes it reaches directly in the background, biggest
+first, and the footer shows **Reading volume files…** until it is done. **R** reads them again as
+it measures.
+
+**F8** types the cleanup command for the selected row at the host shell's prompt and shows the
+console. Nothing runs until you press Enter, so you can read the command, change it, or clear it
+with Ctrl-U first. On a kind, F8 types its prune, such as `docker image prune -a` for unused
+images or `docker volume prune` for unused anonymous volumes, and Docker asks for confirmation
+before it deletes anything. On an item, F8 types `docker rmi`, `docker rm`, or `docker volume rm`
+with that item, or with every marked image, container, or volume. Space or Insert marks an item,
+and `*` inverts the marks of the selected kind. An image goes by all its tags, since Docker
+deletes it with its last tag, or by its ID when it has none. Build cache records go together with
+`docker builder prune`. Borg never adds `-f` or `--force`. A name with a control character gets
+no command, since the prompt would take that character as a key.
+
+Volumes hold the data containers saved, such as a database's files, and a removed volume cannot
+be brought back. The other panel repeats this beside every volume command. When the `docker` CLI
+has more than one context, the commands name the one Borg measured, as in
+`docker --context staging image prune`, so they reach the same engine whatever context the shell
+would pick. They always go to the host's shell, also while a panel shows a container's files,
+because the Docker view keeps the command line on the host.
 
 ## Time Machine exclusions
 
@@ -528,15 +883,34 @@ active panel. Without asking, it can read folders and files (by line range, or o
 contain some text), see the busiest processes and the containers, and show a file or folder in
 your other panel. It can also list the open ports, the connections, and the network interfaces
 with their traffic, measured over one second and narrowed with the same words as the network
-screen's filter (see [Filtering](#filtering)).
+screen's filter (see [Filtering](#filtering)). It can list the startup items too, newest change
+first, with their programs and the rules they matched, narrowed with the same words as that
+screen's filter (see [Startup items](#startup-items)).
 
 Anything that changes the machine waits for you in a dialog that shows the whole change: a
 command and where it will run, a new file, or an edit as a diff. Scroll long ones with the arrow
 keys, PgUp and PgDn, or the mouse wheel, and press F3 to see the dialog full screen. No stays
-selected until you choose Yes, and an edit is refused if the file changed while you were deciding.
+selected until you choose Yes, and the dialog ignores Yes for its first half second, so a key or
+click meant for something else cannot approve it. An edit is refused if the file changed while
+you were deciding.
+A command with tabs, escapes or other control characters is refused too, since the dialog cannot show them.
+The dialog shows on top of everything, including the editor, the viewer, another dialog and the
+screensaver, and it takes every key until you answer. What it covered comes back afterward. If
+the agent stops waiting first, the dialog closes and a notice says so.
 For a paired computer, `approval_mode` asks you once before turning on Approve all for that
 session. While it is on, a badge stays visible; click it or press Ctrl+Alt+A to turn it off at
 once. It also turns off when that paired connection closes. Pairing approvals are separate.
+
+A request also reaches your own computer when a remote panel there shows the session it waits in
+(see [Remote panels](#remote-panels)). Your borg shows it in the same dialog, titled with the
+server's name, over whatever you are doing, and sends your answer back over the encrypted
+connection. The server keeps its own dialog open too. The first answer counts, wherever it comes
+from, and the other dialogs close with a notice that says where it was answered. A request the
+agent withdraws closes everywhere. When another computer controls the session through a mirror,
+your dialog shows the request without Yes and No, and Esc closes it on your screen only. While
+that session approves everything, your borg shows a badge with the server's name; click it or
+press Ctrl+Alt+A to turn Approve all off there at once. Only your keys and clicks answer these
+dialogs: the agent's tools, `type` included, cannot press anything in them.
 
 Commands are typed into a shell you can watch, and kept out of its history. Commands for this
 machine go into borg's own console, which is shown while they run so you can answer a prompt such
@@ -551,8 +925,36 @@ The agent can also search a process's memory the same way the memory search does
 indicators, text, or bytes. Memory can hold passwords, keys, and private messages, and whatever
 the search finds goes to the agent, so the first search of each process waits for your approval
 in a dialog that names the process, its program, and the search. Once you approve, the agent can
-search that process again until borg quits. It can ask to read as administrator, which opens the
-system's own password prompt.
+search and scan that process again until borg quits. It can ask to read as administrator, which
+opens the system's own password prompt.
+
+The agent can also scan with YARA rules and check code integrity, as **Rule matches** in the
+Ctrl-F dialog and **Y** and **I** in the memory map do (see
+[Scanning files with rules](#scanning-files-with-rules), [Code integrity check](#code-integrity-check)
+and [Scanning memory with rules](#scanning-memory-with-rules)). A file or folder on the machine
+borg runs on is scanned without asking, the same as a read. A folder scan reads every file below
+the folder on the same file system, hidden files included. It leaves files over 64 MiB unread and
+stops after 20,000 files, 2,000 matches or 45 seconds. Files in containers are not scanned.
+
+A process is different, because the scan reads its memory. The first scan of each process waits
+for you in **Remote wants to scan process memory**, which names the process, its program and the
+checks: the integrity check, the rules, or both. One approval covers scans and memory searches of
+that process until borg quits, whichever the agent asked for first. Each check stops after 45
+seconds, 1 GiB of memory or 2,000 findings. The agent can ask to read as administrator, which
+opens the system's own password prompt once for both checks.
+
+The rules are Borg's and those in your rules folder, unless the agent brings its own rule text of
+up to 64 KiB. That way it can draft a rule from what it found, try it on a folder or a process,
+and refine it. Its text runs alone, without Borg's rules or yours, cannot use `include`, and is
+never saved. Text that does not compile goes back to the agent with the compiler's message, before
+any dialog. For a process, the dialog shows the agent's rule text below the checks, so you see
+what it looks for.
+
+The agent gets each finding, worst first, with its severity, its kind, the rule and where it comes
+from, the file and offset or the address and memory region, up to 64 bytes of what matched as text
+or hex, and what else could explain it. Then come how much was read, what could not be read,
+whether the scan finished, and the rule files left out. Evidence goes to the agent as found, keys
+and tokens included, as with the memory search.
 
 The agent can also capture traffic as **R** does on the network screen (see
 [Capturing traffic](#capturing-traffic)). It names what to record: a port, one connection, a
@@ -576,10 +978,15 @@ its bytes as a hex dump. Borg remembers the processes of its last 16 agent captu
 quits. Other files show their conversations under **Unknown process**, unless their packets
 carry their process.
 
-While an agent is connected, **◈ Remote** appears at the start of the shortcut bar. Click it to
-see a log of what the agent did: what it looked at, read, showed, and typed, and every command and
-change, approved or declined. Borg keeps the log in memory only, until it quits; to keep no log
-at all, turn it off in Options → Plugins.
+While an agent is connected, **◈ Remote** appears at the start of the shortcut bar. Click it, or
+choose F9 → Remote → **Remote log…** at any time, to see a log of what the agent did: what it looked
+at, read, scanned, showed, and typed, and every command and change, approved or declined. Each
+session keeps its log on disk, readable only by you, so you can come back to a session you left
+running and see what happened there, even after Borg quit. When the log grows large, Borg drops the
+oldest entries. Before an entry is saved, Borg hides the passwords, tokens and keys it recognizes,
+and it leaves out what commands printed. A password passed as a plain word looks like any other
+word, so Borg cannot hide it. To keep no log at all, turn off **Remote: keep a log of what it does**
+in Options → Plugins, which also deletes the saved log.
 
 ### Borg cloud
 
@@ -592,9 +999,11 @@ joins them.
    relay, paste its address there and press Enter to save it and get a link through it.
 2. Run the command in a terminal on your computer, where borg is installed too. It prints a
    pairing code: six emoji, each with its name, such as `🐱 Cat · 🦁 Lion · 🐎 Horse`.
-3. Borg on the server asks whether to pair, showing your computer's name and the code. Choose
-   Yes if the codes match. `borg pair` then offers to add the server to Claude Code, as
-   `claude mcp add borg-NAME -- borg mcp remote NAME`.
+3. Borg on the server asks whether to pair, showing your computer's name and the code. The
+   question comes up at once, even while F3 shows the command as plain text. Choose Yes if the
+   codes match. `borg pair` then offers to add the server to Claude Code, as
+   `claude mcp add borg-NAME -- borg mcp remote NAME`. It waits 5 minutes for your answer; when it
+   gives up or you stop it, the question closes and the link stops working.
 
 The code comes from the encrypted handshake the two borgs have just completed, so it is the same
 on both screens only if your computer is the one talking to the server. Someone who got hold of
@@ -606,36 +1015,157 @@ From then on, Claude can reach that borg whenever it is running there. `borg pai
 lists the paired servers, and `borg pair --forget NAME` forgets one; on the server, F8 in the
 Remote access dialog forgets every paired computer. Through borg cloud, Claude also gets
 `download` and `upload`, which copy files between the server and your computer;
-`borg get NAME:PATH [TO]` and `borg put FROM NAME:PATH` do the same from your terminal. Uploads
-wait for your approval in borg, and every approval names the computer that asked.
+`borg get NAME:PATH [TO]` and `borg put FROM NAME:PATH` do the same from your terminal. Claude's
+downloads go into your Downloads folder and never replace a file there. Uploads wait for your
+approval in borg, which shows the file being sent, and every approval names the computer that asked.
 
-The connection is encrypted end to end. Each borg keeps a private key, readable only by you, in
-its state folder. Pairing exchanges the public keys, and every connection opens with a Noise IK
-handshake bound to them, so the relay only ever forwards ciphertext and cannot answer in either
-borg's name. Calls from another computer can read without asking, just like local ones; turn on
-"ask before another computer reads" in Options → Plugins to make those reads wait for approval
-too. Borg keeps no connection to the relay unless it is paired or showing a pairing link, and
-none at all when borg cloud is turned off in Options → Plugins.
+The connection is encrypted end to end. Every borg keeps a server key, which paired computers know
+it by, and a computer that reaches servers also keeps a computer key of its own. Both are readable
+only by you. The server key is a file in the `link` folder of the state folder. The computer key is
+a file there too. On a Mac it lives in your login keychain instead, and on Linux the file is sealed
+with a password (see [Computer keys](#computer-keys)). Pairing exchanges the public keys, and every
+connection opens with a Noise IK handshake bound to them, so the relay only ever forwards ciphertext
+and cannot answer in either borg's name. Calls from another computer can read without asking, just
+like local ones; turn on "ask before another computer reads" in Options → Plugins to make those
+reads wait for approval too. Borg keeps no connection to the relay unless it is paired or showing a
+pairing link, and none at all when borg cloud is turned off in Options → Plugins.
 
 Borg saves the relay in the config as `relay = "wss://relay.example.com"`. A computer reaches the
-server through the relay it paired through, so after the server switches relays, pair the
-computer again. All borgs on one machine share a key, so only the first one opened connects to
-the relay; the others tell you which one has borg cloud.
+server through the relay it paired through, so after the server switches relays, pair the computer
+again. All borgs on one machine share their keys, and the
+[background service](#named-sessions-and-the-background-service) connects them all to the relay.
+With the service turned off, only the first borg opened connects, and the others tell you which one
+has borg cloud.
+
+#### Computer keys
+
+The computer key proves to each paired server that a connection comes from your computer. When a
+server still knows this computer by another key, such as this machine's server key, Borg moves it
+to the computer key the next time it opens a session there. Borg proves to the server that it
+holds the new key, and the server swaps the key in that computer's entry and keeps its name.
+Connections that still use the old key end at their next call. The server shows a notice and
+writes both fingerprints to the agent log, and its **Clients** list shows when the key changed and
+what it was. A server running an older Borg keeps the old key until it is updated.
+
+On a Mac, Borg keeps the computer key in your login keychain, as an item named **Borg Commander**
+that only Borg may read without asking you. The first time a Borg process needs the key, macOS asks
+for Touch ID or your password, so even a program that starts `borg` on its own shows itself. After
+each Borg update, macOS also asks once whether the new Borg may use the item; choose **Always
+Allow**. A computer key file from an earlier Borg moves into the keychain the first time Borg uses
+it, and the file is deleted. A Borg that runs without the Mac's screen, such as over SSH or in the
+background service, cannot show the prompt and cannot reach servers. When `$BORG_STATE_DIR` names a
+state folder other than the usual one, Borg keeps the computer key as a file in that folder's `link`
+folder. Borg's macOS releases are signed with the Hardened Runtime, so other programs cannot read
+Borg's memory or load code into it.
+
+On Linux, Borg seals the computer key with a password you choose, in the file `computer-key.sealed`
+in the `link` folder. Run `borg unlock` in a terminal to choose it: Borg suggests four random words,
+which are easy to type and hard to guess, and asks for the password twice. Borg stretches the
+password with Argon2id, which takes a few seconds and 1 GiB of memory, or an eighth of the memory on
+a machine with less than 8 GiB, so guessing it from a copy of the file is slow. A computer key file
+from an earlier Borg is sealed the first time you run `borg unlock`, and the file is deleted; until
+then, Borg asks you to run it. When `$BORG_STATE_DIR` names a state folder other than the usual one,
+Borg on Linux also keeps the computer key as a plain file, with no password.
+
+Once unlocked, the key stays in your user's kernel keyring until 12 hours pass without Borg using
+it, and every use starts the 12 hours again. A restart locks it, and `borg lock` locks it at once.
+Where Borg cannot use the kernel keyring, as in many containers and system services, a small Borg
+process holds the key instead, on a socket in the `link` folder that only you can open, and it ends
+after 12 hours without use. When the key is locked, Borg asks for the password: the panels open the
+**Unlock key** dialog, and `borg pair`, `borg get`, `borg put` and `borg mirror` ask in the terminal.
+`borg mcp remote`, which Claude starts without a terminal, says to run `borg unlock`.
+
+`borg unlock --ssh-agent` also lets your ssh-agent unlock the key. Borg asks the agent to sign a
+fixed challenge with an Ed25519 key, or with an RSA key when it holds none, and seals the key a
+second time with that signature. From then on, Borg unlocks the key without asking while that agent
+is reachable, and the password keeps working. Borg checks that the agent signs the same way twice,
+and refuses a key whose signatures change. Anyone who can use your agent can make the same
+signature: when you forward it with `ssh -A`, root on the far machine can use it while you are
+connected, and with a copy of the sealed file could unlock this key. Forward the agent only to
+machines you trust, or leave this off. `borg unlock --no-ssh-agent` turns it off again.
+
+`borg pair --new-key` gives this computer a new key, and each server takes it the next time Borg
+connects to it. Until every server has, Borg keeps the old key too, and `borg pair` marks each
+server that still takes it. A week later it also suggests forgetting servers you no longer use,
+with `borg pair --forget NAME`.
+
+When a server refuses every key this computer holds, Borg says so. Either someone forgot this
+computer on that server, or someone with a copy of its key moved the server to a key of their own
+first. A new key is hygiene and does not undo a leak. If you think someone copied a key, press F8
+in Remote access on every server to forget the paired computers, pair again, and check those
+servers.
 
 ### Named sessions and the background service
 
-With named workspaces, `borg sessions list` shows their IDs and names,
-`borg sessions create NAME` adds one, and `borg --session NAME` opens it. Over MCP, the agent can
-call `list_sessions`, `list_remote_sessions`, and `use_session` to choose which session that
-connection works with. A single tool call can also pass a `session` ID to target another session
-just once. The chosen session applies only to that MCP connection.
+With named workspaces, `borg sessions list` shows their IDs and names, `borg sessions create NAME`
+adds one, and `borg --session NAME` opens it. Over MCP, the agent can call `list_sessions`,
+`list_remote_sessions`, and `use_session` to choose which session that connection works with, and
+`hosts` to see how every paired host is doing. A single tool call can also pass a `session` ID to
+target another session just once. The chosen session applies only to that MCP connection.
 
-`borg service install`, `enable`, and `start` set up the optional background service. It holds
-the machine's pairing connection and keeps named sessions running after their terminals close.
-`borg service attach NAME` reconnects to one, and Ctrl-] detaches again without ending its
-shell. Use `borg service stop`, `disable`, or `uninstall` to stop or remove the service.
-In a container without systemd, have the container's process supervisor run `borg service run`;
-the `install` and `enable` commands need a Linux host with systemd.
+With more than one session, or when the only one is open in another terminal, `borg` starts with the
+**Borg sessions** window. Its first lines say what a session is, and the list shows each session
+with when it was last used. A session that is active right now is marked with its status:
+**Open in another terminal**, or **Kept running by the service** when the background service runs
+it. The session used last is chosen, unless another terminal has it open. Enter opens the chosen
+session where you left off; one the service keeps opens attached, as with
+`borg service attach NAME`. A click chooses a session and a second click opens it. **F7** names a
+new session and opens it, and Esc or F10 quits without opening one. While the window is open, it
+checks every 2 seconds which sessions are active.
+
+**F8** or **Delete** removes the chosen session after a confirmation that defaults to **No**. This
+deletes its saved panels and terminal history; your files and folders are kept. The Default session
+always stays, and so does a session that is active right now: quit Borg in the other terminal first.
+To remove a session the service keeps, open it with `borg service attach NAME` and quit with F10.
+
+When you name a session with `borg --session NAME` that another Borg has open in a terminal,
+`borg` stops and names that Borg: its process number, its terminal as `ps` shows it, and how long
+ago it started. Quit that Borg with F10 where it runs. When you can no longer reach its terminal,
+end it with `kill` and the process number.
+
+All your Borgs on a machine share one background service. The first `borg` you open starts it,
+with nothing to install, and it stops 30 seconds after the last session closes. To turn this off,
+set `start-service = false` in the config.
+
+The service keeps borg cloud connected for all your Borgs, so a paired computer reaches every open
+session. It works in the session it names, or in the one you used last, and waits for your
+approval there. You can pair from any Borg.
+
+To keep a session running with no terminal, run `borg service keep NAME`. Open it with
+`borg service attach NAME` or from the **Borg sessions** window, and press Ctrl-] to detach.
+Quitting Borg there with F10 ends the session. When a paired computer asks for a session that is
+not running, the service starts it in the background.
+
+To start the service at boot, run `borg service install`, `enable`, and `start`. They use sudo,
+which asks for your password, unless you are root. `borg service stop`, `disable`, and `uninstall`
+undo them. You can also choose F9 → Remote → **Background service…**: the dialog shows the command
+for the next step, and Enter runs it in Borg's shell. In a container without systemd, have the
+container's process supervisor run `borg service run`.
+
+### Updating with sessions open
+
+`borg update` installs the new version, then moves the background service to it and tells you once
+the service runs it. The service starts again in its own process, so the sessions it keeps hold on
+to their shells and the programs running in them. Every open Borg follows when it is idle: it
+waits for running jobs to finish, for edited files to be saved or closed, and for an agent's
+request to be done. Then it starts again in the same terminal, keeps its shell, and says which
+version it runs now.
+
+The update keeps the version it replaced next to the program file, as `.borg.previous`. When the
+new version does not take over within 60 seconds, Borg puts the previous one back and the service
+starts again on it. The sessions it kept then start with new shells.
+
+A service started by an older Borg cannot move by itself. `borg update` says so, and the service
+uses the new version the next time it starts.
+
+To update a paired machine, select it in [Remote hosts](#remote-hosts) and press **U**. After you
+confirm, the host gets the latest release the way `borg update` does, and its service moves to it.
+**Esc** closes the picker while the update goes on. Borg then tells you which version the host
+runs, or that the new version did not start and the host went back to the one it ran. A mirror of
+one of its sessions waits for it and shows the host again once it is back (see
+[Mirroring a session](#mirroring-a-session)). Run `borg update` on the host instead when its Borg
+is older or runs without the background service. Borg installed there with Homebrew or cargo is
+updated with that tool on the host, and Borg names the command.
 
 ### Remote panels
 
@@ -669,22 +1199,29 @@ Alt-H to get a new one.
 Remote folders load in chunks, with a spinner and a count of the entries received so far; moving
 to another folder cancels the request.
 
+While a remote panel shows a session, the agent requests that wait there show on your screen too,
+and you can answer them here (see [What the agent can do](#what-the-agent-can-do)).
+
 ### Remote hosts
 
 In local Borg, press **Alt-H**, click **Remote hosts** in the shortcut bar, or choose
 **F9 → Remote → Browse hosts and sessions…** to see paired machines and their named sessions.
 Enter opens the selected session's files in the panel you opened the picker from, replacing what
-that panel showed. Press **M** to mirror the session's screen, and **R** to refresh the list.
+that panel showed. Press **M** to mirror the session's screen, **U** to update the host (see
+[Updating with sessions open](#updating-with-sessions-open)), **R** to refresh the list, and **O**
+to open the [hosts overview](#hosts-overview).
 
 **Tab** switches between **Hosts** (computers this Borg can reach) and **Clients** (computers
 that can reach this Borg). Clients lists the computers paired with this Borg, their public-key
-fingerprints, whether they are connected, and how many connections each has. A computer is listed
+fingerprints, whether they are connected, and how many connections each has. After a computer
+changed its key, the fingerprint line also says on which day, and the fingerprint it had before. A computer is listed
 once even when a mirror uses several connections. Status updates while the picker is open,
 including in a session whose connections are held by the background service. Pairing works in
 one direction only: an allowed client does not automatically become a host whose files this Borg
 can browse. When the connection owner cannot report connection status, paired clients are still
 listed, with **Connection status unavailable**. The same Borg can be a host and a client at once.
-The Remote menu also offers **Mirror mounted host** and **Share this Borg as host…**.
+The Remote menu also offers **Hosts overview**, **Mirror mounted host**, **Share this Borg as
+host…**, **Remote log…**, and **Background service…**.
 
 The picker shows each host's Borg version. Selecting a session shows its OS and architecture,
 whether it runs as a background service or in a terminal, request latency, and relay address.
@@ -713,8 +1250,56 @@ This closes the session and its remote consoles and deletes its saved Borg panel
 history; files and folders on the host are kept. The Default session cannot be removed. A
 standalone session that is currently hosting the connection cannot remove itself; first close it
 on the host and run Borg in another session. If removal fails, the session stays listed so you
-can try again. Sessions managed by the service are stopped before their saved state is removed,
-and the service does not recreate them.
+can try again. A running session is stopped first, and the service does not start it again.
+
+### Hosts overview
+
+Choose **F9 → Remote → Hosts overview**, or press **O** in the remote hosts picker, to see every
+paired host at once. Each host gets a card with bars for its CPU, its RAM and its fullest
+filesystem, the load beside the CPU, then the process watcher and how long the host has been up,
+with how many of its containers run. The page asks every host again every 5 seconds while it is
+open, and stops when you close it.
+
+A card turns to the warning color when the load passes the number of cores, when the RAM or the
+fullest filesystem is 90% full, when a container keeps restarting or fails its health check, or
+when the watcher has warnings nobody read. It turns to the alert color at twice the cores' load, at
+95% RAM or disk, with less than 1 GiB left on the disk, with unread alerts, or once the watcher
+froze a process. ● marks a host that answers and ◌ one Borg still waits for. ◐ marks a host that
+stopped answering: its card keeps the last figures, says how long the host has been quiet, and
+shows their age on its bottom border once they are 15 seconds old. A host running an older Borg
+shows ↑ after its version. A Borg too old to send figures says so on its card; press **U** to update
+it.
+
+Hosts the relay reports as offline leave the cards and line up at the bottom, each with the time
+it last answered. Borg keeps those times in `hosts-seen.json` in the state folder, readable only by
+you.
+
+The arrows move between cards. **Enter** opens the selected host's files in a panel, **M** mirrors
+its session, **U** updates it, and **F2** renames it. For a host with several sessions, Enter and M
+first show the picker with only that host's sessions. **R** asks every host again now, **/**
+filters by name, Borg version or system, and **V** switches to a table with a row for each host,
+offline ones included. A pane too narrow or too short for a card shows the table as well.
+**Alt-W** gives the page half the width and shows the selected host's details beside the cards:
+its system, relay, round trip, sessions, when it last answered, and each figure in words.
+
+The figures travel through borg cloud like any other call, encrypted end to end. They are numbers
+and counts: the machine's totals for CPU, load, memory and swap, the size and free space of one
+filesystem with its mount point, the watcher's unread counts, and the number of containers. No
+process, file name or alert text leaves the host this way, so the host answers without asking, even
+with "ask before another computer reads" turned on. The page, the remote hosts list on **Alt-H** and
+the `hosts` tool for agents read each host over a connection that can only ask how the host is
+doing. The host leaves it out of its connected clients and notes in its remote log which computer
+reads, at most once an hour for each computer. A host on a Borg from before these connections
+refuses them, so Borg reads it over a regular session, and that host lists the reader among its
+connected clients.
+
+An agent connected through `borg mcp` reads the same page with the `hosts` tool. It lists every
+paired host in the page's order: whether it answers, its Borg version and system, its figures, what
+turns its card to the warning or alert color, and its target ID. `use_session` and the `session`
+argument of every other tool take that ID, so the agent can go from `hosts` straight to working on a
+host. `filter` narrows the hosts with the same words as **/** on the page. The answer comes as text,
+with the same figures as data for agents that read structured content. The tool reaches every host
+through the borg on your computer, so `borg mcp remote NAME`, which reaches one host, leaves it out.
 
 ### Mirroring a session
 
@@ -725,9 +1310,13 @@ the bottom. The line above it shows who has control; Ctrl-] also exits.
 
 A regular `borg` or `borg --session NAME` can be mirrored while it runs, without the background
 service. Its own terminal stays visible, and any keyboard or mouse input there takes control back
-from the mirror. The mirror follows the host terminal's layout and is cut off to fit a smaller
-window; making your window larger shows the rest. The optional background service keeps sessions
-alive after their original terminal closes and lets the controlling client resize their PTY.
+from the mirror. While you have control, Borg on the host lays out for your window: when the space
+above the banner is smaller than the host's terminal, Borg draws in the top left of that terminal
+at your size, and the rest of it stays blank. Once control goes back to the host's terminal or you
+leave the mirror, Borg fills that terminal again. A mirror without control follows the host
+terminal's layout and is cut off to fit a smaller window; making your window larger shows the
+rest. A session the background service keeps stays alive after its terminal closes, and the
+computer in control sets its size.
 
 If another terminal has control of the remote session, the mirror opens in view-only mode and
 your keys do not reach the session. Press **Ctrl-T** or click the status line to take control and
@@ -735,6 +1324,15 @@ detach the other terminal, or start with `borg mirror MACHINE:SESSION --take`; `
 takes control from another viewer. Once you have control, the first key wakes a sleeping remote
 screen, and later keys and mouse input reach it. A viewer that falls behind skips old animation
 frames and jumps straight to the current screen.
+
+When the host stops answering, for example while it updates, the mirror keeps the last screen,
+says so on its status line, and tries again every 2 seconds for up to 100 seconds. **Ctrl-G**
+leaves it meanwhile. Once the host is back, the mirror shows its screen again, with the version it
+runs now at the bottom right. A host that is still away after that ends the mirror with a message.
+
+An agent's request shows in the mirror as the server shows it, and you answer it there once you
+have control. If you opened the mirror from a remote panel and the request still waits when you
+leave the mirror, the panel's borg shows it again.
 
 ### Running a relay
 
@@ -784,12 +1382,26 @@ the bytes it carried, and each limit reached with the client's address.
 
 Ctrl-S opens quick find. Type a name or a glob such as `*.rs`; Down and Up move between matches,
 Insert marks a match, Ctrl-A marks all matches, and Enter or Esc closes the search. Matching
-ignores case unless the query contains uppercase letters.
+ignores case unless the query contains uppercase letters. When nothing in the panel matches what
+you typed, the cursor goes to the closest name, by the rules of
+[names with typos](#names-with-typos), and Down and Up move between the close matches.
 
 ### Copying, moving, and deleting
 
-F5, F6, and F8 start copy, move, and delete jobs. Alt-J opens the list of jobs, where you can
-pause or cancel them.
+F5, F6, and F8 start copy, move, and delete jobs. They run in the background, and Alt-J shows them
+with the other [jobs](#jobs-and-notifications).
+
+The Delete dialog starts on **No**, so Enter on its own keeps the files. To delete them, press Y,
+or move to **Yes** with Tab or an arrow key and press Enter.
+
+While the Delete dialog asks, Borg counts the files you are about to remove and shows their number
+and size under the question. Counting stops after 3 seconds, and then the line starts with
+**At least**. Borg also looks for programs that have those files open, run from them, or work in
+one of those folders, and names them. A program that keeps a deleted file open keeps its disk
+space too, until it closes the file. Press K to open the activity monitor on the first of them
+with **Signal or priority**, and stop it before you delete. Borg sees the programs your user may
+inspect, which on most systems means your own. Files in archives, containers, and remote panels
+are deleted without these checks.
 
 The Copy dialog has an **Optimize copying for hard drives** checkbox. Press Tab to reach it and
 Space to toggle it, or click it. It is unchecked for every new copy. In this mode, Borg reads
@@ -801,6 +1413,110 @@ When a file name already exists: `o` overwrites, `s` skips, `k` keeps both, `a` 
 `n` skips all, and Esc cancels. Copies are written to temporary files and renamed once they are
 complete.
 
+Moves and deletes stay on the filesystem of each file or folder you chose. A filesystem mounted
+inside one of those folders, such as an open vault, a disk image, or a network share, is left alone
+and counted as skipped, and the folders that hold it stay. The count in the Delete dialog leaves it
+out too. A copy does copy what such filesystems hold. If a move skips anything inside a folder you
+chose, it leaves that whole folder in place, so the files it did move are in both places. A copy or
+move stops when its target folder is no longer the folder it started writing to, as when a vault
+closes or a drive goes away while Borg asks about a file. Nothing more is written there, and a move
+keeps the files it had not finished moving. Before a move deletes its sources, Borg makes sure the
+copies have reached the disk.
+
+### Jobs and notifications
+
+Work that takes a while runs as a job: copies, moves and deletes, unpacking and packing archives,
+**Replace in files…**, every search that fills a results panel (Ctrl-F, Alt-D, Alt-Shift-D and
+Alt-S), folder sizes counted with Alt-I or F3, the entropy scan in Alt-M, the first build of a folder's
+search index, and port scans. Alt-J opens the jobs panel over the right panel. It lists the running
+jobs first, oldest at the top, then the finished ones, newest first. On a terminal narrower than 100
+columns it spans both panels.
+
+Each job takes one line: what it is, what it works on, a bar, and how far it got. A job that knows
+its size shows a percentage, and a copy or a move also the time left. A search or a size count
+shows what it counted so far. Space or Enter unfolds the selected job to its details: the file it
+works on, the files and bytes done and the speed, or what a search looks for and found. A job
+that fails or asks you something unfolds on its own.
+
+| Key | Action |
+| --- | --- |
+| Up, Down, PgUp, PgDn, Home, End | Move between jobs |
+| Space, Enter | Fold or unfold the job |
+| Right / Left | Unfold / fold |
+| `*` | Unfold every job, or fold them all once all are unfolded |
+| P | Pause or resume a job that works on files |
+| C | Cancel a running job |
+| A | Answer the question a job asks |
+| O | Open what a finished job made |
+| X | Dismiss a finished job |
+| Delete | Cancel a running job, or dismiss a finished one |
+| Shift-X | Dismiss every finished job |
+| Esc, Alt-J | Close the panel |
+
+The selected job shows its keys as buttons, which take clicks too. A finished job stays in the panel
+with how it ended and how long it took until you dismiss it, and Borg keeps the 20 newest. **O
+Open** shows what the job made: the folder a copy, move or unpack wrote to, with the cursor on what
+arrived there, the results of a search or a replace, brought back to their panel if it moved on, the
+folder whose sizes were counted, the entropy scan's hits in Alt-M, or the open ports a port scan
+found. In the panels, Alt-G opens what the newest finished job made.
+
+Small notes in the bottom-right corner of the panels say when a job starts, ends, or waits for you.
+A start shows once the job has run for a second, so a quick job only says how it ended. A note stays
+3 seconds for a start, 6 for a job that finished, 4 for one you cancelled and 10 for one that
+failed, and up to three show at once. Notes never take your keys. The keys in a note's border work
+in the panels: Alt-J opens the jobs panel, or the question a job waits with, Alt-G opens what a
+finished job made, and Alt-X closes every note on screen. Over the full-screen console, the editor
+and the viewer, the notes name no key, because those keys belong to them there. Click **[×]** at the
+right end of a note to close that note alone, wherever it shows. Closing a note leaves its job in
+Alt-J. On a terminal narrower than 60 columns each note takes one line with **[×]** at its end, and
+below 40 columns or 14 rows there are none.
+
+A job's question opens as a dialog at once, unless you typed in the console, on the command line or
+in an editor during the last 2 seconds. Then the question waits behind its note until your keys rest
+for 2 seconds, so a key meant for your text never answers it. Alt-J opens it right away. Close its
+note and the question waits until you press Alt-J, or A in the jobs panel.
+
+Turn the notes off in **F9 → Options → Settings → Job notifications**, or with
+`job-notifications = false` in the config. A finished job that changed files, counted sizes or
+built an index then says how it ended in a notice.
+
+### Long jobs and drives
+
+Borg knows what kind of drive each folder lies on: a hard drive, an SSD, a RAM disk, a network
+share such as NFS, SMB or sshfs, or the machine a remote panel shows. On macOS it asks `diskutil`
+and `hdiutil`, and on Linux it reads `/proc/self/mountinfo` and the device's flags in `/sys`.
+Ctrl-L shows the drive and its filesystem in the **Drive** row, and the **Speed** row says how fast
+Borg expects it to read and write.
+
+Before a job writes anything, Borg works out how long it will take from the bytes it reads and
+writes on each drive and the time compressing takes. When a copy, a move to another drive or an
+unpack would take more than 2 minutes, or a change to an archive more than 20 seconds, the
+**Long job** dialog says about how long and on which kind of drive, and waits:
+
+- **Start** (`s`) runs the job.
+- **Always for this file** (`f`) runs it and stops asking about this archive. Unpacking and
+  changes to an archive offer it.
+- **Always on this kind of drive** (`d`) runs it and stops asking about work on drives of this
+  kind.
+- **Cancel** (`c`) stops before the first write.
+
+A save from the editor into an archive asks over the editor, which gets the keys back once you
+answer.
+
+Until Borg has measured a drive, it expects the usual speed of its kind: about 120 MB/s for a hard
+drive, 900 MB/s for an SSD, 4 GB/s for a RAM disk, 60 MB/s for a network share and 10 MB/s for a
+remote machine. Every job that runs for at least 2 seconds and moves at least 64 MiB teaches Borg
+the drive's real speed, and the **Drive** row then says **measured speed**. A job that spends its
+time compressing teaches it nothing about the drive.
+
+Borg keeps the speeds and your answers in `drives.json` in its state folder, with up to 256
+archives. The file is readable by you alone, since it names the archives you answered about. Every
+Borg you have open shares it: each one reads it when it starts and again right before it writes, so
+what one Borg learned or was told stays when another writes. The **Long jobs** row of Ctrl-L says
+whether Borg asks first on that drive. **F9 → Options → Ask before long jobs again** forgets every
+Always answer, those given in other Borgs too. A Borg that is already open keeps the answers it has
+until it next writes the file or you start it again.
+
 ### Viewer and quick view
 
 F3 opens the viewer. With the System plugin on, F3 on a `.pcap`, `.pcapng` or `.cap` file opens
@@ -809,14 +1525,18 @@ text files, the arrow keys and PgUp/PgDn scroll, `w` turns line wrapping on or o
 `q` closes it. In images, Left/Right or `p`/`n` show the previous or next image. Borg uses the
 terminal's image protocol when there is one; other terminals show the image as colored blocks.
 
-Ctrl-Q shows a quick preview in the other panel. Tab moves into it, where the arrow keys,
-PgUp/PgDn, Home/End, and the mouse wheel scroll; Tab or Esc goes back to the file list. Ctrl-L
-shows file information. F3 opens a text preview in the full viewer, and closing the viewer
-returns to the preview with your position, wrapping, and source mode kept. Both read files the
-same limited way, so opening a large text file reads only around the first page and stays
-fast however big the file is. On a result of a search for text, the preview opens at the file's
-first match instead, with the query marked as the find bar marks it, and reads only around that
-match.
+Ctrl-Q shows a quick preview in the other panel. Tab moves into it, where the arrow keys, PgUp/PgDn,
+Home/End, and the mouse wheel scroll; Tab or Esc goes back to the file list. In a text preview,
+`/`, F7, or Ctrl-F opens the viewer's find bar on the preview's bottom row, and `n` and `N` step
+through the matches once you close it (see the find bar under [Editor](#editor)). The search
+belongs to the file the preview shows, so it ends when the cursor moves to another file; Ctrl-P in
+the find bar brings the query back. Ctrl-L shows file information. F3 opens a text preview in the
+full viewer, which goes on with the preview's search, and closing the viewer returns to the preview
+with your position, wrapping, source mode, and hex rows kept. Both read files the same limited way,
+so opening a large text file reads only around the first page and stays fast however big the file
+is. On a result of a search for text, the preview opens at the file's first match instead, with
+the query marked as the find bar marks it, and reads only around that match. There `n` and `N`
+step through the file's other matches.
 
 Both text viewers highlight common programming languages, markup, and configuration files,
 including Rust, Python, JavaScript, TypeScript/TSX, Go, C/C++, Java, C#, Ruby, PHP, Lua, SQL,
@@ -830,19 +1550,138 @@ exactly as written, which helps most with files written on a single line. Press 
 the file as written. JSON Lines files (`.jsonl`, `.ndjson`) are laid out one record at a time.
 JSON larger than 16 MiB, or JSON that does not parse, opens as written.
 
+Press `h` in the text viewer or in the quick view to see the file's bytes as hex rows, and press it
+again to go back to the text. A binary file, which Borg spots by a zero byte in its first 4 KiB,
+opens as hex rows in both, and `h` shows its text. Each row starts with its offset in the file, then
+shows its bytes in hex and the same bytes as text, with a dot for each byte that does not print.
+Offsets and zero bytes are dimmed. A row holds as many bytes as fit the width: 64, 32, 16, 8, 4, 2
+or 1, with a wider space after every eighth byte. Borg reads only the rows on the screen, so the
+arrow keys, PgUp/PgDn, Space, Home and End move through a file of several gigabytes at once. The
+find bar works in hex rows too and marks each match in both columns. In hex, Markdown and JSON files
+show their bytes as written.
+
+In the viewer, an entropy strip runs down the right edge of the hex rows. Entropy says how varied
+the bytes are, from 0 bits per byte for one byte repeated to 8 for bytes as random as compressed,
+encrypted or packed data. Text is usually near 4.5, and code between 5 and 6.5. The strip covers
+the whole file from top to bottom. Each cell's bar is as long as the highest entropy in its part of
+the file, faint below 4 bits per byte and bold red from 7.2, and the cells of the bytes on the
+screen are marked as on a scrollbar. The status line gives the entropy at the page and whether it
+is **low**, **typical** or **high**. Press `]` and `[` to jump to the next and previous run of
+high-entropy blocks, or click the strip to go to that part of the file.
+
+Borg reads the entropy in the background in blocks of 4 KiB. A file up to 256 MiB is read whole,
+and a larger one is sampled at 65,536 evenly spaced blocks, so memory use stays the same however
+big the file is. High entropy where you expect code, headers or tables can mean packed or
+encrypted data hidden there. Compressed media, archives, encrypted volumes and key stores are high
+all the way through, so read the strip against what the file should hold.
+
+### Archives
+
+Press Enter on an archive to open it as a folder. Borg opens files whose names end in `.zip`,
+`.7z`, `.rar`, `.tar`, `.tar.gz`, `.tgz`, `.tar.bz2`, `.tbz2`, `.tbz`, `.tar.xz`, `.txz`, `.tar.zst`
+or `.tzst`, and single compressed files ending in `.gz`, `.bz2`, `.xz` or `.zst`, which open as a
+folder holding the one file. Ctrl-PgDn opens an archive too, and F3 on the archive itself still
+shows its bytes in the viewer. The panel's title gets a badge such as **▤ zip** that names the
+format Borg found in the file's first bytes, and the path goes on inside the archive. Folders
+inside show the size of what they hold. Left, Enter on `..` or Ctrl-PgUp at the archive's top
+takes you back to the folder that holds it, with the cursor on the archive. When the archive was
+deleted or no longer reads, going up from any folder of it takes you back there too, and the
+notice says why.
+
+To list an archive, Borg reads what it holds, which for a compressed tar means reading the whole
+file. While a large archive is read, the panel's footer shows how far Borg got, and Esc stops
+reading and goes back. Borg remembers the listings of the last 4 archives as long as their files
+keep the same size and time, so going in and out again is instant. Archives with more than
+1,000,000 entries do not open.
+
+F3 or Enter on a file inside unpacks it into a private folder in Borg's runtime folder and opens
+it in the viewer. The unpacking runs as a job, so a large file shows its progress, and Esc cancels
+it. Borg deletes the unpacked file as soon as the viewer has it open.
+
+F4 on a file inside opens it in the editor, and Alt-E opens it in the panel's editor. Borg unpacks
+the file into the same private folder, and the editor's title shows its path inside the archive.
+Each save writes the file back into the archive as a job, and the editor says so ("Saved. Writing
+it into site.zip."). When the archive does not take it, the notice says why and where your edit
+stays.
+
+F5 copies the marked files and folders out of the archive into the other panel's folder, or into
+the folder you type in the Copy dialog. **Extract here** and **Extract to other panel** in the
+File menu (F2) unpack the whole archive under the cursor into this panel's folder or the other
+panel's. Either way the files land in a folder on this machine, and the job shows up in Alt-J with
+its progress, rate and time left. It asks about names that already exist as a copy does, writes
+each file under a temporary name until it is complete, and stops each file at the size the
+archive gives it.
+
+Borg changes zip, 7z and tar archives, compressed or not. F5 or F6 from a folder of this machine
+copies or moves the marked files into the archive the other panel shows, or into the folder of it
+you type in the dialog. F7 makes a folder in the archive, and F8 deletes the marked entries after
+asking. F6 to a name in the same archive renames or moves the entries there, and F6 to a folder of
+this machine moves them out: they unpack there and then leave the archive. Names that already exist
+in the archive are asked about as a copy asks, and so are names two of the files you copy share,
+as files from search results or a collection can. A rename to a name the archive holds stops with
+a notice. A move deletes only what arrived whole, so a file you skip stays where it was, and so
+does one that a later file of the same name replaced.
+
+Each change runs as a job in Alt-J. Borg writes the changed archive beside the original under a
+temporary name, reads it back, and then puts it in the original's place with the same permissions.
+The read-back checks a zip's or 7z's list of entries and every entry of a tar. A file goes in as it
+is when Borg writes it, so a file you save again while the job waits for your answer goes in with
+its latest contents. A change that fails or that you cancel leaves the archive as it was. Entries
+the change keeps are copied as they are stored: a zip copies their compressed data, and a 7z copies
+every solid block that keeps all its entries and packs again only the blocks that lose one. A
+compressed tar is unpacked and packed again whole, then unpacked once more to read it back, so
+changing a large `.tar.xz` takes about as long as making it and unpacking it. A zip or plain tar
+that only gains entries is copied and the new entries follow the last one, and on APFS, Btrfs, XFS
+and bcachefs that copy is instant. Before a change that would take long, Borg asks first (see [Long
+jobs and drives](#long-jobs-and-drives)).
+
+In an encrypted zip or 7z archive, new entries are encrypted with AES-256 and the password you
+opened the archive with, and a 7z that hides its list of entries keeps it hidden. Entries the change
+keeps stay as they were.
+
+RAR archives and single compressed files such as `.gz` stay read only, and changing them says so.
+Ctrl-Q and **Compress…** do not work inside an archive. An archive inside an archive opens once you
+copy it out. The shell stays in the folder that holds the archive, and a saved session reopens that
+folder with the cursor on the archive.
+
+Encrypted zip and 7z archives ask for the password when they open. In the **Password** dialog each
+character you type shows as glitch noise that keeps changing and flares with every key. The noise
+depends only on how many characters you typed. The dialog asks again when the password is wrong, and
+Esc leaves the archive. Borg keeps the password in memory while the panel shows the archive and
+never writes it anywhere. **Extract here** has no way to ask for one, so for an encrypted archive
+press Enter on it, type the password, and copy the files out with F5.
+
+Before it writes anything, Borg adds up what the chosen entries unpack to and asks first when
+that is more than 1 GiB and more than 100 times the archive's size, or more than 100,000 files,
+which is how zip bombs look. It also asks when the destination has less free space than the files
+need, and a change to an archive asks when its drive lacks room for the new archive beside the old
+one. **Unpack anyway** (`u`) goes ahead, and Cancel stops before the first file. Entries with
+absolute paths, `..` in their paths, or device files are left out with a notice, and no entry or
+link in an archive can make Borg write outside the destination folder.
+
+Borg reads zip, 7z and the tar family itself. RAR archives go through 7-Zip (`7zz` or `7z`) or
+`bsdtar`, whichever Borg finds first, and macOS comes with `bsdtar`. When none is installed, Enter
+on a RAR archive offers to install bsdtar. The **Install bsdtar** dialog works like the one for
+tcpdump in [Capturing traffic](#capturing-traffic): it shows the exact command for your package
+manager, and Enter types it into Borg's shell. Borg also looks for `bsdtar` in Homebrew's
+`libarchive` folder, which Homebrew leaves off `PATH`. Encrypted RAR archives do not open yet.
+
 ### Editor
 
 F4 opens the selected file in Borg's editor, and Shift-F4 opens it in `$VISUAL` or `$EDITOR`. The
-editor keeps the file's line endings and indentation, highlights code like the viewers do, and
-shows line numbers. Shift with the arrow keys selects text; Ctrl-C, Ctrl-X, and Ctrl-V copy, cut,
-and paste through Borg's clipboard, and text pasted from the terminal goes in exactly as it is.
-Ctrl-Z and Ctrl-Y undo and redo, and Tab and Shift-Tab indent and unindent. F2 or Ctrl-S saves
-through a temporary file, so a file is never left half written. Files that are not UTF-8 text, or
-are larger than 32 MiB, open in the viewer instead. Lines longer than 20,000 characters, such as
-minified code, are not highlighted, and only the part of a line that is on screen is drawn, so
-even a large file written on a single line edits without delay. Alt-Shift-F lays out a JSON file
-with one value per line, using the file's own indentation, in one step that Ctrl-Z undoes; JSON
-that does not parse is left as it is, and the status line says where parsing stopped.
+editor keeps the file's line endings and indentation, highlights code like the viewers do, and shows
+line numbers. Shift with the arrow keys selects text; Ctrl-C, Ctrl-X, and Ctrl-V copy, cut, and
+paste through Borg's clipboard, and text pasted from the terminal goes in exactly as it is. Ctrl-Z
+and Ctrl-Y undo and redo, and Tab and Shift-Tab indent and unindent. F2 or Ctrl-S saves through a
+temporary file, so a file is never left half written. A file with other hard links is written in
+place instead, so every link shows the new text: Borg first keeps the old text in a hidden file next
+to it and deletes that file once the new text is on the disk. If the save fails, Borg puts the old
+text back, and if that fails too, it leaves the hidden file and the status line names it. Files that
+are not UTF-8 text, or are larger than 32 MiB, open in the viewer instead. Lines longer than 20,000
+characters, such as minified code, are not highlighted, and only the part of a line that is on
+screen is drawn, so even a large file written on a single line edits without delay. Alt-Shift-F lays
+out a JSON file with one value per line, using the file's own indentation, in one step that Ctrl-Z
+undoes; JSON that does not parse is left as it is, and the status line says where parsing stopped.
 
 The editor asks its questions in dialogs over the text: Tab moves between fields and buttons,
 Enter confirms the selected one, Esc cancels, and you can click any of them. Ctrl-F or F7 finds
@@ -868,17 +1707,82 @@ each panel editor with unsaved changes. Quick view and file information need the
 they wait until its editor is closed. An editor opened beside results gives the focus back to them
 when it closes, and brings back the quick view or file information they showed.
 
-The viewer and the editor find text the same way. In the viewer, `/`, F7, or Ctrl-F opens a find
-bar in the status line; in the editor, Ctrl-F or F7 does. Borg searches as you type, starting from
-where the bar opened: every match on the screen is marked, the current one stands out, and the bar
-counts them (3 of 17). Enter, Down, or F3 goes to the next match, and Shift-Enter, Up, or Shift-F3
-to the previous one; after the last match, the search continues from the other end and says so.
-Alt-C matches case exactly (otherwise a lowercase query matches any case), Alt-W matches whole
-words, and Alt-R reads the query as a regular expression; you can click the switches too. Ctrl-P
-and Ctrl-N bring back recent queries. Esc closes the bar; after that, `n` and `N` in the viewer,
-or F3 and Shift-F3 in the editor, step through the matches. In a large file, the viewer searches
-in the background, shows how far it has got, and stops when you press Esc. It counts matches in
-files up to 64 MiB, up to 10,000 of them.
+The viewer, the quick view, and the editor find text the same way. In the viewer, `/`, F7, or Ctrl-F
+opens a find bar in the status line, and in the quick view, once Tab moved into it, the same keys
+open it on the bottom row; in the editor, Ctrl-F or F7 does. Borg searches as you type, starting
+from where the bar opened: every match on the screen is marked, the current one stands out, and the
+bar counts them (3 of 17). Enter, Down, or F3 goes to the next match, and Shift-Enter, Up, or
+Shift-F3 to the previous one; after the last match, the search continues from the other end and says
+so. Alt-C matches case exactly (otherwise a lowercase query matches any case), Alt-W matches whole
+words, and Alt-R reads the query as a regular expression; you can click the switches too. Ctrl-P and
+Ctrl-N bring back recent queries. Esc closes the bar; after that, `n` and `N` in the viewer and the
+quick view, or F3 and Shift-F3 in the editor, step through the matches. In a large file, the viewer
+and the quick view search in the background, show how far they have got, and stop when you press
+Esc. Borg counts matches in files up to 64 MiB, up to 10,000 of them.
+
+### Encrypted files
+
+Borg opens text files encrypted with a password in two formats: [age](https://age-encryption.org),
+whose files usually end in `.age`, and Paranoia Text Encryption, a format for encrypted notes. F3,
+F4 or Alt-E on such a file opens the **Encrypted file** dialog, which asks for the password and
+hides what you type. Borg decrypts the file in memory and never writes the text to disk. A wrong
+password asks again, and Esc leaves the file closed. The quick view names the format and does not
+ask. While the text is on the screen, agents that look at Borg's screen get a note instead.
+
+The viewer shows the text as the file's name without `.age` would show, so `notes.md.age` reads as
+Markdown. In the editor, F2 or Ctrl-S encrypts the text again before writing the file, with the same
+password and format, and the status line says **Saved, encrypted with age**. An age file written as
+text lines, which age calls armored, stays that way. Borg forgets the password once the file is
+decrypted, and keeps the key it needs for saving only while the editor has the file open. Borg fills
+every block of memory it frees with zeros, so the password and the text do not stay behind in memory
+once Borg is done with them.
+
+Borg decrypts up to 256 KiB of text, and the editor saves no more than that. A file that holds more
+says so, and a very large one opens as it is, showing its encrypted bytes. An age file whose work
+factor needs more memory than half of what is free does not open; Borg reads work factors up to 22,
+which need 4 GiB. A file encrypted for an age key says that a password cannot open it.
+
+### Vaults
+
+A vault keeps a folder of sensitive files, such as medical or financial papers, encrypted on disk
+and opens it only while you need it. Borg drives [gocryptfs](https://github.com/rfjakob/gocryptfs)
+for this. The vault's folder holds one encrypted file for each file inside, so it syncs and backs up
+like any other folder, and gocryptfs opens it on Linux and macOS alike.
+
+**Create vault…** in the Encryption menu asks for the new vault's name and then for its password
+twice, in fields that hide what you type. Borg makes the vault in the active panel's folder, opens
+it, and shows its **Recovery key**: eight groups of hex digits that open the vault if you forget the
+password. Before it shows the key, Borg opens the new vault with it once to make sure the key works.
+Borg shows the key only this once: write it down, then type its last group and press Enter to close
+it. While the key shows, agents that look at Borg's screen get a note instead. Borg creates vaults
+only in this computer's folders.
+
+Enter on a vault, a folder with `gocryptfs.conf` in it, opens the **Vault** dialog, which asks for
+the password and hides what you type. A wrong password asks again, and Esc leaves the vault closed.
+An open vault shows its files from its top, and the panel's title names the vault with ▦. Every
+program can use those files while the vault is open: open a spreadsheet in its app, copy a picture
+out, or run commands on them in the shell. `..` at the top of the vault returns to the folder that
+holds it and leaves the vault open, so Enter on it goes straight back in.
+
+**Close vault** in the Encryption menu closes the vault the active panel shows, and every panel
+inside it returns to the folder that holds it. While a program still has a file open in the vault,
+the vault stays open and Borg says so. An open vault closes itself after 15 minutes without use,
+even after Borg quits. Set `vault-idle-minutes` in the config to change the time, or to `0` to keep
+vaults open until you close them.
+
+Borg shows each open vault from a folder in its runtime folder (see [Borg's files](#borgs-files)),
+which only you can enter. A vault protects its files while it is closed. While it is open, every
+program that runs as you can read them. To open a vault with its recovery key instead of the
+password, run `gocryptfs -masterkey=stdin` with the vault's folder and an empty folder to show it
+in, and type the key.
+
+Vaults need gocryptfs and FUSE. Creating a vault needs gocryptfs 2.5 or newer, the first version
+that keeps the recovery key Borg gives it; older versions, such as the one in Debian 12, still open
+vaults. When gocryptfs is missing on Linux, Enter on a vault offers to install it, and the
+**Install gocryptfs** dialog works like the one for tcpdump in [Capturing traffic](#capturing-traffic).
+Inside a container, a vault also needs `/dev/fuse` from the host. On a Mac, vaults need
+[macFUSE](https://github.com/macfuse/macfuse) and gocryptfs, which you install as their pages
+describe.
 
 ## Configuration
 
@@ -893,6 +1797,12 @@ changes the guide's language separately.
 Settings are saved in `~/.config/borg-commander/config.toml`, or in the folder set by
 `$XDG_CONFIG_HOME` or `$BORG_CONFIG_DIR`. F9 → Options → Settings shows them as checkboxes; Space
 or a click toggles a setting and saves it right away. Esc closes the window.
+Borg reads the file setting by setting. A setting it does not have, or a value it cannot use, costs
+only that setting: Borg says which line it is when it starts and uses its default there. When Borg
+saves a setting it changes that one and keeps the rest of the file, with your comments, as you wrote
+it. A setting from an older version is read as what replaced it and leaves the file at the next
+save. A file that is not TOML at all starts Borg on its defaults, and the first setting you then
+save keeps that file beside the new one as `config-unreadable.toml`.
 
 ```toml
 theme = "neon"              # midnight, aurora, neon, classic, paper, ember, or your own
@@ -900,12 +1810,15 @@ icon-style = "auto"         # auto, nerd, or portable; auto finds rich icons whe
 icon-spacing = 1            # spaces after an icon, 1 to 3
 status-line = true
 menu-bar = false            # keep the menu bar visible
-show-hidden = false
+show-hidden = true
 return-to-panels = true    # return after commands launched from the panels
 restore-terminal = false    # bring back the shell scrollback on the next start
 screensaver = true          # one of five animations, picked at random
 screensaver-after = 300     # seconds of idle time
-update-check = true         # look for a new release once a day
+vault-idle-minutes = 15     # close an unused vault after this long; 0 keeps it open
+job-notifications = true    # notes in the corner when a job starts, ends or asks
+update-check = true         # offer a new release once a day
+start-service = true        # start the background service when Borg opens
 graphics = "auto"           # auto, kitty, sixel, iterm or off
 relay = "wss://relay.example.com"  # the relay for borg cloud
 
@@ -914,7 +1827,7 @@ git = true
 system = true
 docker = true
 docker-console = true       # the command line follows container panels into the container
-agent-log = true            # log what Claude does while Borg runs
+agent-log = true            # keep a log of what agents do in each session
 agent-cloud = true          # paired computers reach this borg through borg cloud
 agent-ask-reads = false     # reads from another computer wait for approval
 
@@ -923,6 +1836,7 @@ exclude = ["*.min.js", "fixtures/large"]  # paths below the search folder, as in
 artifacts = true            # leave out node_modules, Cargo's target and cache-tagged folders
 ignore-files = true         # follow .gitignore, .ignore, .rgignore and .borgignore
 history = true              # remember searches for Ctrl-P and Ctrl-N
+typos = true                # also find names with typos and shuffled digits
 
 [index]
 roots = ["~/Projects"]      # folders indexed for instant search
@@ -931,6 +1845,26 @@ refresh-minutes = 15        # rebuild an index once it is this old
 [folders]
 hotlist = ["~/Projects", "/srv/www"]  # pinned with Ctrl-\ and Insert
 history = true              # remember the folders the panels open
+
+[network]
+proxy-ca = "~/dev-ca"       # the CA folder for captures through Borg's proxy
+keep-free-mib = 1024        # stop captures before the disk has less than this free
+
+[watch]
+on = false                  # watch what starts, in the background service
+freeze = false              # stop a process a rule is sure about
+learning-days = 7           # learn what is normal here before freezing anything, 365 at most
+alerts-per-minute = 20      # processes written about before Borg only counts them
+freezes-per-minute = 5
+keep-running = ["backup-agent"]  # programs Borg never freezes
+
+[[watch.allow]]
+program = "/bin/sh"         # allowed starts: program, parent, user, or any of them together
+parent = "nginx"
+
+[watch.notify.telegram]     # send alerts as they happen, see Alerts off the machine
+token = "123456:ABC"
+chat = "123456789"
 ```
 
 In a local terminal with true color, Borg starts with a short glitch animation of its logo; any
@@ -941,17 +1875,8 @@ After `screensaver-after` seconds without input, Borg shows one of five screensa
 random: a cube spinning in a starfield, the glitching logo, a clock in the logo's block letters
 that tears apart as each minute turns, the logo swirling out into a spiral galaxy and back, or
 the logo rebuilt plank by plank while the old planks gather into a second logo below it. Any key
-or click brings the panels back, and that key does nothing else.
-
-Panel folders, cursor positions, the split, listing modes, and sorting are saved in
-`~/.local/state/borg-commander`, or in the folder set by `$XDG_STATE_HOME` or `$BORG_STATE_DIR`.
-
-While it runs, Borg keeps its shell integration scripts and files copied out of containers in
-`$XDG_RUNTIME_DIR/borg-commander`, or in `borg-commander-<uid>` in the temporary folder. Only you
-can open this folder; if one already exists that someone else created, or that other users can
-enter, Borg skips it and uses a new name. Its `TTL` file starts with the time until which the
-folder is in use: every running borg pushes that time a day ahead each hour, so once it has
-passed, the folder can be deleted.
+or click brings the panels back, and that key does nothing else. An agent's approval ends the
+screensaver by itself, so it never waits behind one.
 
 Custom themes go in `~/.config/borg-commander/themes/`. A theme can extend a built-in one:
 
@@ -963,6 +1888,69 @@ extends = "neon"
 cursor = { fg = "#0b0b16", bg = "#00e5ff", bold = true }
 dir = { fg = "#b388ff", bold = true }
 ```
+
+### Borg's files
+
+Panel folders, cursor positions, the split, listing modes, and sorting are saved in the state
+folder, `~/.local/state/borg-commander`, or in the folder set by `$XDG_STATE_HOME` or
+`$BORG_STATE_DIR`.
+
+While it runs, Borg keeps its shell integration scripts, files copied out of containers and the
+folders that show open vaults in its runtime folder, `$XDG_RUNTIME_DIR/borg-commander`, or
+`borg-commander-<uid>` in the temporary folder. Only you can open this folder; if one already exists
+that someone else created, or that other users can enter, Borg skips it and uses a new name. Its
+`TTL` file starts with the time until which the folder is in use: every running borg pushes that
+time a day ahead each hour, so once it has passed, the folder can be deleted.
+
+**F9 → Options → Borg's files…** shows every place Borg keeps files, how much each one holds, and
+where it is:
+
+- **Temporary files**: shell integration scripts, folder requests from the shell, copies out of
+  containers, remote previews, files unpacked from archives for the viewer and the editor, and the
+  certificates of a capture's proxy, in the runtime folder.
+- **Sockets**: where agents and mirrors reach running sessions, in `/tmp/borg-<uid>-default`, or
+  in a `/tmp/borg-<uid>-` folder named after the runtime folder when `$XDG_RUNTIME_DIR` is set.
+- **Caches**: folder sizes and name indexes, in the cache folder (see
+  [Saved size scans](#saved-size-scans)).
+- **Sessions and history**: sessions, shell output, the remote log, search and folder history,
+  collections, paired computers with their keys, what Borg learned about your drives
+  (`drives.json`), the network neighbors it remembers (`neighbors.json`) and the last 10 port scans
+  of each host (`port-scans.json`), in the state folder.
+- **Settings**: `config.toml` and your themes.
+- **Captures**: the traffic captures Borg saved, wherever they are.
+
+Up and Down choose a row, and a short note under the list says what the chosen place holds and
+how long it stays. Enter opens the place's folder in the active panel. Esc closes the window.
+
+Borg cleans up after itself 30 seconds after it starts and then every hour. It only removes
+names it makes itself, and never anything that changed in the last 10 minutes, so a Borg that is
+still starting up keeps what it made. Its sizes and cleanups stay out of every folder another file
+system is mounted on, such as an open vault. This is what goes:
+
+- Folders of other Borg versions in the runtime folder, once no Borg runs from them, and either
+  no Borg was running when this one started or nothing in them changed for 3 days.
+- Folder requests, half-written files, remote console folders and capture proxy certificates of
+  Borg processes that ended.
+- Copies out of containers, remote previews and files unpacked from archives for the viewer and
+  the editor, once they are older than a day.
+- Sockets nobody answers on, and socket folders where nothing answers any more.
+- Size scans in the format of Borg 0.4 and 0.5, scans the cache no longer lists, and name indexes
+  of folders that are no longer indexed.
+- Runtime folders that older Borgs left open to other users, once nothing in them changed for
+  3 days.
+
+Sessions, history, settings and captures stay until you delete them. The line under the note says
+how much is left over right now and what the last cleanup removed. F8 removes what is left over
+after asking. The question lists the folders it comes from and starts on **No**, so press Y to
+remove them.
+
+Each capture Borg saves goes on a list of the 1,000 newest. The window shows the ones still on
+disk under **Captures Borg saved**, with their size and date, and **with keys** when a `.keylog`
+file of the same name sits beside one. Enter on a capture opens its folder with the cursor on the
+file, so F8 there deletes it. Captures saved before Borg started keeping this list are not on it.
+
+`borg storage` prints the same places in the terminal and says what is left over, and
+`borg storage clean` removes it.
 
 To build, test, or contribute, see [Development](../DEVELOPMENT.md).
 
@@ -985,10 +1973,33 @@ on one side and a preview of the selected region's bytes on the other. **Esc** c
 it is open and stops when you close it. Sampling pauses while a memory inspection runs and
 resumes when the result arrives.
 
+The top of the process list sums up the system. Each core has a bar and a percentage. Under the
+cores, the **CPU**, **Load**, **RAM** and **Swap** bars stand beside **Processes**, **Up** and
+**Disk**: the number of processes, how long the system has been running, and what the disks read and
+write per second. **Load** is how much work wanted a core over the last minute, as a share of all
+the cores, so at 100% every core had work. The word after it compares the last minute with the last
+15 minutes: **rising**, **falling** or **steady**. Above 100% the cores cannot keep up: the bar
+turns to the warning color and says about how many processes wait for a core, such as
+**~7 waiting**. On Linux, **Threads** counts threads and how many of them are running, a **Disk**
+bar shows how busy the busiest disk was, and processes waiting for a disk count toward the load. On
+macOS the summary leaves out the threads and the disk bar. In a narrow pane the figures go under the
+bars. With many cores, or in a short pane, the cores turn into a strip labeled **Cores** with one
+cell per core. The summary takes at most a third of the pane's height. When it does not fit even
+without the cores, when the pane is narrower than 30 columns, or when **S** hides it, a single line
+shows CPU, RAM, swap and the number of processes instead. While the cores cannot keep up, that line
+ends with the waiting count. **S** shows the summary again.
+
 The list shows CPU, resident memory, memory growth, and disk read and write rates. CPU 100% means
 one fully busy core. Resident pages shared between processes count toward each of them, so adding
 up the RAM of all processes does not give the system total. CPU and disk rates appear from the
 second sample on.
+
+CPU is an average of the last few seconds in which older use fades out, as in `top`, so a list
+sorted by CPU holds still while a process works in short bursts. The overview, the system CPU
+and each core's bar at the top of the monitor are averaged the same way. **H** hides the
+processes that used no CPU in that time, and the filter row says how many are hidden. A process
+that goes quiet stays listed until its average falls to 0.0. In the tree, the processes a busy one
+descends from stay listed with it. Press H again to show them all.
 
 | Key | Action |
 | --- | --- |
@@ -997,11 +2008,37 @@ second sample on.
 | C / M / G / N / P | Sort by CPU / RAM / growth / name / PID; press again to reverse |
 | I / O | Sort by read / write rate |
 | T | Show or hide the process tree |
-| K | Send a signal or change the priority |
+| H | Hide or show the processes that used no CPU in the last few seconds |
+| S | Hide or show the system summary |
+| Left / Right | In the tree, fold the selected process's branch or unfold it |
+| K | Send a signal or change the priority, also from the process window |
+| E | Scan every process for high entropy |
 | Alt-N | Show the selected process's traffic on the network screen |
+| Alt-O | Open the folder of the selected program beside the list |
 | Space | Pause or resume sampling |
 | R | Refresh the current view |
 | Esc | Go back; in the process list, close the monitor or return to the network screen |
+
+The filter keeps the processes that match every word you type. A word matches a process whose name
+contains it, ignoring case. A number also matches the process with exactly that PID, so `41` keeps
+PID 41 and a program named `x41`, while PID 410 and PID 3415 drop out. When the number is the PID of
+a listed process, the cursor moves to it as you type.
+
+**Alt-O** opens the folder of the selected process's program in the other pane, with the cursor on
+the program, and the files take the keys. The list keeps its filter, its order and the process you
+selected. **Tab** moves the keys between the list and the files, and Alt-O on another row moves the
+files there. In those files you can view, edit, delete, compress, extract, and make folders. Copies
+and moves need the other panel, so they wait until the monitor closes. **Esc** in the list, or
+**Alt-M**, brings the overview back, and Alt-M again closes the monitor. In the open files and the
+memory map, Alt-O shows the selected open file or the file the region maps. When the program was
+deleted while it runs, its folder opens with a notice. A notice also tells you when the file is not
+in its folder on this computer, as happens for a program that runs inside a container. Alerts,
+startup items and the Docker view work the same way.
+
+Every screen keeps its filter when you close it and shows it again when it opens. To clear a
+filter, press **/** and then **Esc**. A click on the filter row starts typing in it. While you type,
+a click on a column heading or a tab, or a double-click on a row, does what it does at other times
+and keeps the filter.
 
 Click a column heading to sort, and double-click a process to open its memory map. The overview
 shows current resident memory, the highest value seen, the change since monitoring started, CPU,
@@ -1010,10 +2047,21 @@ swapped, private, and shared totals appear once the memory map has been read, if
 reports them. **Enter** in the memory pane opens the memory map. The memory map is read when you
 ask for it; press R to read it again after the process changes its mappings.
 
+Below the chart, **Process tree** lists the processes the selected one descends from, the process
+itself, and everything it started, each indented under the one that started it and shown with its
+resident memory. When they do not all fit, the last line says how many are left out.
+
+In the tree that **T** shows, each process is listed under the one that started it, and **▾** marks
+a process with others under it. **Left** folds the selected process's branch; on a process with
+nothing under it, Left folds the branch it belongs to and selects the process that started it.
+**Right** unfolds a folded branch, and on an open one steps to the first process in it. A folded
+process shows **▸** and how many processes it hides. A branch stays folded until its process ends.
+While a filter applies, the list is flat.
+
 ### Signals and priority
 
-K opens **Signal or priority** for the selected process. Press a choice's letter, or move to it
-and press Enter. Esc closes the dialog and sends nothing.
+K opens **Signal or priority** for the selected process, in the list and in its process window
+with the memory map or open files. Press a choice's letter, or move to it and press Enter. Esc closes the dialog and sends nothing.
 
 | Key | Choice | What it does |
 | --- | --- | --- |
@@ -1033,7 +2081,7 @@ shows its **Nice** value when it is not 0.
 
 You can signal your own processes and lower their priority. The system refuses the rest: another
 user's process, and raising a priority, which only an administrator may do. Borg then offers
-**A: Administrator**, which sends the same choice through the helper described under
+**A Administrator**, which sends the same choice through the helper described under
 [Administrator access](#administrator-access). Borg sends no signals to itself; F10 quits it.
 
 ### Memory map
@@ -1070,13 +2118,14 @@ permissions and leaves the process's descriptor alone.
 
 ### Region preview
 
-When you select a readable region, Borg captures up to 64 KiB of it in the other pane. If the
-start of the region holds only zeros, the capture skips ahead to the first page with data, and
-the line above the bytes says where in the region the window is. When you move quickly, Borg
-waits a moment before reading; selecting another region clears the old preview and cancels its
-pending read. Regions that cannot be read show a message instead. Press **Tab** or **Enter** to
-scroll the preview. **Esc** there goes back to the list, and **Esc** in the map goes back to the
-process list with its cursor and filter as they were.
+When you select a readable region, Borg captures up to 64 KiB of it in the other pane. If the start
+of the region holds only zeros, the capture skips ahead to the first page with data, and the line
+above the bytes says where in the region the window is. Each row starts with its offset from the
+start of the region, and a wide pane shows more bytes on a row. When you move quickly, Borg waits a
+moment before reading; selecting another region clears the old preview and cancels its pending read.
+Regions that cannot be read show a message instead. Press **Tab** or **Enter** to scroll the
+preview. **Esc** there goes back to the list, and **Esc** in the map goes back to the process list
+with its cursor and filter as they were.
 
 Runs of zero rows collapse into a single row, such as "· 60K zero bytes ·". **]** and **[** jump
 to the next and previous block of data, and **>** and **<** capture the next and previous 64 KiB
@@ -1097,11 +2146,20 @@ system which pages are in memory and does not read the rest, so it neither bring
 back nor touches new ones; on macOS, pages that were never touched read as zeros. Kinds are
 guessed from the bytes alone, so treat them as a hint.
 
+Pages whose entropy reaches 7.2 bits per byte are drawn in bold red, or bold alone where red would
+be hard to read, whatever their kind. Packed or encrypted code stands out that way in an
+executable region, where Borg counts every page that is not zeros or filler as code. The legend
+gives their share as **high entropy**, the cursor's line adds the entropy of the page under it, and
+the same line ends with the highest entropy in the region. A note under the legend says what high and low entropy usually
+mean. Compressed caches, images, archives and keys are high too, so look at what the region holds
+before you suspect it.
+
 ### Memory search
 
 Press **/** in the memory pane, or **Ctrl-F** in either pane, to search memory. Choose a mode,
 whether case must match, and whether to search the process's readable memory or the current
-capture. **Text** searches UTF-8, UTF-16 (both byte orders), and UTF-32 (both byte orders).
+capture. The form opens with what it held when you last closed it. **Text** searches UTF-8,
+UTF-16 (both byte orders), and UTF-32 (both byte orders).
 **Unicode** also normalizes compatibility characters and combining sequences: for example,
 `𝐁𝐨𝐫𝐠` matches `Borg`. It does not treat different letters as equal just because they look
 alike. **Hex** takes byte pairs such as `42 6F 72 67`.
@@ -1154,21 +2212,110 @@ and says if it stopped early.
 On Linux, the page tables show which code pages a process has changed, so only those are read;
 on macOS, regions without modified pages are not read either. Code in the macOS shared cache has
 no file of its own and is not compared. Memory a check cannot read is counted, and Borg offers
-**A: Administrator**. Treat findings as leads, because debuggers, profilers, updaters, and
+**A Administrator**. Treat findings as leads, because debuggers, profilers, updaters, and
 security tools leave the same traces.
+
+### Scanning memory with rules
+
+**Y**, in the memory map or among search matches, scans the memory the process filled in itself
+with the same rules as a file scan: Borg's and those in your rules folder (see
+[Scanning files with rules](#scanning-files-with-rules)). Like **Strings**, it reads memory not
+backed by a file and memory the process may write to; on macOS, regions it never wrote to are
+skipped too. A region with no page in memory or in swap is not read, and on Linux the page tables
+show which pages the process never touched, so those are not read either. Swapped pages are read,
+since a payload can wait there. Memory is read in pieces of 16 MiB that
+overlap by 4 KiB, so a match that crosses from one piece into the next is still found. Each rule
+is listed once per region, at its first match.
+
+Matches take the list pane, with alerts first. Each one names the rule and where it comes from,
+**Borg's rules** or your file, then the bytes it matched and what the rule looks for, and the rows
+below the list say what else could explain it. Selecting a match previews the bytes around it with
+the match highlighted. Rule files left out come last, with the compiler's message. **R** scans
+again, **Ctrl-C** stops the scan and keeps what it found, and **Esc** goes back. A scan reads at
+most 1 GiB, for up to 45 seconds, lists up to 2,000 matches, and says if it stopped early. Memory
+it cannot read is counted, and Borg offers **A Administrator**, which runs the scan in the helper
+with your rules folder.
+
+A rule scan is triage: a quick look at one process or folder for patterns someone has described.
+It does not watch the system, block anything or clean up, which is what endpoint protection is
+for. Some things stay out of its reach:
+
+- macOS keeps the memory of its own programs and of programs built with the Hardened Runtime from
+  every other program, administrators included (see [Administrator access](#administrator-access)).
+- On Linux, `kernel.yama.ptrace_scope` decides whose memory you may read. At 1, as on Ubuntu, you
+  may read only your own child processes, so Borg offers **A Administrator** for the rest. At 3, nobody may read another process, administrators
+  included.
+- A kernel rootkit can hide memory, files and processes from every program, Borg included, so a
+  clean scan proves little.
+- A packed or encrypted program shows its real code only while it runs. Scanning its memory then
+  sees what a scan of its file cannot.
+
+Borg reads memory without attaching as a debugger, with `process_vm_readv` on Linux and
+`mach_vm_read` on macOS, so the process sees no tracer, which is what most anti-debugging checks
+look for.
+Monitors that run as administrator, such as auditd, eBPF tools and macOS Endpoint Security
+clients, can still log the reads. A file scan opens every file it reads, which `inotify` and
+`fanotify` report. On Linux, it leaves the access time of the files you own as it was.
+
+### Entropy scan of every process
+
+**E** in the process list opens **Entropy scan**, which reads sampled pages of every process for
+bytes as dense as packed code. Press a choice's letter, or move to it and press Enter. Esc closes
+the dialog.
+
+| Key | Choice | What it reads |
+| --- | --- | --- |
+| C | **Code of all processes** | The executable regions, where packed or encrypted code shows |
+| M | **All memory of all processes** | Every readable region, so data such as keys and compressed files too |
+| L | **Last results** | Nothing new: it shows the hits of the last scan again |
+
+Borg reads up to 1,024 pages of 4 KiB from a region and 32,768 from a process, spread evenly. A
+process with many regions gets fewer from each, but never fewer than 16. A region with at least
+one page of 7.2 bits per byte or more is a hit. Hits take the list pane: code first, then memory
+the process wrote, then files mapped as they are on disk, and within each the region with the
+larger share of high pages first. Code with 70% or more of its pages high stands out in bold, by
+the same rule as the search for [packed executables](#finding-packed-executables). Each row gives
+the kind (**code**, **written** or **file**), that share with the highest entropy, and the process
+name, PID and region. The other pane shows the region's addresses, size and access, how many
+sampled pages are high, where the first of them starts, and what such bytes usually are. The
+2,000 strongest hits are kept, and the summary counts the weaker ones left out.
+
+**Enter** on a hit opens the process's memory map at that region, with the page map on and its
+cursor on the first dense page sampled, so you can look at the bytes around it. **Esc** goes back
+to the map, and again to the hits.
+
+Borg reads 4 processes at once. A region with no page in memory or in swap is not read, and on
+Linux the page tables show which pages are in memory, so the scan neither touches new pages nor
+brings swapped ones back. Caches every process maps alike are left out: the dyld shared cache on
+macOS, and the pages the kernel maps into every process on Linux. A file mapped unchanged, such
+as a shared library, is read in the first process that maps it only.
+
+A scan stops after 90 seconds and leaves the rest for **N**, which goes on with the processes it
+did not reach. **Ctrl-C** stops it sooner and keeps the hits, and **R** scans again from the
+start. Above the hits, one line counts the processes scanned and the hits, and the next the
+processes left out: unreadable, protected and not reached. On macOS, vmmap takes a few
+seconds to list a process's regions, so a scan of every process can take a few rounds of **N**.
+
+Processes whose memory macOS protects are counted and skipped, since nobody can read them. For
+the processes Borg could not read, it offers **A Administrator**, which scans them in the helper
+for at most 60 seconds, so the helper finishes within its 2-minute limit even after a slow
+password prompt. Dense bytes are common: compressed caches, images, fonts and keys are high by
+nature, so treat hits as leads and read the details before you suspect a process.
 
 ### Administrator access
 
 When reading a memory map or a capture is restricted, a search could not read part of the
-memory, or the system refuses a signal or priority change, Borg offers **A: Administrator**. On macOS this opens the system's authorization prompt;
+memory, an entropy scan could not read some processes, or the system refuses a signal or priority
+change, Borg offers **A Administrator**. On macOS this opens the system's authorization prompt;
 on Linux it uses `pkexec` and needs an authorization agent to be running. Only a short-lived
 helper runs with elevated rights. Borg itself keeps running normally, and the helper only returns
-map data or a limited number of bytes, or sends the one signal or priority you chose.
+map data, a limited number of bytes or the hits of a scan, or sends the one signal or priority
+you chose.
 
 macOS shields the memory of its own programs (System Integrity Protection) and of programs built
 with the Hardened Runtime from every other program, administrators included. Borg reads this from
 the program's signature: the process details say **Memory protected**, a refused read explains
-why, and **A: Administrator** is not offered, since it cannot help. Their memory maps and open
+why, and **A Administrator** is not offered, since it cannot help. Their memory maps and open
 files are still shown. It is not offered either when Borg already runs as administrator. On
 Linux, security policy can still deny access; Borg shows the error and the process monitor keeps
 working as usual.
@@ -1178,17 +2325,339 @@ not inherit another process's history. Memory maps, inspection results, captures
 all have size limits. The Borg Commander name stays visible in the bottom-right corner
 everywhere, including the console, viewer, monitor, dialogs, and screensaver.
 
+### Alerts
+
+Borg can watch what starts on a machine and tell you when something looks wrong. Turn on **Watch:
+unusual process starts** in the Command menu or in F9 → Options → Plugins. The watcher lives in the background service
+that all your Borgs on the machine share, so every Borg reads the same alerts. That service runs
+while a Borg is open. To keep watching with no terminal open, start the service at boot as
+[Named sessions and the background service](#named-sessions-and-the-background-service) describes.
+
+Alerts stay on that machine until you name a place to send them, and the page says so while they
+do (see [Alerts off the machine](#alerts-off-the-machine)).
+
+**Alt-L** or **Command → Alerts** opens the page. The list takes the active pane, newest alert
+first, and the other pane shows the selected alert in full. Each row shows the time, the rule that
+fired, the program, the parent that started it, the user it ran as, and what has become of the
+process. The line above the list counts the alerts and how many nobody has read yet.
+
+The details say in one sentence why the rule fired, then the command, the program, the parent, the
+user, what the standard streams led to, and where the process stands now. Under **Process tree**
+each parent appears above its child, so you can read the path from a service down to the command
+that worries you. **Connections** lists the sockets the process held at that moment, **Program
+hash** is the SHA-256 of its program, and **Rules** shows what Borg's rules and yours matched in
+that program (see [Scanning files with rules](#scanning-files-with-rules)).
+
+A command longer than 2 KiB keeps its start and its end, 2 KiB together, with `…` between them. The
+commands of its parents and the values of its preload variables are cut the same way. That keeps the
+newest 200 alerts inside the log however long their commands run, and a long first argument cannot
+push the end of a command out of view. Ctrl-C copies the command as the log keeps it.
+
+| Key | Action |
+| --- | --- |
+| Enter | Show the process in the activity monitor |
+| C | Let a frozen process go on running |
+| K | End the process, after a question |
+| A | Allow starts like this one from now on |
+| Alt-O | Open the folder of the alert's program beside the list |
+| `/` | Filter the rows; ↑↓ still move, Enter keeps the filter, Esc clears it |
+| R | Read the log again |
+| Ctrl-C | Copy the command the process ran |
+| Alt-W | Maximize the list |
+| Esc | Close the page, which keeps its filter |
+
+The filter keeps the alerts that contain every word you type, in the rule, its short name, the
+reason, the program, the parent, the user, the command and what Borg did. Put `!` before a word to
+leave out what it matches: `shell-on-socket !root` keeps the remote shells of every other user.
+
+Alerts live in `alerts.json` in the state folder, owner-only, the newest 200 of them. An alert about
+a process that is still frozen stays beyond that, so you can always let it go on or kill it. Borg keeps
+the file within 8 MiB, the most it reads back, and leaves out the oldest alerts when they would not
+fit. The **Borg's files** window counts them under **State** (see [Borg's files](#borgs-files)).
+Opening the page marks what it holds as read, and the count of unread alerts follows the log while
+Borg is open, whether or not the page is.
+
+When Borg finds an `alerts.json` it cannot read, such as one an older version let grow past 8 MiB,
+it renames the file to `alerts-unreadable.json` before it writes a new log, so the alerts in it
+stay on disk. A later one gets a numbered name such as `alerts-unreadable (2).json`. The Alerts page
+names the file below the list for as long as it is there, so delete it once you have looked
+through it.
+
+### What the watcher looks for
+
+Each rule names one thing that is odd about a process that has just started. The level says how
+much it means: **alert** is seldom innocent, **warning** often has an ordinary reason, **notice**
+is there so the picture is complete.
+
+| Rule | What fires it | Level |
+| --- | --- | --- |
+| **Shell on a network socket** | A shell whose input, output or errors go to a network socket, which is what a remote shell looks like. A socket that stays on the machine, such as the one `systemd` gives a service's output to the journal, does not count | alert |
+| **Remote shell on a terminal** | A shell on a terminal that a program opened for it, where that program's own input, output or errors go to a network socket, or the program is a relay such as `socat` or `nc`. That is a remote shell turned into a full terminal, as `pty.spawn` in Python makes one | alert |
+| **Program deleted while it runs** | The program's file is gone, so nothing on disk says what the process is | alert |
+| **Program with no file** | Borg can find no program file for the process at all | alert |
+| **Library forced into a program** | `LD_PRELOAD`, `LD_AUDIT` or `DYLD_INSERT_LIBRARIES` is set in its environment | alert |
+| **Shell from a service** | A web server, application runtime or database started a shell | warning |
+| **Shell without a terminal** | A shell with no terminal on either side, so nobody typed it | warning |
+| **Shell on a program's terminal** | A shell on a terminal that a program opened for itself and nobody logged in to, such as one that `expect` or `docker exec` opens | warning |
+| **Looking around the machine** | Four different commands such as `whoami`, `id`, `uname` and `ss` from one program within an hour, with nobody logged in to the terminal they run on. Commands it runs through one shell after another count together, so a web shell that starts `sh -c` for each command is caught too | warning |
+| **Program in a temporary folder** | The program lies under `/tmp`, `/var/tmp`, `/dev/shm` or `/run/shm` | warning |
+| **Name differs from the program** | The process calls itself one thing and runs another | warning |
+| **Parent never started it before** | This parent has never started this program on this machine | notice |
+
+For each process Borg reads the program it runs and whether its file was deleted, the command, the
+user, the terminal it belongs to and who opened it, what its standard input, output and errors lead
+to, the preload variables in its environment, and the chain of parents above it. A socket counts as
+a network socket when the process's network lists it as TCP or UDP.
+
+Whether somebody logged in to a terminal is decided the same way as for freezing (see
+[Freezing a process](#freezing-a-process)): over SSH, at the console, in `tmux` or `screen`, through
+`sudo` or `su`, or in a terminal window. A terminal that a program opened for itself does not count,
+whether an editor's remote server, `docker exec` or a reverse shell opened it.
+
+Borg learns the machine before it acts. For the first 7 days it records which parent starts which
+program here and freezes nothing, and the Response column says **Would freeze** where it would have.
+After that, a pair it has seen before stays quiet for the rules that can be learned: the three shell
+rules, the name that differs, and the parent that never started it. The run of commands is learned
+by the program it comes from: it stays quiet when that program ran each of its commands during the
+learning week, so a monitoring agent that runs `df` and `ps` all day stays quiet, while a web server
+that never ran `id` does not. The five alert-level rules fire every time, because a shell on a
+socket or a forced library never becomes normal by happening often. Whatever runs during that week counts as normal, so turn the watcher on
+while you trust the machine. Starts that a rule learning cannot quiet fired on stay out of what Borg
+learns.
+
+**A** on an alert allows starts like it from then on, by its program and its parent. Those
+allowances go in `watch-allowed.json` in the state folder, which the watcher reads and takes in
+within a minute. The `[watch]` section of the configuration holds the same thing by hand (see
+[Configuration](#configuration)). Borg writes down at most 20 processes a minute and freezes at most
+5, and the line above the list says how many findings it left out when more fired at once. A process
+Borg freezes is always written down, however many alerts came before it, so you can let it go on.
+Notices are counted apart, so a run of them never takes the room of a warning, and up to 20
+processes a minute that Borg would have frozen past its limit of 5 are written down too.
+
+### Freezing a process
+
+Freezing is off until you turn it on. Once it is on and the learning period is over, Borg freezes
+the process an alert-level or warning-level rule fired on. Freezing sends a stop signal to the
+process and everything below it. A frozen process has not exited, so its service keeps running,
+`systemd` and Docker have nothing to restart, and whatever it was about to do waits where it is
+until you look. The Response column says **Frozen**, and **C** lets it go on while **K** ends it.
+Killing is final, so Borg asks first.
+
+Borg starts freezing once you have seen every alert from the learning week that says **Would
+freeze**, or 3 days after the week ends, whichever comes first. Opening the Alerts page marks them
+read, and the watcher notices within a minute. That way you can check what the week caught and allow
+a harmless program with **A** before anything stops, and a machine nobody looks at is still
+protected. Until then, the page's footer says how long freezing waits, and the details of a new
+alert say that it is waiting.
+
+**Freeze: what the watcher catches**, below the watcher's checkbox in the Command menu and in
+Options → Plugins, turns freezing on and off. It sets `freeze` in the `[watch]` section, and the
+watcher takes the change in within a few seconds. Turned off, Borg still writes every alert down.
+While both are on, the entry shows where freezing stands: **learning** during the learning period,
+**waits for review** while Borg waits for you to see the week's alerts, and **active** once it
+freezes. Right after you turn freezing on, it can show **off** until the watcher takes the change in.
+
+Borg never freezes the system's first process, itself or anything it started, a program on the list
+it never freezes (`init`, `systemd`, `sshd`, `sudo`, `su`, `login` and the like, plus any name you
+add under `keep-running`), a process on a terminal somebody logged in to, or a start you have
+allowed. A notice never stops a program. The details say which of these kept a process running.
+
+A program on the built-in list is spared only where the system keeps its programs, such as `/usr`
+and `/bin`, so a copy named `sshd` in another folder is frozen like anything else. Names you add
+under `keep-running` match wherever the program lies. A terminal counts when somebody logged in to
+it: over SSH, at the console, in `tmux` or `screen`, through `sudo` or `su`, or in a terminal
+window. A terminal multiplexer counts only for root and for people's accounts, numbered from
+`UID_MIN` in `/etc/login.defs` (1000 on most systems), because a service account can start one too.
+A terminal that a program opened for itself does not count, which keeps a remote shell from hiding
+behind one. Terminals opened by an editor's remote server or by `docker exec` do not count either,
+so if Borg freezes something you ran there, **C** lets it go on and **A** allows it.
+
+Borg checks a process's identity, its number together with the moment it started, right before it
+signals it, so a number another process has taken in the meantime is left alone.
+
+### The watcher as root
+
+Without more rights, Borg hears only about its own user's processes, by looking at the process
+list four times a second, and the page says so under the list. A short command can be gone before
+the next look.
+
+To hear about every process the moment it starts, install the part that runs as root:
+
+```sh
+borg service watch install
+```
+
+This asks for your password once and installs a separate unit, `borg-commander-watch.service`, which
+runs `borg --watch-root`. That part loads Borg's own small programs into the kernel, which read each
+program start before the new program runs: the program, the command line exactly as it was passed,
+the process that started it and the user. A command that ends at once is still reported, and so is
+the command line of a process that rewrites it afterwards. The root part reads `/proc` for the rest,
+and stops, continues or ends a process when Borg asks. It does nothing else: the unit drops every
+capability it does not need, and Borg's own interface keeps running as you. The two sides talk over
+a socket in the state folder that only its owner can reach, Borg accepts a connection only from a
+process running as root, and the root part connects only to a socket that belongs to the user it was
+installed for. `borg service watch uninstall` removes it, and `borg service watch status` prints
+where the events come from and what has been found. The install and the status both warn while alerts
+have no place to go (see [Alerts off the machine](#alerts-off-the-machine)).
+
+The programs need Linux 5.8 or later. On an older kernel, or where the root part may not load them,
+it hears the kernel's process events and reads everything from `/proc`, and the page says so under
+the list. After updating Borg, run `borg service watch install` again, so the unit gets any rights
+the new version needs.
+
+Alerts from either side are the same alerts, in the same log. A process another user owns can be
+frozen only by the root part, so resuming or killing one from the page goes through the watcher in
+the service. When nothing can reach it, the page says only the owner or an administrator may do
+that.
+
+The watcher is a Linux feature for now. On macOS the page opens and reads its log, and the source
+says nothing is watching.
+
+### Alerts off the machine
+
+The Alerts page lives on the machine it watches, so whoever takes that machine over can delete the
+log. Send each alert somewhere else as it happens: a copy that has arrived is out of their reach,
+and a heartbeat tells you when the watcher goes quiet. Add `[watch.notify]` to the configuration on
+the server, with any of these places or several. Every address uses `https://`, or `http://` to the
+server itself:
+
+```toml
+[watch.notify]
+name = "web-01"             # how messages name this machine, its host name otherwise
+level = "warning"           # the least an alert needs to be sent: alert, warning or notice
+
+[watch.notify.telegram]
+token = "123456:ABC-your-bot-token"
+chat = "123456789"
+
+[watch.notify.ntfy]
+url = "https://ntfy.sh/a-long-random-topic"
+token = "tk_your_token"     # where the topic needs one
+
+[watch.notify.webhook]
+url = "https://example.com/borg"
+secret = "a long random string"
+
+[watch.notify.heartbeat]
+url = "https://hc-ping.com/your-check-id"
+minutes = 5
+```
+
+Then run `borg service watch notify`. It sends a test message to each place and prints what each
+one answered.
+
+- **Telegram**: create a bot with @BotFather, which gives you the token. Send the bot a message,
+  then open `https://api.telegram.org/bot<token>/getUpdates` and take `chat.id` from the answer.
+- **ntfy**: subscribe in the ntfy app to a topic with a long name nobody can guess, or to one on
+  your own ntfy server.
+- **Webhook**: Borg posts every message to the address as JSON. With `secret`, each request
+  carries `X-Borg-Signature: t=<time>,v1=<signature>`: the HMAC-SHA256, under the secret, of the
+  time, a dot and the body, so your receiver can tell Borg's messages from forged ones.
+  `X-Borg-Event` says what the message is: `alert`, `evidence` (the program's SHA-256 and rule
+  matches, which follow an alert once Borg has read the program), `started`, `armed` or `test`.
+- **Heartbeat**: Borg calls the address every `minutes` while the watcher runs and adds `/fail`
+  when something is wrong: the thread that hashes programs stopped, a place has not taken a
+  message for 30 minutes, Borg gave up on one, or Borg could not read its outbox. A service such as
+  healthchecks.io tells you when the calls stop, which is what happens when someone kills the
+  watcher.
+
+While no place takes alerts, they stay in the log on the machine, and Borg says so wherever you meet
+the watcher. The Alerts page shows **Alerts stay on this machine.** above the details of the
+selected alert, or in the last row of the list when the list is maximized. You get the same line
+when you turn the watcher on in Options → Plugins, from `borg service watch install` and
+`borg service watch status`, and in the service's output when the watcher starts. A heartbeat alone
+does not end the warning. It tells you that the watcher runs and carries no alerts, so add Telegram,
+ntfy or a webhook as well.
+
+The warning gets stronger when Borg is close to acting. From a day before the learning period ends
+it reads **Borg is about to freeze processes here, and nobody will be told.**, and once freezing has
+started, **Borg freezes processes here and nobody is told.** Borg still watches, learns and freezes
+without a place to send alerts, so set one up before the learning period ends on a machine you do
+not look at every day.
+
+The service sends each alert within seconds of writing it down, and also says when the watcher
+starts and when freezing begins. Notices stay on the page unless `level` is `notice`. A message a
+place refuses waits in `watch-outbox.json` in the state folder and is tried again, 5 seconds later
+at first and every 30 minutes at most. Borg keeps up to 500 waiting messages, fewer when long ones
+would take the file past 16 MiB, and tries each for 48 hours. The next message says how many it
+gave up on.
+
+A message carries at most 1,000 bytes of the command line, the program's path and the reason for
+the alert. A longer one keeps its start and its end with an ellipsis between them, so padding the
+start of a command cannot hide what it does.
+
+When Borg finds a `watch-outbox.json` it cannot read, it renames the file to
+`watch-outbox-unreadable.json` and starts a new outbox. A later one gets a numbered name such as
+`watch-outbox-unreadable (2).json`. The messages that were waiting stay in that file and are never
+sent, so the heartbeat fails once and says why, and each place's numbering starts again at 1. Look
+through the file, then delete it.
+
+Each place numbers its messages from 1, and every message's JSON carries the SHA-256 of the one
+before it in `previous`. A gap in the numbers, or a `previous` that does not match, means a message
+went missing or was changed on the way. The numbering happens on the server, so it cannot catch
+someone who controls the server.
+
+The tokens sit in the configuration, which anyone running as your user on the server can read. With
+them, someone can send messages that look like Borg's and carry the numbering on without a gap, and
+a Telegram bot can delete what it sent in the last 48 hours. Whoever takes over the server can also
+delete the messages still waiting to leave. What arrived before that stays as it was, and a webhook
+to a machine you control keeps it as it arrived. When the watcher goes quiet, the heartbeat is what
+tells you.
+
+### What the watcher cannot see
+
+The watcher judges each program as it starts, which leaves some things out of its sight. Know them
+before you rely on it.
+
+- Code that runs inside a program that is already running starts nothing new, so no rule looks at
+  it. A web application whose own interpreter is taken over keeps the name and parent it always had.
+- Processes running before the watcher started are never examined, and whatever runs during the
+  learning week counts as normal.
+- Without the root watcher, Borg sees only your own processes, and a command that ends within a
+  quarter of a second can be gone before Borg looks. Services that run as another user, such as
+  `www-data` or `postgres`, need the root watcher. When the root watcher stops, Borg goes back to
+  watching your own processes until it runs again.
+- Before Linux 5.8, or where the root part cannot load its programs, Borg reads each new process in
+  `/proc` after the kernel reports it. A command that ends at once can be gone by then, and a
+  process can change its command line first.
+- Some kernels send no process events, as on some virtual machines and container hosts. Borg running
+  as root and the root watcher then look at every process four times a second, and a short command
+  can be gone before they look.
+- A burst of new processes can fill the queue between the kernel and Borg, and the kernel then drops
+  events, so some starts are never looked at.
+- A command that ended before Borg could read `/proc` carries only what the programs read: its
+  program, command line, parent and user. Its terminal, standard streams and preload variables ended
+  with it, so the rules about them cannot fire. **Program deleted while it runs** fires on it only
+  when its file was already gone as it started, as for a program run from memory.
+- The programs keep the first 4 KiB of a command line, and Borg takes a longer one from `/proc`
+  while the process is still there. They find the command line and the program's file through the
+  type information the kernel publishes at `/sys/kernel/btf/vmlinux`. On a kernel built without it,
+  the command line comes from `/proc` as well. A command that ended first is then named by the path
+  it was started by, which can be relative to its working folder or lead through a symbolic link, so
+  **Program in a temporary folder** can miss it.
+- Anything running as the user the watcher runs as can stop the watcher, change its files in the
+  state folder, or let a frozen process go on with `kill -CONT`. Freezing buys you time to look, and
+  the process's owner can still undo it.
+- A process on a terminal somebody logged in to is never frozen, even when the login used a stolen
+  password or key. The rules still fire and write alerts.
+- **Looking around the machine** counts the commands of one program within an hour. Someone who
+  waits longer between commands, or runs each one from a different program, stays below it.
+- A process that detaches from its parent before Borg freezes the parent keeps running.
+- Without `[watch.notify]`, alerts reach you only when you open the page. With it, someone who
+  takes over the machine in the seconds after an alert can still stop the message before it
+  leaves, and then the heartbeat's silence is what tells you.
+
 ## Network
 
 **Alt-N** or **Command → Network** shows what this machine does on the network: the ports that
 are open and who can reach them, the processes that are talking and how fast, every connection,
-and the network interfaces. It comes from the bundled System plugin, like the activity monitor.
+the network interfaces, and the devices next to this machine on the local network. It comes from the bundled System plugin, like the activity monitor.
 The list takes the active pane, and the other pane shows the selected row in detail with charts
 of the last 60 seconds. Borg samples once a second while the screen is open and stops when you
 close it. Rates appear from the second sample on, and each one is the mean of the last 3 seconds,
 so a list sorted by traffic holds still long enough to read.
 
-Press **1** to **4**, or click a tab, to switch pages:
+Press **1** to **5**, or click a tab, to switch pages:
 
 - **1 Ports** lists every port a process listens on, sorted by port. **Reach** says who can
   connect: **All networks** for a port open on every address, the address for a port bound to
@@ -1205,6 +2674,10 @@ Press **1** to **4**, or click a tab, to switch pages:
   **Loopback**, **Tunnel**, **Bridge** or **Virtual**), first address, and rates. ● marks an
   interface that is up. The details add every address, the MTU, the bytes and packets the
   interface received and sent so far, and its errors.
+- **5 Neighbors** maps each interface, tunnel and VPN with the devices on its link, the networks
+  it reaches through routers, and its way to the internet. It lists each device's vendor, name and
+  state, and marks the gateway and anything suspicious. See [Neighbors](#neighbors),
+  [Routed networks](#routed-networks) and [Scanning ports](#scanning-ports).
 
 The footer shows the machine's total download and upload rate over every interface except
 loopback. Borg looks up the names of remote addresses in the background and shows a name in
@@ -1212,21 +2685,30 @@ place of the address once it is known.
 
 | Key | Action |
 | --- | --- |
-| 1 / 2 / 3 / 4 | Show Ports / Processes / Connections / Interfaces |
+| 1 / 2 / 3 / 4 / 5 | Show Ports / Processes / Connections / Interfaces / Neighbors |
 | `/` | Filter the rows; ↑↓ still move, Enter keeps the filter, Esc clears it |
-| T / N / P / C | Sort by traffic / name / port / connections; press again to reverse |
+| T / N / P / C / A / M | Sort by traffic / name / port / connections / address / MAC address; press again to reverse |
 | Enter | Show the selected row's process in the activity monitor |
 | K | Show the process with **Signal or priority** open |
 | R | Capture the selected row's traffic, or stop the capture that runs |
-| Ctrl-C | Copy the port's address, the PID, the other end, or the interface's address |
+| P | Scan the selected neighbor's ports (**5 Neighbors**) |
+| O | Show the selected neighbor's port scans (**5 Neighbors**) |
+| S | Scan the selected row's network, or another one you type (**5 Neighbors**) |
+| D | Look for networks behind the router internet traffic goes to (**5 Neighbors**) |
+| H | Listen for the neighbors that announce themselves, or stop listening (**5 Neighbors**) |
+| Ctrl-S | Save a report of every neighbor (**5 Neighbors**) |
+| F8 / Delete | Forget the selected host that is offline or that only listening heard, or a network Borg remembers (**5 Neighbors**) |
+| Ctrl-C | Copy the port's address, the PID, the other end, the interface's or neighbor's address, or the network |
 | Tab | Move between the list and the details |
 | Space | Pause or resume sampling |
 | Alt-W | Maximize the focused pane |
-| Esc | Go back to the list, then clear the filter, then close the screen or return to the activity monitor |
+| Esc | Go back to the list, stop a running scan, then close the screen or return to the activity monitor |
 
-P sorts the pages that have a port, and C the pages that count connections. Click a column
+P sorts the pages that have a port, C the pages that count connections, and A and M sort
+**5 Neighbors**, which has no traffic to sort by. Click a column
 heading to sort by it, and double-click a row to show its process. Enter on a row without a
-process moves into the details. The activity monitor that Enter and K open has the process
+process moves into the details. A row names a process and no program file, so Alt-O here tells you
+to press Enter and then Alt-O in the activity monitor. The activity monitor that Enter and K open has the process
 selected, so its memory, signals and priority are one key away (see
 [Signals and priority](#signals-and-priority)). Esc there brings you back to the network screen
 on the row you left, with its charts.
@@ -1235,10 +2717,318 @@ It works the other way too. Alt-N in the activity monitor opens this screen on t
 process's row of **2 Processes**, with its traffic and connections in the details, and Esc goes
 back to the monitor. A process without connections or open ports gets a notice that says so.
 
+### Neighbors
+
+**5 Neighbors** maps where this machine sits on the network and what it reaches from there. Each
+interface that is up and has an address beyond its own link gets a heading row with its name, kind
+and address. Tunnels and VPNs get one too, so a work VPN shows beside the Wi-Fi with the networks
+it leads to. Under each heading come the devices on the interface's link, then the networks the
+interface reaches through a router or a tunnel, each on a row that starts with › and followed by
+the hosts Borg found there, and last an **Internet** row when internet traffic can leave through
+the interface. [Routed networks](#routed-networks) explains those rows.
+
+The interface that internet traffic leaves through at the moment comes first, then the other
+interfaces with a way to the internet, then the Wi-Fi, Ethernet and bridge interfaces, then the
+tunnels. The cursor
+stops on the headings as well, and their details describe the interface, the network or the way
+out.
+
+The devices come from the system's ARP table (IPv4) and NDP table (IPv6): every device on the local
+network that this machine talked to lately, with its address, MAC address, name and state. The
+state is the system's own word for the entry: **REACHABLE** answered recently, **STALE** has not
+been checked for a while, **DELAY** and **PROBE** are being checked, **INCOMPLETE** asked and got
+no answer yet, **FAILED** never answered, and **PERMANENT** never expires. Under each heading, hosts
+that only answered a scan or that only listening heard come after the entries with a MAC address,
+then the remembered hosts that are offline, and entries without a MAC address sort last. This machine's own addresses, broadcast and multicast
+entries stay out of the list. A wide pane adds the vendor, the open ports and ping time a scan
+found, and a note.
+
+The vendor comes from the first half of the MAC address, looked up in the IEEE registry that ships
+with Borg, so `3c:2a:f4` reads as Brother Industries. Names come from the same background
+lookups as the other pages. Until a name arrives, or when an address has none, a narrow pane
+shows the vendor in the **Name** column. The footer names the default gateway and the DNS
+servers. Borg reads the tables every second while this page shows and every 5 seconds on the
+other pages.
+
+The **Note** column and the details flag what deserves a look:
+
+- **Gateway** marks the default gateway and every router the IPv6 table names.
+- **MAC shared** marks IPv4 addresses on one interface that answer with the same MAC address. A
+  router or a host with several addresses does that. So does a device that answers for others,
+  which is what ARP spoofing looks like.
+- **Gateway MAC changed** marks a gateway whose MAC address differs from the one Borg saw first.
+  A notice says so once, and the note stays until Borg quits. Another device
+  may be answering for the gateway. You also see it after joining another network whose gateway
+  has the same address, such as two routers that both use 192.168.1.1.
+- **Randomized** marks a locally administered MAC address, which names no vendor. Phones use such
+  private addresses, and so do virtual machines and containers.
+
+The details add the subnet with this machine's address in it, the other addresses that share the
+MAC address, the **Open ports** and **Ping** a scan found, and a sentence for each note. Under
+**This network** they list the gateways on the neighbor's interface and the DNS servers.
+
+The tables only hold devices this machine talked to, and some devices stay quiet until something
+knocks. Press **S**, or choose **Scan network…** in the context menu, to find them.
+**Scan network** asks for the **Network** and starts with the one of the selected row: a host's or
+an interface's subnet, or the routed network under the cursor. ↑ and ↓ step through the subnets
+this machine is on and the networks it reaches, and you can type any other, such as
+192.168.20.0/24, or an address alone for the /24 around it. Under the field Borg counts the
+addresses and names the interface the scan goes out of. Enter starts the scan. A network outside
+the private ranges and outside every network this machine reaches gets a question first, and the
+question starts on **No**.
+
+Borg probes 16 addresses at a time. Each one gets a ping and TCP connections to ports 22, 80 and
+443, and an address on the interface's own link also gets an empty UDP datagram to port 9 that
+makes the system ask for its MAC address. Borg waits up to 1 second for the answers. A host that answers ping, takes a connection or refuses one joins the list right
+away, and a wide pane shows its open ports in **Ports** and its ping time in **Ping**. Addresses
+that stay silent stay hidden. The footer counts the addresses probed and the hosts that answered,
+and Esc stops the scan. Closing the screen leaves the scan running, and a notice tells you when it
+is done.
+
+Ping goes through an ICMP socket that needs no administrator rights. Linux grants that socket only
+to the groups in `net.ipv4.ping_group_range`, and where the system refuses it, Borg skips ping and
+goes by the ports. A scan covers an IPv4 network from /24 to /30, at most 254 addresses. The form
+offers a larger subnet as the /24 around this machine's address, and a wide routed network as the
+/24 of the first router Borg found inside it, or else its first /24. A scan skips this machine's
+addresses, the network address and the broadcast address. With no row selected, the form starts on
+the subnet of the interface internet traffic leaves through. Scan only networks you are allowed to
+scan, since some networks treat a scan as an attack. Apart from scans, discoveries and the name
+lookups, the page only reads tables the system keeps.
+
+Borg remembers the hosts it finds, from the tables and from scans, in `neighbors.json` in its state
+folder, readable by you alone. It keeps them per network, which it knows by the subnet and the
+gateway's MAC address, so two networks that both use 192.168.1.0/24 stay apart. A remembered host
+that is gone shows as **Offline**, dimmed, with **Seen** and the time it was last seen in the
+**Note** column and the ports an earlier scan found. Its details add **Last seen**. Type **Offline**
+in the filter to keep only those hosts. Press F8 or Delete on one, or choose **Forget host** in the
+context menu, and Borg asks before it drops the host from the file. Borg keeps up to 1,024 hosts
+for each network and 32 networks, and lets the ones seen longest ago go first.
+
+### Routed networks
+
+A router often leads to more networks than the one this machine is on. The gateway at 192.168.1.1
+may also route 192.168.2.0/24 to another floor, and a VPN leads to the networks at work.
+**5 Neighbors** lists each such network under the interface that reaches it, on a heading row that
+starts with ›. The row gives the network, how it is reached and the number of hosts Borg found
+there:
+
+- **on gateway** names a gateway that answered for the network itself, one hop away. The network
+  hangs off one of the gateway's own ports.
+- **via** names the routers on the way, from the gateway on, joined by ›, and the row adds the
+  number of hops.
+- A network behind a tunnel shows its address alone, since its traffic goes straight into the
+  tunnel.
+
+Borg learns these networks in two ways. The system's route table lists the networks a VPN or a
+router announces, and Borg reads it with the neighbor tables. The others it finds when you press
+**D**, or choose **Discover networks…** in the context menu. Borg asks first, naming the router
+internet traffic goes to and the number of addresses it will try. Then it tries the two addresses
+routers take most often, .1 and .254, in these /24 networks:
+
+- Every /24 of the /16 around each private address of this machine's Wi-Fi, Ethernet and bridge
+  interfaces. An address of 192.168.1.20 brings 192.168.0.0/24 to 192.168.255.0/24.
+- The /24 networks inside the routes the table sends through the same interface, up to 256 for
+  each route.
+- Seven networks that routers hand out by default, such as 10.0.0.0/24 and 192.168.0.0/24.
+
+It leaves out the networks this machine is on and the ones another interface's routes take, so a
+VPN's networks stay inside the VPN. A discovery tries at most 512 networks, 64 addresses at a time,
+each with a ping and TCP connections to ports 80 and 443 that get 1 second to answer. Each address
+that answers gets a trace: echoes whose time to live grows from 1 to 8 hops. The first echo that
+comes back tells how far away the network is, and the routers that drop the shorter ones name
+themselves on the way. Where ping is not allowed, connections with a growing time to live count the
+hops. The footer counts the addresses tried and the networks found, and Esc stops the discovery.
+
+An address that answers adds its /24 under the interface the discovery went out of, unless a route
+from the table covers it already. A scan of a typed network that no route covers does the same for
+each host that answers. Hosts in a routed network show no MAC address, so the **MAC** column shows
+**via** and the router they are reached through, and their details add **Route**. **S** on a
+routed network or one of its hosts starts **Scan network** on that network, and the scan goes out
+of the interface that reaches it. The details of a routed network give the **Route** with every
+router and the interface, the **Hops**, the **Source**, which is **Route table** or **Discovery**,
+and the number of **Hosts**.
+
+The **Internet** row under an interface names its gateway. A VPN that takes all traffic adds two
+routes that cover half the address space each, 0.0.0.0/1 and 128.0.0.0/1, and they win over the
+default route because they are more specific. Borg counts each route from /1 to /7 as a way to the
+internet, marks the most specific one **in use**, and without one marks the default route the
+system lists first. With Wi-Fi and a cable, or a VPN on top of either, the map shows each way out
+and the one traffic takes. The details list the **Interface**, the **Gateway** addresses and the
+**Routes** that take most addresses.
+
+Borg remembers the networks a discovery found and the hosts behind them in `neighbors.json`, under
+the local network it reached them from, so they come back when you join that network again. It
+keeps up to 16 for each network. One that did not answer on this visit shows **Seen** and the time
+on its heading, and its details add **Last seen**. Press F8 or Delete on it, or choose
+**Forget network** in the context menu, and Borg asks before it drops the network and its hosts.
+Networks from the route table come and go with the table, so F8 leaves them alone. What Borg finds
+behind a tunnel lasts for the session, because a tunnel has no gateway MAC address to tell its
+networks apart.
+
+### Listening for neighbors
+
+Many devices announce themselves without being asked. Printers and speakers say their names and
+services over mDNS, smart TVs over SSDP, Windows machines over NetBIOS and LLMNR, and every device
+that joins asks DHCP for an address with its host name in the request. Listening collects those
+announcements. Borg sends nothing while it listens.
+
+Press **H** on **5 Neighbors**, or choose **Listen for neighbors…** in the context menu.
+**Listen for neighbors** asks for three things:
+
+- **Interface** starts on the selected row's interface, then the one internet traffic leaves
+  through. It offers the interfaces that are up and have an address, leaving out loopback and the
+  tunnels that carry only IP packets, such as WireGuard and most VPNs, which have no link to hear
+  on. A tunnel that carries Ethernet, such as an OpenVPN tap device or a ZeroTier network, has a
+  MAC address, and Borg offers it.
+- **Duration** is 30 s, 1 min or 5 min, or **Until stopped**. It starts on 1 min, long enough for
+  most devices to announce themselves.
+- **Run as** shows where Borg can ask the system for an administrator's password, as it does for
+  a capture.
+
+↑↓ pick a field, ←→ or Space change it, Enter starts and Esc cancels. Borg runs `tcpdump` with a
+filter that keeps only these packets:
+
+- ARP requests and announcements, and IPv6 neighbor discovery, which give an address with its MAC
+  address and mark the routers.
+- mDNS and Bonjour on UDP port 5353, with host names, the services a device offers, such as
+  `ipp` or `airplay`, and the model its records name.
+- SSDP and UPnP on UDP port 1900, with the server software and the UPnP device types and services.
+- The NetBIOS name service on UDP port 137 and LLMNR on UDP port 5355, with Windows and Samba
+  names.
+- DHCP on UDP ports 67 and 68, with the host name a client asks for and the vendor class it sends,
+  which often names its operating system.
+- LLDP and CDP, with the switch this machine is plugged into and the port.
+
+On a switched network or Wi-Fi you hear only broadcasts, multicasts and this machine's own
+traffic. The switch or the access point hands each unicast packet to the one device it is for, so
+the traffic between two other hosts never reaches you. A device that stays quiet stays out of the
+map, and **S** finds more of those (see [Neighbors](#neighbors)).
+
+Listening runs as a job, so you can close the network screen and keep working. Alt-J shows how far
+it got, and unfolding the job shows the interface, the duration, the number of hosts heard, the
+switch port and the 5 hosts heard last. C cancels it, and so does **H** on **5 Neighbors**, where
+the button reads **H Stop listening**. Listening cannot be paused. When it ends, a notice such as
+**Listening done · heard 4 hosts** says what it found, and **O Open** on the finished job opens
+**5 Neighbors**.
+
+Each host heard on the interface's own networks joins the map under the interface, and so do
+link-local addresses. Borg leaves out this machine's addresses and packets, and addresses from
+other networks. A host that only listening knows shows **Heard** in the **State** column, and
+typing **Heard** in the filter keeps every host listening heard. The name a host announced wins
+over the one a reverse DNS lookup gives, and when it announced several, mDNS comes first, then
+DHCP, NetBIOS and LLMNR. A host's details add a **Heard** section with each **Name** and the
+protocol it came in, the **Model**, the **Device types**, the **Services**, the **DHCP client**,
+the protocols under **Heard in** and the time under **Last heard**. The switch port shows at the
+end of the interface's heading and under **Switch** in its details.
+
+Borg remembers the IPv4 hosts it heard, with what they announced, in `neighbors.json` beside the
+hosts from the tables and scans. A heard host that is gone on a later visit shows **Offline**, with
+**Heard** in the **Note** column. IPv6 hosts and switch ports last for the session. F8 or Delete
+forgets a host that is offline or that only listening heard, after asking. One session keeps up to
+1,024 heard hosts and 16 device types and 16 services for each, and Borg cuts each name or other
+text a host announces at 80 characters.
+
+tcpdump needs access to the capture device, the same as for a capture, and
+[Capturing traffic](#capturing-traffic) explains how to give it once. Without access, Borg asks
+**Listen as administrator** where the system can ask for your password, and otherwise the job ends
+with **No permission to listen on** and the interface's name. When tcpdump is missing, Borg offers
+to install it.
+
+### Scanning ports
+
+Press **P** on a neighbor, or choose **Scan ports…** in its context menu, to see which TCP ports a
+host accepts connections on. The dialog starts with the neighbor's address in **Host**, and you can
+type another address or a host name there. **Ports** chooses what to try:
+
+- **Common**: 720 ports. These are the ports from 1 to 1023 that IANA names a service for, and a few
+  dozen registered ones that servers and home devices often run, such as 3306 for MySQL, 5432 for
+  PostgreSQL, 6379 for Redis, 8080 and 27017 for MongoDB.
+- **All**: every port from 1 to 65,535.
+- **List**: the ports you type in **List**, such as `22,80,8000-8100`.
+
+**Mode** sets the pace:
+
+- **Fast** keeps up to 64 connections open at once and gives each 1 second to answer.
+- **Slow** opens a new connection every 100 to 300 ms, picked at random, keeps up to 16 open at once
+  and gives each 3 seconds. Use it on hosts and firewalls that limit how fast you may connect.
+
+Tab, ↑ and ↓ move between the fields, ← and → change a choice, and Enter starts. Under the fields
+the dialog explains the mode and shows what the last scan of the host found. Borg looks up a host
+name first and takes its first IPv4 address, or its first address when it has no IPv4 one. Then it
+asks, naming the number of ports, the host and the mode. A host outside the private ranges and
+outside the networks this machine is on gets a warning, and the question starts on **No**. The
+private ranges are 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, the link-local and
+loopback addresses, and IPv6 unique local addresses. Scan only hosts you own or are allowed to test.
+
+The scan runs as a job, so you can close the network screen and keep working. Alt-J shows how far it
+got, and unfolding the job shows the host, the mode and how many open ports it found. P pauses it, C
+cancels it, and quitting Borg asks first. Each port gets one TCP connection. A port that accepts it
+is **open**, one that refuses it is **closed**, and one that stays silent until the time runs out is
+**filtered**. Borg closes each connection at once and sends nothing over it.
+
+When the scan ends, **Port scan finished** opens once the panels, the activity monitor or the
+network screen show with no dialog open and you have not pressed a key for 2 seconds, so it never
+takes keys meant for the console or the editor. It names the host and counts the open, closed and
+filtered ports. Enter lists the open ports with the service name IANA gives each one, ↑ and ↓ scroll
+a long list, and Ctrl-S saves the scan as a report (see [Saving reports](#saving-reports)). Cancel a
+scan and a notice tells you how many open ports it found. The finished scan stays in Alt-J, where
+**O Open** lists its open ports again, and so does Alt-G in the panels.
+
+Some hosts and firewalls stop answering a scan that goes too fast. To notice that, Borg keeps an eye
+on the first port that answered, an open one when there is one, and asks it again every 5 seconds.
+It also asks at once when 40 ports in a row stay silent right after 40 where at least half answered.
+When that port stays silent twice in a row, Borg stops the scan and keeps what it found. The dialog
+then says the host or a firewall seems to limit the scan, counts the ports it did not reach, and
+suggests Slow mode.
+
+Borg remembers the last 10 scans of each host in `port-scans.json` in its state folder, readable by
+you alone, with the time, the mode, the open ports and the counts. Like the neighbors, hosts on the
+attached network are kept apart by the gateway's MAC address. Borg keeps the 256 newest scans in
+all. A neighbor's details show its last scan under **Port scan**: **Scanned** with the time, the
+mode and the number of ports, then the **Open** ports with their names.
+
+Press **O** on a neighbor, or choose **Port scans…** in its context menu, to open its last scan with
+the open ports. When Borg has earlier scans of the host, the dialog says which one you see, such as
+**Scan 2 of 3, newest first.**, and ← and → step to an older or a newer one. Ctrl-S saves the scan
+you see.
+
+### Saving reports
+
+Ctrl-S saves what Borg found to a file for later. Press it in a scan's open ports to save that scan,
+or on the **5 Neighbors** page, or choose **Save report…** in a neighbor's context menu, to save
+every host the page knows, the ones the filter hides too.
+
+**Save report** asks for **Path** and **Format**. The path starts in the folder of a panel on this
+machine, the one the network screen covers when it can, or else in your home folder, with a name
+such as `port-scan-192.0.2.60-2026-11-14.md` or `neighbors-2026-11-14.md`. A relative path starts in
+that folder, and one that starts with `~/` starts in your home folder. Tab moves between the fields,
+and ← and → change the format:
+
+- **Markdown**: text with tables, easy to read and to paste into notes.
+- **JSON**: everything the report holds, for scripts and other tools.
+- **CSV**: one row per open port for a scan, or one row per host for the page.
+
+Changing the format changes the extension at the end of the path, unless you typed another one.
+Enter writes the file, readable by you alone, and a notice names it. When a file of that name is
+there already, Borg asks before it replaces it. The question starts on **No**, which takes you back
+to the dialog. Esc goes back to where you were.
+
+A scan's report has the time, the mode, the ports asked for and how many there were, the open ports
+with their service names, the number of closed and filtered ports, and the subnet, interface and
+gateway the scan ran from. When the host limited the scan or you cancelled it, the report says so
+and lists the ports it did not reach. The page's report has the subnets, the gateways, the DNS
+servers, the routed networks with their way and hops, each interface's way to the internet and the
+switch port listening heard it plugged into. Then comes each host with its network, the router it
+is reached through, its MAC address, vendor, name, state, the ports and ping time a scan found and
+its notes, an offline host with when it was last seen, and the last port scan of each host. A
+**Heard** table lists what each host announced: its name, model, device types, services, the
+protocols it was heard in and when it was heard last. Times are in UTC, and so is the date in the file name. What Borg did not learn stays out of
+the report.
+
 ### Filtering
 
 The filter keeps the rows that match every word you type. A plain word matches the process, PID,
-port, service, address, host name, state, protocol, or a label the row shows, so `postgres`,
+port, service, address, host name, state, protocol, MAC address, vendor, network, or a label the row shows, so `postgres`,
 `5432`, `https` and `example.com` all work. A word with a field name looks in that field only:
 
 | Word | Keeps |
@@ -1246,14 +3036,18 @@ port, service, address, host name, state, protocol, or a label the row shows, so
 | `port:443`, `port:ssh` | Rows on that port number or service |
 | `proc:node`, `process:node` | Rows whose process name contains the text |
 | `pid:4100` | Rows of that PID |
-| `host:example` | Rows whose address or host name contains the text |
+| `host:example` | Rows whose address or host name contains the text; a whole address keeps that address alone |
 | `state:listen`, `state:time` | TCP rows in a state that contains the text |
 | `proto:udp`, `proto:tcp` | Rows of that protocol |
-| `if:en0`, `interface:en0` | Interfaces whose name contains the text |
+| `if:en0`, `interface:en0` | Interfaces and neighbors whose interface name contains the text |
+| `mac:3c:22`, `mac:3c-22` | Neighbors and interfaces whose MAC address contains the text |
+| `vendor:synology` | Neighbors whose vendor contains the text |
+| `net:10.20` | Neighbors on a network whose address contains the text, and that network's heading |
 
 Put `!` before a word to drop the rows it matches: `!state:time_wait` hides closing connections,
 and `!proc:browser` hides one program. The filter applies to every page, and while you type it
-says how many of the page's rows it keeps.
+says how many of the page's rows it keeps. On **5 Neighbors** a heading stays while a row under it
+matches.
 
 ### Capturing traffic
 
@@ -1267,8 +3061,15 @@ Linux installs from the `tcpdump` package. The **Capture traffic** dialog starts
   traffic on the interface** is always there as the second choice.
 - **Interface** starts on the one that carries the row's address, or else the busiest one.
 - **Duration** is 5, 10, 30 or 60 seconds, or **Until stopped**.
-- **Keep** is **Whole packets**, or **Headers, first 128 bytes of each packet** for small files
-  that leave out most of what the packets carry.
+- **Keep** starts on **First 1 MiB of each connection**: each conversation's packets stay whole
+  until they carried 1 MiB of data, and after that Borg saves only their headers. Short requests
+  stay complete while a long download or a video call leaves the file small. **Whole packets**
+  saves everything, and **Headers, first 128 bytes of each packet** saves the start of every
+  packet for the smallest files. Borg trims the packets as it writes the file, which stays a
+  normal pcap or pcapng, and each trimmed packet still records its length on the wire.
+- **TLS keys** is **Off**, **Set SSLKEYLOGFILE in Borg's shell** to record the TLS keys of the
+  programs you start while the capture runs, or **Proxy HTTPS through Borg with a temporary CA**
+  for programs that do not write their keys (see [Decrypting TLS](#decrypting-tls)).
 - **Run as** shows where Borg can ask the system for an administrator's password. **You** runs
   tcpdump as you, and **Administrator** runs it as root once you give your password in the
   system's dialog. On macOS the choice reads **Administrator, with each packet's process**:
@@ -1276,16 +3077,23 @@ Linux installs from the `tcpdump` package. The **Capture traffic** dialog starts
   sent or received it.
 
 ↑↓ pick a field, ←→ or Space change it, Enter starts the capture and Esc cancels. With the mouse,
-click a field to pick it and click again to change it. While the capture runs, the footer counts
-its packets and bytes and the seconds left, and **R** stops it early. A capture also stops at
-200,000 packets or 256 MiB. If you close the screen first, the capture stops, and a notice says
-where Borg saved it.
+click a field to pick it and click again to change it. While the capture runs, the footer counts its
+packets and bytes and the seconds left, and **R** stops it early. A capture also stops at 200,000
+packets or 256 MiB, and when the disk fills up, keeping what it saved so far. To leave room for the
+rest of the system, set `keep-free-mib` in the `[network]` section of the config file: a capture
+then does not start when the disk that holds the folder has less than that many MiB free, and it
+stops once the free space drops below that. After its first 3 seconds, the footer says how soon the
+first of these limits stops the capture at its rate so far, such as **about 30 s to 256 MiB** or
+**about 2 min to a full disk**, when that comes before the capture's own end and within the hour.
+When a limit stopped the capture, a notice says which one. If you close the screen first, the
+capture stops, and a notice says where Borg saved it.
 
 Borg saves each capture as `capture-<date>-<time>.pcap` in the folder of the panel the network
 screen covers, readable only by you, so Wireshark and other tools can open it later. A capture
 that tags each packet with its process is saved as `capture-<date>-<time>.pcapng`, the format
-that can carry the tags. A capture holds whatever the packets carried, so keep it as safe as
-that data.
+that can carry the tags, and so is a capture that recorded TLS keys once Borg puts them inside. A
+capture holds whatever the packets carried, so keep it as safe as that data. Each capture also
+goes on the list in [Borg's files](#borgs-files).
 
 An agent connected through `borg mcp` can ask for a capture too, and it waits for your approval
 (see [What the agent can do](#what-the-agent-can-do)).
@@ -1302,18 +3110,30 @@ way to look at it:
   own DNS answers and the server names TLS connections asked for, so most hosts have one.
 - **3 Connections** shows each conversation with its process, other end, protocol, packets and
   bytes. The details show both ends, the server name, the service, the bytes sent and received,
-  and every packet with an arrow for its direction.
+  and the conversation's stream: what each side sent, in order and with retransmitted bytes
+  counted once, as a hex dump with the bytes that print as text beside them. The stream comes in
+  turns, each with an arrow for its direction, the bytes it holds and when it came. When the
+  capture lacks bytes before a turn, the turn says how many are missing. When it kept only the
+  start of the connection, the stream's heading says how many bytes it left out after that, as
+  the packets' headers count them. **]** and **[** jump to
+  the next and previous turn. F3 opens the whole stream in the viewer as hex rows, with its turns
+  one after another, so you can page through it and search it there. Enter shows the
+  conversation's packets one by one. When Borg has the connection's TLS keys, the stream shows
+  what its encrypted records carried (see [Decrypting TLS](#decrypting-tls)).
 - **4 Packets** shows every packet in order with its time from the start, protocol, length and a
   summary such as `ClientHello example.com` or `A example.com → 203.0.113.10`. The details show
   its layers (Ethernet, IP, TCP or UDP, and DNS, TLS or HTTP when Borg reads them) and its bytes
-  as a hex dump.
+  as a hex dump. A dump lays its bytes out as the viewer's hex rows do, with as many on each line as
+  fit the pane. F3 opens the packet's bytes in the viewer as hex rows.
 
 | Key | Action |
 | --- | --- |
 | 1 / 2 / 3 / 4 | Show Processes / Hosts / Connections / Packets |
 | Enter | Go down a level: from a process or host to its connections, from a connection to its packets, from a packet into its details |
+| ] / [ | In a connection's details, jump to the next or previous turn of its stream |
 | `/` | Filter the rows, as on the live pages |
 | Ctrl-C | Copy the PID, the address, the other end, or the packet's bytes in hex |
+| F3 | Open the connection's stream or the packet's bytes in the viewer as hex rows |
 | Tab | Move between the list and the details, where ↑↓ scroll |
 | Esc | Go back to the list, then up a level, then clear the filter, then return to the live screen |
 
@@ -1363,6 +3183,142 @@ administrator** and the system's reason. When Borg itself runs as root, it never
 macOS its captures always carry each packet's process. Where Borg cannot ask at all, the capture
 ends with **No permission to capture on** and the interface's name.
 
+### Decrypting TLS
+
+When Borg has the keys of a TLS connection, its stream on **3 Connections** shows what the
+encrypted records carried, such as an HTTP request and its answer, and the stream's heading ends
+in **decrypted**.
+
+The keys come from a TLS key log, the file that browsers, curl, Python and many other programs
+write when the `SSLKEYLOGFILE` environment variable names one. Nothing sits between the program
+and the server then, so this works for programs that pin their certificates too. For programs that
+never write a key log, Borg can stand in the middle instead (see
+[Through Borg's proxy](#through-borgs-proxy)).
+
+To record them with a capture, set **TLS keys** to **Set SSLKEYLOGFILE in Borg's shell** in the
+**Capture traffic** dialog. When the capture starts, Borg creates `capture-<date>-<time>.keylog`
+next to the capture, readable only by you, and types a line like this at its shell's prompt, where
+you see it run and find it later in the shell's history:
+
+```sh
+export SSLKEYLOGFILE='/home/me/projects/capture-20260101-120000.keylog'
+```
+
+In fish the line starts with `set -gx` instead. Borg then comes back to the network screen, where
+the footer says **TLS keys** while the capture runs.
+
+Now start the program from Borg's command line, or press Ctrl-O and start it in the shell. It
+inherits the variable and writes its keys to the file. For a program in another terminal, press
+**L** on the network screen to copy `SSLKEYLOGFILE='…'` with the key log's path, paste it there and
+type the program after it. A program that was already running keeps the setting it started with,
+so quit it and start it again. That goes for browsers in particular, which hand a second launch
+over to the window already open. On macOS, `open` starts apps without the shell's variables, so
+start the app's own program, such as `/Applications/Firefox.app/Contents/MacOS/firefox`.
+
+If Borg's shell is busy, or the command line belongs to a container or another machine, Borg types
+nothing and a notice says so. **L** still copies the line.
+
+When the capture ends, Borg types `unset SSLKEYLOGFILE` at the prompt (`set -e SSLKEYLOGFILE` in
+fish), or puts back the value Borg itself started with, and a notice names the line. If a program
+you started is still running in the shell, the line waits until it ends. Borg then puts the keys
+of the capture's connections into the capture as a decryption secrets block, so a `.pcap` becomes
+a `.pcapng` with the same name, which Wireshark opens decrypted. The key log stays next to it,
+because programs started during the capture keep writing to it until they exit. Captures an agent
+asks for do not record keys.
+
+Programs that read `SSLKEYLOGFILE` include Firefox, Chrome and other Chromium browsers, most curl
+builds, and Python programs that use the `ssl` module's default context. Others need their own
+switch:
+
+- Node.js writes its keys with `--tls-keylog`, so start it as
+  `node --tls-keylog="$SSLKEYLOGFILE" app.js`.
+- Go programs write them only when the program sets `KeyLogWriter` in its TLS configuration.
+- Rust programs on rustls write them only when they use its `KeyLogFile`.
+- Java needs an agent that hooks into its TLS code.
+
+Safari and other apps built on Apple's own TLS libraries never write a key log, and their traffic
+stays encrypted.
+
+#### Through Borg's proxy
+
+Set **TLS keys** to **Proxy HTTPS through Borg with a temporary CA** to read the HTTPS of programs
+that never write a key log, such as Go and Rust programs or a client you cannot change. When the
+capture starts, Borg runs a proxy on `127.0.0.1` and makes a certificate authority for this
+capture alone. Its key lives in Borg's memory and is gone when the capture ends. Borg types one
+line at its shell's prompt that sends HTTPS through the proxy and has programs trust the CA:
+
+```sh
+export HTTPS_PROXY='http://127.0.0.1:54321' https_proxy='http://127.0.0.1:54321' SSL_CERT_FILE='…' CURL_CA_BUNDLE='…' REQUESTS_CA_BUNDLE='…' NODE_EXTRA_CA_CERTS='…'
+```
+
+The four certificate variables name one file in Borg's runtime folder, readable only by you, that
+holds the CA's certificate followed by the system's own, so the programs still trust every other
+host. While the capture runs, the footer says **Proxy on** and the proxy's address, and
+**L Copy proxy settings** copies the same variables for a program in another terminal. When the
+capture ends, Borg puts back what its shell had, as it does for `SSLKEYLOGFILE`, and removes the
+file. Borg never adds its CA to the system's trust store.
+
+A program that goes through the proxy asks it for a tunnel to the host. The proxy connects to the
+host and checks its certificate as the system does, then shows the program a certificate for the
+same host that the CA signed. The program and the host still talk HTTP/2 or HTTP/1.1, whichever
+the host picked. The proxy writes the keys of both TLS sessions to the capture's key log, so the
+capture's copy of the connection to the host opens decrypted, and the viewer gives it the process
+that asked for it. Anything in a tunnel that is not TLS passes through as it is.
+
+Programs follow the proxy when they read both kinds of variables:
+
+- curl, git and Python with requests or urllib follow `HTTPS_PROXY` or `https_proxy`, and trust
+  the bundle through `CURL_CA_BUNDLE`, `REQUESTS_CA_BUNDLE`, or `SSL_CERT_FILE` where they use
+  OpenSSL.
+- Go follows `HTTPS_PROXY`, except for requests to `localhost`, and reads `SSL_CERT_FILE` on
+  Linux. On macOS it trusts the system's certificates only, so its connections fail there.
+- Node.js trusts the CA through `NODE_EXTRA_CA_CERTS`. Recent versions send `fetch` and `https`
+  through the proxy when you also set `NODE_USE_ENV_PROXY=1`.
+- Programs with their own certificate list, those that pin certificates, and apps that take the
+  proxy from the system settings, such as Safari, refuse or bypass the proxy. A refusal shows as
+  **A program did not trust the proxy's certificate for** and the host.
+
+When the host's certificate does not check out, the proxy closes the connection and a notice says
+**Borg could not verify** and the host. That is what happens with your own services when their
+certificates come from a development CA the system does not trust, such as the one
+[mkcert](https://github.com/FiloSottile/mkcert) makes. Point `proxy-ca` in the `[network]` section
+of `config.toml` at that CA's folder:
+
+```toml
+[network]
+proxy-ca = "~/Library/Application Support/mkcert"  # mkcert -CAROOT prints the folder
+```
+
+The folder must hold the certificate and its key as `rootCA.pem` and `rootCA-key.pem`, as mkcert
+names them, or as `ca.pem` and `ca-key.pem`. The choice in the dialog then reads **Proxy HTTPS
+through Borg with the CA in** and the folder. The proxy signs with your CA, which your programs
+already trust, and it trusts the CA too when it checks your services. Use a CA that exists for
+development only, because whoever has its key can read the traffic of everything that trusts it.
+
+F3 finds keys in two places:
+
+- A decryption secrets block inside a `.pcapng` file, where Wireshark keeps them too.
+- A key log beside the capture with the same name and the `.keylog` extension, such as
+  `capture-20260101-120000.keylog` next to `capture-20260101-120000.pcap`.
+
+To decrypt a capture you made another way, run the program with the variable set during the
+capture, and once the capture is saved, rename the key log so its name matches the capture's:
+
+```sh
+SSLKEYLOGFILE=~/tls.keylog curl https://example.com
+```
+
+Borg opens TLS 1.3 and TLS 1.2 records sealed with AES-128-GCM, AES-256-GCM or
+ChaCha20-Poly1305, the ciphers browsers and current servers agree on. A record that no key opens
+keeps its encrypted bytes, and its turn says **still encrypted**. That happens when the key log
+lacks some of the connection's keys, and after bytes the capture lacks, because Borg cannot tell
+where the next record starts. QUIC traffic stays encrypted.
+
+A key log decrypts every connection it has keys for, passwords, cookies and tokens included, and
+so does a capture with the keys inside. Borg makes both readable only by you. Do the same for a key
+log you write yourself with `chmod 600`, keep key logs as safe as the captures, and delete both when
+you are done.
+
 ### What the system reports
 
 On macOS, Borg reads every socket with its byte counts and process from `netstat`, so traffic
@@ -1373,3 +3329,106 @@ processes' open files. Without administrator rights it can only look into your o
 other users' sockets show **Unknown process**. TCP byte counts come from `ss` when it is
 installed; UDP sockets and machines without `ss` show **—** for rates, and the details say
 **The system reports no byte counts here**. Interface totals and rates always work.
+
+On macOS, the neighbors come from `arp -anl` and `ndp -an`, the gateways and the other routes from
+`netstat -rn`, and the DNS servers from `/etc/resolv.conf`. `arp` reports no state, so an IPv4 entry whose timer runs
+shows **REACHABLE** and an expired one **STALE**. On Linux, Borg reads the kernel's neighbor table
+over netlink, or `/proc/net/arp` when netlink is closed to it, and the gateways and routes from
+`/proc/net/route` and `/proc/net/ipv6_route`. The DNS servers come from `/etc/resolv.conf`, or
+from `/run/systemd/resolve/resolv.conf` when the first lists only the systemd-resolved stub. macOS
+hands the reports of routers that drop a discovery's echoes to the socket Borg pings with, so a
+routed network lists every router on the way. Linux keeps those reports from that socket, so there
+a discovery counts the hops and names the gateway alone.
+
+## Startup items
+
+**Alt-U** or **Command → Startup items** lists everything set to start on its own: at boot, at
+login, on a schedule, or whenever a shell or an SSH login starts. The newest change comes first,
+so whatever was added or edited lately sits at the top. Like the activity monitor, it comes from
+the bundled System plugin. The list takes the active pane, and the other pane shows the selected
+item in detail.
+
+Each row shows when its file last changed, its place, and what it runs. A wider pane adds who owns
+the file and whether its program is there: **found**, or **missing** when the path it names does
+not exist. A missing program is worth a look, since whatever puts a file there later runs with
+the item's rights. The **Rules** column names the rules an item matched, colored by their level,
+and appears once any item matched one. The line above the list counts the items and how many
+matched a rule.
+
+The details show the file and its line, what the item runs, the program and where Borg found it,
+when it runs in the file's own words (`RunAtLoad`, `@reboot`, a calendar or a systemd target),
+the user it runs as, the file's owner and the exact time of the change. Under **Rules**, each
+match says whether it was **in its file** or **in its program**, with what the rule looks for, when
+it matches harmless things, and where the rule comes from. An item its file turns off is dimmed,
+and its details say **Turned off in its own file, so it does not start.**
+
+| Key | Action |
+| --- | --- |
+| Enter, Alt-O | Open the folder of the item's file beside the list |
+| F3 / F4 | View / edit the item's file |
+| `/` | Filter the rows; ↑↓ still move, Enter keeps the filter, Esc clears it |
+| R | Read every place again |
+| Ctrl-C | Copy what the item runs |
+| Alt-W | Maximize the list |
+| Esc | Close the screen, which keeps its filter |
+
+Enter or a double-click opens the folder of the item's file in the other pane, with the cursor on
+the file, and the list stays as it was. Tab moves between the list and the files, and Esc in the
+list or Alt-U brings the details back. The filter keeps the items that contain every
+word you type, in the place, the name, what it runs, the file's path, the owner, the user it runs
+as, when it runs, **found** or **missing**, and the names of the rules it matched. Put `!` before a
+word to leave out what it matches: `root !timer` keeps root's items other than timers. Each place
+also has a short name for the filter and for agents, such as `launch-daemon`, `systemd-timer` or
+`ssh-authorized-key`.
+
+### Where Borg looks
+
+On macOS:
+
+- **User agent**: `~/Library/LaunchAgents`.
+- **Launch agent** and **Launch daemon**: `/Library/LaunchAgents` and `/Library/LaunchDaemons`.
+- **System agent** and **System daemon**: `/System/Library/LaunchAgents` and
+  `/System/Library/LaunchDaemons`, on the sealed system volume.
+- **Cron job**: the crontabs in `/usr/lib/cron/tabs`, and `/etc/crontab`.
+- **Periodic script**: the daily, weekly and monthly scripts in `/etc/periodic` and
+  `/usr/local/etc/periodic`.
+
+On Linux:
+
+- **Service** and **Timer**: systemd units in `/etc/systemd/system`, `/usr/local/lib/systemd/system`,
+  `/usr/lib/systemd/system` and `/lib/systemd/system`, and the units their `.wants` and
+  `.requires` folders link to from anywhere else.
+- **User service** and **User timer**: `/etc/systemd/user`, `/usr/local/lib/systemd/user`,
+  `/usr/lib/systemd/user`, `~/.config/systemd/user` and `~/.local/share/systemd/user`.
+- **Autostart**: desktop entries in `~/.config/autostart` and `/etc/xdg/autostart`.
+- **Cron job**: `/etc/crontab`, `/etc/cron.d`, and the crontabs in `/var/spool/cron/crontabs` or
+  `/var/spool/cron`.
+- **Cron script**: `/etc/cron.hourly`, `/etc/cron.daily`, `/etc/cron.weekly` and
+  `/etc/cron.monthly`.
+- **Anacron job**: `/etc/anacrontab`.
+- **rc.local**: `/etc/rc.local`.
+- **Preload**: `/etc/ld.so.preload`, the libraries loaded into every program that starts.
+- **Shell startup**: the scripts in `/etc/profile.d`, besides the files below.
+
+On both, **Shell startup** covers the zsh, bash and fish startup files in your home folder, such
+as `~/.zshrc`, `~/.bashrc`, `~/.profile` and `~/.config/fish/config.fish`, and their system-wide
+versions in `/etc`. **SSH key** lists each key in `~/.ssh/authorized_keys` and
+`~/.ssh/authorized_keys2` with its comment, and with the command it forces when it has one.
+
+Borg reads these places as you. A place that is there but closed to you shows at the bottom of
+the list as **Could not read** with its path; run Borg as administrator to see inside. Your own
+crontab is the exception: when the folder of crontabs is closed to you, as it is on macOS, Borg
+asks `crontab -l` for it.
+
+A program named with a full path or `~/` counts as **missing** when nothing is there. A bare name
+is looked up in `/usr/local/sbin`, `/usr/local/bin`, `/usr/sbin`, `/usr/bin`, `/sbin` and `/bin`,
+where cron and launchd look. A relative path, or a name found in none of them, shows **—**, since
+the item may set its own search path.
+
+### Rules on startup items
+
+Borg runs its own rules and yours (see [Scanning files with rules](#scanning-files-with-rules))
+over the first 1 MiB of each startup file and over each program up to 64 MiB. A program many items
+run is scanned once. Programs of **System agent** and **System daemon** items are left unscanned,
+because nothing can change the sealed system volume while macOS runs, and their details say so.
+When a rule file fails to compile, the bottom of the list says how many were left out.

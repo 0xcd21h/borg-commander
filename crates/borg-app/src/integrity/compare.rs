@@ -127,6 +127,7 @@ pub(super) fn compare<P: FnMut(u64, u64, usize)>(run: &mut Run<P>, access: &impl
             region: Some(region.clone()),
             address: Some(region.start + at as u64),
             length: memory.len().max(1),
+            note: None,
         });
     }
 }
@@ -194,6 +195,7 @@ pub(super) fn scan<P: FnMut(u64, u64, usize)>(
                         region: Some(region.clone()),
                         address: Some(at + i as u64 * PAGE),
                         length: 4,
+                        note: None,
                     });
                 }
             }

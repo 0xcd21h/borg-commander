@@ -9,7 +9,10 @@
 mod answers;
 mod capture;
 mod files;
+mod hosts;
 mod location;
+mod scan;
+mod secrets;
 mod server;
 mod socket;
 mod tools;
@@ -42,22 +45,25 @@ use tokio::{
 
 pub use answers::{
     ConsoleText, connections, containers, find_container, home_relative, host_dir, interfaces, locate, memory_report,
-    place, ports, processes, screen, shell_output, typable,
+    place, ports, processes, screen, shell_output, shown_as_typed, startup_items, typable,
 };
 pub use capture::{capture_call, packet_number, summary_rows};
 pub use files::{Spot, Upload, diff, is_folder, load, parse_lines, piece, read, whole};
 pub use location::{DOCKER_SCHEME, Location};
+pub use scan::{ScanCall, ScanTarget, files_answer, process_answer, rule_text_problem, scan_call};
 pub(crate) use server::Session;
 pub use server::{serve, serve_remote, setup};
-pub(crate) use socket::socket_dir;
-use socket::{SOCKET_PREFIX, SOCKET_SUFFIX};
+use socket::SOCKET_SUFFIX;
+pub(crate) use socket::{SOCKET_PREFIX, same_user, socket_dir, socket_dirs, socket_path};
 pub use socket::{connect_info, hostname, program_path};
-use tools::{routing_tools, tools, transfer_tools};
+use tools::{hosts_tool, routing_tools, tools, transfer_tools};
 
 pub(crate) const LIST_LIMIT: usize = 500;
 const OUTPUT_LIMIT: usize = 64 * 1024;
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const PROTOCOL: &str = "2025-06-18";
+const NOTE_TIME: &str = "%Y-%m-%d %H:%M:%S";
+const NOTE_GAP: &str = "  ";
 
 /// A tool call relayed from `borg mcp` to the session, one JSON object per line.
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -72,26 +78,53 @@ pub struct Call {
     /// The user already approved this call, as a read from another computer.
     #[serde(default)]
     pub approved: bool,
+    /// The call came on a paired computer's viewer connection, which borg opens for a panel
+    /// that shows this session, and never on an agent's.
+    #[serde(default)]
+    pub viewer: bool,
+    /// The paired computer a Borg in another window passes this call on for. Any program on
+    /// this machine can write it, so it only ever adds approvals: the call is treated as one
+    /// from another computer, under a name no paired computer has.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forwarded_from: Option<String>,
 }
 
 /// The prefix of tools and arguments only the session itself uses.
 const INTERNAL: char = '_';
+/// What marks the origin of a call passed on from another window. A paired computer's own
+/// origin ends with its key in brackets, so no computer's origin ends like this.
+const FORWARDED: &str = " ↪";
+/// The tool that turns Approve all on, which a call passed on from another window may not use.
+const APPROVAL_MODE: &str = "approval_mode";
 
 impl Call {
     pub fn new(tool: &str, args: Value) -> Self {
-        Self { tool: tool.to_owned(), args, origin: None, approved: false }
+        Self { tool: tool.to_owned(), args, origin: None, approved: false, viewer: false, forwarded_from: None }
     }
 
     /// A call the session makes for this one, with its origin and approval.
     pub fn follow(&self, tool: &str, args: Value) -> Self {
-        Self { tool: tool.to_owned(), args, origin: self.origin.clone(), approved: self.approved }
+        Self {
+            tool: tool.to_owned(),
+            args,
+            origin: self.origin.clone(),
+            approved: self.approved,
+            viewer: self.viewer,
+            forwarded_from: None,
+        }
     }
 
     /// A call as it may come from outside: internal tools are refused, and internal arguments
     /// (such as a container already looked up) are left out, so a client cannot pass them off.
+    /// It cannot claim a paired computer's name or an approval either. One that says it is
+    /// passed on for another computer is taken as remote, and may not turn Approve all on.
     pub fn external(mut self) -> Result<Self, Reply> {
-        self.origin = None;
+        self.origin = self.forwarded_from.take().map(|from| format!("{from}{FORWARDED}"));
         self.approved = false;
+        self.viewer = false;
+        if self.origin.is_some() && self.tool == APPROVAL_MODE {
+            return Err(Reply::error("Approve all is not available for a session in another window"));
+        }
         if self.tool.starts_with(INTERNAL) {
             return Err(Reply::error(format!("unknown tool {}", self.tool)));
         }
@@ -106,15 +139,19 @@ impl Call {
 pub struct Reply {
     pub ok: bool,
     pub text: String,
+    /// The same answer as data, for an agent that reads MCP's structured content. Only this
+    /// computer's own tools fill it, so a reply from a host never carries any.
+    #[serde(skip)]
+    pub structured: Option<Value>,
 }
 
 impl Reply {
     pub fn ok(text: impl Into<String>) -> Self {
-        Self { ok: true, text: text.into() }
+        Self { ok: true, text: text.into(), structured: None }
     }
 
     pub fn error(text: impl Into<String>) -> Self {
-        Self { ok: false, text: text.into() }
+        Self { ok: false, text: text.into(), structured: None }
     }
 }
 
@@ -128,8 +165,25 @@ pub struct Agent {
     messages: UnboundedSender<Msg>,
     /// Agents connected now: through the socket here, and from paired computers.
     clients: Arc<AtomicUsize>,
-    waiting: HashMap<u64, (oneshot::Sender<Reply>, Work)>,
+    pub waiting: Waiting,
     next_id: u64,
+}
+
+#[derive(Default)]
+pub struct Waiting(HashMap<u64, (oneshot::Sender<Reply>, Work)>);
+
+impl Waiting {
+    pub async fn withdrawn(&mut self) -> u64 {
+        let asks = &mut self.0;
+        let id = std::future::poll_fn(|context| {
+            asks.iter_mut()
+                .find_map(|(id, (reply, _))| reply.poll_closed(context).is_ready().then_some(*id))
+                .map_or(std::task::Poll::Pending, std::task::Poll::Ready)
+        })
+        .await;
+        asks.remove(&id);
+        id
+    }
 }
 
 /// What an agent asked to do, waiting for the user's approval.
@@ -201,7 +255,11 @@ impl Typed {
     pub fn finish(self, exit: Option<i32>, output: &str, messages: &UnboundedSender<Msg>) {
         let status = exit.map_or_else(|| "finished".to_owned(), |code| format!("exit {code}"));
         note(messages, &format!("ran in {}\n$ {}\n[{status}]", self.place, self.command));
-        let _ = self.reply.send(Reply { ok: exit.is_none_or(|code| code == 0), text: format!("{status}\n{output}") });
+        let _ = self.reply.send(Reply {
+            ok: exit.is_none_or(|code| code == 0),
+            text: format!("{status}\n{output}"),
+            structured: None,
+        });
         let notice = match exit {
             Some(code) => tr!(agent_ran, command = self.command, code = code),
             None => tr!(agent_stopped, command = self.command),
@@ -217,11 +275,16 @@ impl Typed {
     }
 }
 
-/// Adds an entry, with the time, to the log of what agents did; the session keeps it in
-/// memory while the user wants a log.
+/// Adds an entry, with the date and time and with the secrets it recognizes hidden, to the log
+/// of what agents did; the session keeps it, on disk too, while the user wants a log.
 pub fn note(messages: &UnboundedSender<Msg>, entry: &str) {
-    let time = jiff::Zoned::now().strftime("%H:%M:%S").to_string();
-    let _ = messages.send(Msg::Agent(AgentEvent::Note(format!("{time}  {entry}"))));
+    let entry = secrets::hidden(entry);
+    let _ = messages.send(Msg::Agent(AgentEvent::Note(stamped(&jiff::Zoned::now(), &entry))));
+}
+
+/// An entry of the log as it reads: the date and time it happened, then what happened.
+fn stamped(time: &jiff::Zoned, entry: &str) -> String {
+    format!("{}{NOTE_GAP}{entry}", time.strftime(NOTE_TIME))
 }
 
 impl Agent {
@@ -237,11 +300,10 @@ impl Agent {
             let _ = std::fs::remove_file(&socket);
             let listener = UnixListener::bind(&socket).ok()?;
             std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(0o600)).ok()?;
-            let service_child = std::env::var_os("BORG_SERVICE_CHILD").is_some();
-            tokio::spawn(accept(listener, calls.clone(), messages.clone(), clients.clone(), service_child));
+            tokio::spawn(accept(listener, calls.clone(), messages.clone(), clients.clone()));
             Some(socket)
         });
-        Self { incoming, requeue: calls, socket, messages, clients, waiting: HashMap::new(), next_id: 0 }
+        Self { incoming, requeue: calls, socket, messages, clients, waiting: Waiting::default(), next_id: 0 }
     }
 
     /// Adds an entry to the log of what agents did.
@@ -262,14 +324,14 @@ impl Agent {
     /// Notes an ask waiting for the user's answer.
     pub fn ask(&mut self, reply: oneshot::Sender<Reply>, work: Work) -> u64 {
         self.next_id += 1;
-        self.waiting.insert(self.next_id, (reply, work));
+        self.waiting.0.insert(self.next_id, (reply, work));
         self.next_id
     }
 
     /// Takes an answered ask: an approved one is returned to carry out, a declined one is
     /// answered here.
     pub fn answer(&mut self, id: u64, approved: bool) -> Option<Approved> {
-        let (reply, work) = self.waiting.remove(&id)?;
+        let (reply, work) = self.waiting.0.remove(&id)?;
         if approved {
             return Some(Approved { id, reply, work });
         }
@@ -291,14 +353,14 @@ impl Agent {
 
     /// Runs a command on this machine in the background, for a console that cannot take it
     /// (a shell without Borg's integration, or a container's console), and answers with its
-    /// output, which the log keeps since no terminal shows it.
+    /// output, which the log leaves out since output can hold secrets.
     pub fn run_in_background(&self, id: u64, reply: oneshot::Sender<Reply>, command: String, dir: PathBuf) {
         let messages = self.messages.clone();
         tokio::spawn(async move {
             let (exit, output) = run(&command, &dir).await;
             let status = exit.map_or_else(|| "stopped".to_owned(), |code| format!("exit {code}"));
-            note(&messages, &format!("ran in {}\n$ {command}\n{output}[{status}]", home_relative(&dir)));
-            let _ = reply.send(Reply { ok: exit == Some(0), text: format!("{status}\n{output}") });
+            note(&messages, &format!("ran in {}\n$ {command}\n[{status}]", home_relative(&dir)));
+            let _ = reply.send(Reply { ok: exit == Some(0), text: format!("{status}\n{output}"), structured: None });
             let notice = match exit {
                 Some(code) => tr!(agent_ran, command = command, code = code),
                 None => tr!(agent_stopped, command = command),
@@ -329,7 +391,7 @@ impl Agent {
                 }
                 Err(error) => (format!("{error:#}"), tr!(agent_write_failed, path = uri)),
             };
-            let _ = reply.send(Reply { ok: result.is_ok(), text: reply_text });
+            let _ = reply.send(Reply { ok: result.is_ok(), text: reply_text, structured: None });
             let _ = messages.send(Msg::Agent(AgentEvent::Finished { id, notice }));
         });
     }
@@ -343,20 +405,23 @@ impl Drop for Agent {
     }
 }
 
+/// Takes `borg mcp` connections from this user's programs, and checks each call as an agent's.
 async fn accept(
     listener: UnixListener,
     calls: UnboundedSender<(Call, oneshot::Sender<Reply>)>,
     messages: UnboundedSender<Msg>,
     clients: Arc<AtomicUsize>,
-    service_child: bool,
 ) {
     while let Ok((stream, _)) = listener.accept().await {
+        if !same_user(&stream) {
+            continue;
+        }
         let count = clients.fetch_add(1, Ordering::SeqCst) + 1;
         let _ = messages.send(Msg::Agent(AgentEvent::Connected { clients: count }));
         note(&messages, "an agent connected");
         let (calls, messages, clients) = (calls.clone(), messages.clone(), clients.clone());
         tokio::spawn(async move {
-            let _ = serve_connection(stream, &calls, service_child).await;
+            let _ = serve_connection(stream, &calls).await;
             let count = clients.fetch_sub(1, Ordering::SeqCst) - 1;
             let _ = messages.send(Msg::Agent(AgentEvent::Connected { clients: count }));
             note(&messages, "an agent disconnected");
@@ -364,16 +429,11 @@ async fn accept(
     }
 }
 
-async fn serve_connection(
-    stream: UnixStream,
-    calls: &UnboundedSender<(Call, oneshot::Sender<Reply>)>,
-    service_child: bool,
-) -> Result<()> {
+async fn serve_connection(stream: UnixStream, calls: &UnboundedSender<(Call, oneshot::Sender<Reply>)>) -> Result<()> {
     let (read, mut write) = stream.into_split();
     let mut lines = BufReader::new(read).lines();
     while let Some(line) = lines.next_line().await? {
-        let decoded =
-            serde_json::from_str::<Call>(&line).map(|call| if service_child { Ok(call) } else { call.external() });
+        let decoded = serde_json::from_str::<Call>(&line).map(Call::external);
         let reply = match decoded {
             Ok(Ok(call)) => {
                 let (sender, receiver) = oneshot::channel();
@@ -388,6 +448,34 @@ async fn serve_connection(
     Ok(())
 }
 
+/// Output of a running command Borg holds at most twice over; what a reply carries is cut from
+/// its end, so a command that prints without end never fills Borg's memory.
+const OUTPUT_HELD: usize = 4 * OUTPUT_LIMIT;
+const OUTPUT_PIECE: usize = 64 * 1024;
+
+/// Adds `bytes` to the output kept of a command, letting go of its start once there is far
+/// more than a reply carries.
+pub(crate) fn keep_end(kept: &mut Vec<u8>, bytes: &[u8]) {
+    kept.extend_from_slice(bytes);
+    if kept.len() > 2 * OUTPUT_HELD {
+        kept.drain(..kept.len() - OUTPUT_HELD);
+    }
+}
+
+/// Reads a command's output to its end, keeping the end of it.
+async fn end_of(mut output: impl tokio::io::AsyncRead + Unpin) -> Vec<u8> {
+    use tokio::io::AsyncReadExt as _;
+    let mut kept = Vec::new();
+    let mut piece = vec![0; OUTPUT_PIECE];
+    while let Ok(read) = output.read(&mut piece).await {
+        if read == 0 {
+            break;
+        }
+        keep_end(&mut kept, &piece[..read]);
+    }
+    kept
+}
+
 /// Runs a command with `sh`, keeping the end of its output when there is a lot of it.
 async fn run(command: &str, dir: &Path) -> (Option<i32>, String) {
     let child = Command::new("sh")
@@ -399,11 +487,15 @@ async fn run(command: &str, dir: &Path) -> (Option<i32>, String) {
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true)
         .spawn();
-    let Ok(child) = child else { return (None, "could not start sh\n".into()) };
-    match tokio::time::timeout(COMMAND_TIMEOUT, child.wait_with_output()).await {
-        Ok(Ok(output)) => {
-            let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
-            text.push_str(&String::from_utf8_lossy(&output.stderr));
+    let Ok(mut child) = child else { return (None, "could not start sh\n".into()) };
+    let (Some(stdout), Some(stderr)) = (child.stdout.take(), child.stderr.take()) else {
+        return (None, "could not start sh\n".into());
+    };
+    let finished = async { tokio::join!(end_of(stdout), end_of(stderr), child.wait()) };
+    match tokio::time::timeout(COMMAND_TIMEOUT, finished).await {
+        Ok((stdout, stderr, Ok(status))) => {
+            let mut text = String::from_utf8_lossy(&stdout).into_owned();
+            text.push_str(&String::from_utf8_lossy(&stderr));
             if text.len() > OUTPUT_LIMIT {
                 let cut = text.len() - OUTPUT_LIMIT;
                 let start = (cut..text.len()).find(|&i| text.is_char_boundary(i)).unwrap_or(text.len());
@@ -412,9 +504,9 @@ async fn run(command: &str, dir: &Path) -> (Option<i32>, String) {
             if !text.is_empty() && !text.ends_with('\n') {
                 text.push('\n');
             }
-            (output.status.code(), text)
+            (status.code(), text)
         }
-        Ok(Err(error)) => (None, format!("{error}\n")),
+        Ok((_, _, Err(error))) => (None, format!("{error}\n")),
         Err(_) => (None, "stopped after 10 minutes\n".into()),
     }
 }

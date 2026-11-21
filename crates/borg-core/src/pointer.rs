@@ -57,6 +57,27 @@ pub enum Pointer {
         details: bool,
         code: crossterm::event::KeyCode,
     },
+    StartupExpand(bool),
+    StartupHide,
+    StartupRow {
+        index: usize,
+        open: bool,
+    },
+    StartupControl(crossterm::event::KeyCode),
+    HostsExpand(bool),
+    HostsHide,
+    HostsRow {
+        index: usize,
+        open: bool,
+    },
+    HostsControl(crossterm::event::KeyCode),
+    AlertsExpand(bool),
+    AlertsHide,
+    AlertsRow {
+        index: usize,
+        open: bool,
+    },
+    AlertsControl(crossterm::event::KeyCode),
     TreeNode {
         side: Side,
         index: usize,
@@ -99,6 +120,8 @@ pub enum Pointer {
     DialogMark(usize),
     /// A field of the capture dialog: picked by the first click, changed by the next.
     CaptureField(usize),
+    /// A field of the listen form, as a capture dialog's field.
+    ListenField(usize),
     /// A click beside a dialog that closes on one, as Esc does.
     DismissDialog,
     /// A row of that list: a switch, a pattern or the row for adding one.
@@ -119,11 +142,15 @@ pub enum Pointer {
     FocusPreview,
     Setting(usize),
     ScrollDocument(isize),
+    /// A cell of the entropy strip beside the viewer's hex rows, of so many.
+    EntropyStrip {
+        cell: usize,
+        cells: usize,
+    },
     Panel {
         side: Side,
         index: usize,
         open: bool,
-        mark: bool,
     },
     ScrollPanel {
         side: Side,
@@ -131,6 +158,8 @@ pub enum Pointer {
     },
     /// A folder in the picker above the command line, counted from the bottom.
     CdChoice(usize),
+    /// The close mark of a job's toast, which shows over the console and the editors too.
+    CloseToast(u64),
 }
 
 pub(crate) fn on_pointer(state: &mut AppState, pointer: Pointer, now: Instant) -> Vec<Effect> {
@@ -139,14 +168,27 @@ pub(crate) fn on_pointer(state: &mut AppState, pointer: Pointer, now: Instant) -
     let resting = state.screensaver;
     state.screensaver = false;
     state.escaped = None;
+    if let Some(approval) = state.approval.take() {
+        return crate::agent::on_approval_pointer(state, approval, pointer, now);
+    }
+    if let Pointer::CloseToast(job) = pointer {
+        crate::jobs::close_toast(state, job);
+        return Vec::new();
+    }
     if let Pointer::ScrollDocument(delta) = pointer {
         if !resting && state.overlay.is_none() && !state.shell.captured() {
             scroll_document(state, delta);
         }
         return Vec::new();
     }
-    // An agent's dialogs show over the editor and the viewer, and take their clicks.
-    let agent = matches!(state.overlay, Some(Overlay::Approval(_) | Overlay::AgentLog { .. }));
+    if let Pointer::EntropyStrip { cell, cells } = pointer {
+        if !resting && state.overlay.is_none() && !state.shell.captured() {
+            crate::viewer::show_strip_cell(state, cell, cells);
+        }
+        return Vec::new();
+    }
+    // An agent's log and a job's question show over the editor and the viewer, and take their clicks.
+    let agent = state.question_shows() || matches!(state.overlay, Some(Overlay::AgentLog { .. }));
     if state.editor.is_some() && !agent {
         return if resting { Vec::new() } else { crate::editor::on_pointer(state, crate::EditorSlot::Screen, pointer) };
     }
@@ -157,7 +199,6 @@ pub(crate) fn on_pointer(state: &mut AppState, pointer: Pointer, now: Instant) -
         if resting || state.overlay.is_some() || state.effective_view() != View::Panels {
             return Vec::new();
         }
-        // A click goes to the panel's editor; the wheel scrolls it where it is.
         if !matches!(pointer, Pointer::EditorScroll(..)) {
             state.active = side;
         }
@@ -170,7 +211,6 @@ pub(crate) fn on_pointer(state: &mut AppState, pointer: Pointer, now: Instant) -
         return Vec::new();
     }
     state.notice = None;
-    // Finding in a panel ends at a click, which then acts on the panels.
     if let Some(Overlay::Find(find)) = state.overlay.clone() {
         crate::find::on_key(state, find, &crossterm::event::KeyCode::Esc.into());
     }
@@ -200,15 +240,13 @@ fn scroll_document(state: &mut AppState, delta: isize) {
 /// Opens a menu of the menu bar at its first item that can be chosen.
 fn open_menu(state: &mut AppState, index: usize) -> Vec<Effect> {
     if let Some(menu) = menus(state).get(index) {
-        let cursor = MenuCursor { menu: index, item: menu.first_enabled() };
-        state.last_menu = Some(cursor);
-        state.overlay = Some(Overlay::Menu(cursor));
+        state.overlay = Some(Overlay::Menu(MenuCursor { menu: index, item: menu.first_enabled() }));
     }
     Vec::new()
 }
 
-/// A click or the wheel with no window open: on a monitor beside the panels, or on the panels,
-/// their trees and their results.
+/// A click or the wheel with no window open: on a screen over the panels, whose list then takes
+/// the keys from a file panel it lends, or on the panels, their trees and their results.
 fn on_panels(state: &mut AppState, pointer: Pointer, now: Instant) -> Vec<Effect> {
     match pointer {
         Pointer::CdChoice(row) => crate::folders::pick(state, row),
@@ -220,6 +258,7 @@ fn on_panels(state: &mut AppState, pointer: Pointer, now: Instant) -> Vec<Effect
         | Pointer::ActivitySort(_)
             if state.activity.side.is_some() =>
         {
+            crate::screens::focus_list(state);
             monitors::activity(state, pointer, now)
         }
         Pointer::DockerExpand { .. }
@@ -229,6 +268,7 @@ fn on_panels(state: &mut AppState, pointer: Pointer, now: Instant) -> Vec<Effect
         | Pointer::DockerControl { .. }
             if state.docker.is_open() =>
         {
+            crate::screens::focus_list(state);
             monitors::containers(state, pointer, now)
         }
         Pointer::NetworkExpand { .. }
@@ -240,7 +280,25 @@ fn on_panels(state: &mut AppState, pointer: Pointer, now: Instant) -> Vec<Effect
         | Pointer::NetworkControl { .. }
             if state.network.is_open() =>
         {
+            crate::screens::focus_list(state);
             monitors::network(state, pointer, now)
+        }
+        Pointer::StartupExpand(_) | Pointer::StartupHide | Pointer::StartupRow { .. } | Pointer::StartupControl(_)
+            if state.startup_items.is_open() =>
+        {
+            crate::screens::focus_list(state);
+            monitors::startup(state, pointer, now)
+        }
+        Pointer::AlertsExpand(_) | Pointer::AlertsHide | Pointer::AlertsRow { .. } | Pointer::AlertsControl(_)
+            if state.alerts.is_open() =>
+        {
+            crate::screens::focus_list(state);
+            monitors::alerts(state, pointer, now)
+        }
+        Pointer::HostsExpand(_) | Pointer::HostsHide | Pointer::HostsRow { .. } | Pointer::HostsControl(_)
+            if state.hosts.is_open() =>
+        {
+            monitors::hosts(state, pointer, now)
         }
         Pointer::TreeNode { side, index } if state.panel(side).is_tree() => toggle_tree_node(state, side, index),
         Pointer::ResultControl { side, action }
@@ -255,9 +313,7 @@ fn on_panels(state: &mut AppState, pointer: Pointer, now: Instant) -> Vec<Effect
         }
         Pointer::ResultSort { side, key } => sort_by(state, side, key),
         Pointer::Action(action) => actions::perform(state, action, now),
-        Pointer::Panel { side, index, open, mark } if takes_clicks(state, side) => {
-            click_row(state, side, index, open, mark, now)
-        }
+        Pointer::Panel { side, index, open } if takes_clicks(state, side) => click_row(state, side, index, open, now),
         Pointer::ScrollPanel { side, delta } if takes_clicks(state, side) => {
             focus(state, side);
             state.panel_mut(side).move_by(delta);
@@ -302,9 +358,8 @@ fn sort_by(state: &mut AppState, side: Side, key: crate::SortKey) -> Vec<Effect>
     Vec::new()
 }
 
-/// A click on a panel's row puts the cursor there; a right click also marks it and a double
-/// click opens it.
-fn click_row(state: &mut AppState, side: Side, index: usize, open: bool, mark: bool, now: Instant) -> Vec<Effect> {
+/// A click on a panel's row puts the cursor there, and a double click opens it.
+fn click_row(state: &mut AppState, side: Side, index: usize, open: bool, now: Instant) -> Vec<Effect> {
     focus(state, side);
     let panel = state.panel_mut(side);
     if index >= panel.len() {
@@ -312,8 +367,5 @@ fn click_row(state: &mut AppState, side: Side, index: usize, open: bool, mark: b
     }
     let delta = index as isize - panel.cursor() as isize;
     panel.move_by(delta);
-    if mark {
-        panel.toggle_mark();
-    }
     if open { actions::perform(state, Action::Open, now) } else { Vec::new() }
 }

@@ -36,6 +36,7 @@ use crate::{
 };
 
 mod agent_calls;
+mod carry;
 mod cloud;
 mod console;
 mod effects;
@@ -43,9 +44,11 @@ mod input;
 mod jobs;
 mod remotes;
 mod render;
+mod shared_asks;
 mod startup;
 mod viewers;
 
+pub use carry::{Resumed, Shell, pack, unpack};
 use input::WheelBurst;
 use render::{Plain, appearance, palette};
 pub(crate) use render::{picture, span};
@@ -55,9 +58,6 @@ const INDEX_DELAY: Duration = Duration::from_secs(5);
 /// Larger copies stay in Borg's clipboard: terminals drop or cut longer OSC 52 writes.
 const TERMINAL_CLIPBOARD_LIMIT: usize = 256 * 1024;
 const REMOTE_CLIENT_REFRESH: Duration = Duration::from_secs(1);
-/// The folder under the runtime directory where container files are copied for viewing.
-const DOCKER_SCRATCH: &str = "docker";
-
 const IDLE_WAIT: Duration = Duration::from_secs(3600);
 
 pub struct App {
@@ -73,6 +73,11 @@ pub struct App {
     inbox: UnboundedReceiver<Msg>,
     listings: [Option<JoinHandle<()>>; 2],
     remote_listings: crate::remote_fs::Listings,
+    /// The listings of the archives the panels showed lately.
+    archives: crate::archive::Indexes,
+    /// What Borg knows of the drives jobs read and write, and the answers it keeps about long
+    /// jobs.
+    drives: borg_drives::Drives,
     remote_catalog: Option<JoinHandle<()>>,
     remote_consoles: crate::remote_console::Clients,
     console_server: crate::remote_console::Server,
@@ -90,13 +95,21 @@ pub struct App {
     last_click: Option<(u16, u16, Instant)>,
     wheel: WheelBurst,
     preview: preview::Loader,
-    /// Stops the viewer's search running in the background.
+    /// Stop the searches running in the background through the viewer's text and the quick
+    /// view's.
     viewer_search: Option<Arc<AtomicBool>>,
+    preview_search: Option<Arc<AtomicBool>>,
+    /// Stops the read of the viewer's entropy under way.
+    viewer_profile: Option<Arc<AtomicBool>>,
     plugins: crate::plugins::Plugins,
     monitor: crate::activity::Monitor,
     backup: crate::backup::Backup,
     docker: crate::docker::Docker,
     network: crate::network::Network,
+    startup_items: crate::startup_items::StartupItems,
+    alerts: crate::watch::Alerts,
+    hosts: crate::host_watch::HostWatch,
+    storage: crate::storage::Storage,
     shells: crate::docker::Shells,
     /// Whose terminal the command line and Ctrl-O console show, as the core decided.
     console: borg_core::Console,
@@ -113,6 +126,12 @@ pub struct App {
     wide_emoji: bool,
     /// Borg cloud: this borg reachable from paired computers through a relay.
     link: crate::link::LinkServer,
+    /// This run of borg, which the asks shown to other computers belong to.
+    run: String,
+    /// What waits here for an answer, for the borgs whose panels show this session.
+    ask_board: tokio::sync::watch::Sender<borg_core::AskBoard>,
+    /// The host sessions the panels here show, watched for their asks.
+    host_asks: crate::host_asks::Watchers,
     /// Files arriving from another computer, by token.
     uploads: HashMap<String, crate::agent::Upload>,
     /// Files another computer may download in pieces without asking again, by computer
@@ -124,9 +143,20 @@ pub struct App {
     memory_readers: std::collections::HashSet<(Option<String>, borg_core::ProcessKey)>,
     saved_captures: agent_calls::SavedCaptures,
     runtime_dir: PathBuf,
+    vaults: crate::vaults::Vaults,
     mirror_connect: Option<futures::future::BoxFuture<'static, Result<crate::mirror::Connection>>>,
     mirror_ready: Option<crate::mirror::Connection>,
     cloud_suppressed: bool,
+    /// This Borg's registration with the background service, which then holds borg cloud.
+    membership: Option<crate::service::Membership>,
+    /// The session moves to the newer Borg an update installed, so the loop ends for that.
+    relaunching: bool,
+}
+
+/// How the app ended: the user quit, or the session moves to a newer Borg with its shell.
+pub enum Exit {
+    Quit,
+    Relaunch(Shell),
 }
 
 enum Flow {
@@ -141,13 +171,27 @@ impl Drop for App {
 }
 
 impl App {
-    pub async fn run(mut self, terminal: &mut DefaultTerminal) -> Result<()> {
+    pub async fn run(mut self, terminal: &mut DefaultTerminal) -> Result<Exit> {
         let result = self.event_loop(terminal).await;
         self.save_session();
         let backend = terminal.backend_mut();
         backend.write_all(&self.graphics.reset())?;
         backend.flush()?;
-        result
+        result?;
+        if self.relaunching { Ok(Exit::Relaunch(self.carry_shell()?)) } else { Ok(Exit::Quit) }
+    }
+
+    /// The shell, no longer read here, with its screen and what Borg knew of it.
+    fn carry_shell(&mut self) -> Result<Shell> {
+        let host = self.state.host_shell();
+        let (integrated, silent_cd) = (host.integrated, host.silent_cd);
+        Ok(Shell {
+            screen: self.emulator.carry_ansi(self.state.settings.scrollback),
+            cd_request: self.cd_request.clone(),
+            integrated,
+            silent_cd,
+            detached: self.pty.detach()?,
+        })
     }
 
     async fn event_loop(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
@@ -156,8 +200,8 @@ impl App {
         let mut last_draw = Instant::now() - self.state.settings.motion.frame;
         let mut animating = false;
 
-        if let Some(dir) = self.state_dir.clone().filter(|_| self.config.update_check()) {
-            crate::update::check_in_background(dir, self.messages.clone());
+        if let Some(dir) = self.state_dir.clone() {
+            crate::update::check_daily(dir, self.config_dir.clone(), self.messages.clone());
         }
         let initial = std::mem::take(&mut self.pending);
         if let Flow::Quit = self.apply(initial)? {
@@ -192,6 +236,7 @@ impl App {
                 Some((key, event)) = self.remote_consoles.incoming.recv() => self.on_remote_console(key, event)?,
                 Some((container, event)) = self.shells.incoming.recv() => self.on_container_shell(container, event)?,
                 Some((call, reply)) = self.agent.incoming.recv() => self.on_agent(call, reply)?,
+                id = self.agent.waiting.withdrawn() => self.dispatch(Msg::Agent(borg_core::AgentEvent::Withdrawn { id }))?,
                 Some(msg) = self.inbox.recv() => self.dispatch(msg)?,
                 Some(msg) = self.search.incoming.recv() => self.dispatch(msg)?,
                 connected = async {
@@ -216,6 +261,13 @@ impl App {
             if let Flow::Quit = flow {
                 return Ok(());
             }
+            self.publish_asks();
+            self.host_asks.sync(
+                Side::ALL
+                    .into_iter()
+                    .filter_map(|side| self.state.panel(side).remote_mount.as_ref())
+                    .map(|mount| (mount.machine.clone(), mount.session.clone())),
+            );
             if !matches!(
                 &self.state.overlay,
                 Some(borg_core::Overlay::Remotes(_))
@@ -271,12 +323,22 @@ impl App {
     }
 
     fn dispatch(&mut self, msg: Msg) -> Result<Flow> {
-        let effects = update(&mut self.state, msg, Instant::now());
+        let finished = matches!(msg, Msg::Job { event: borg_jobs::Event::Finished(_), .. });
+        let mut effects = update(&mut self.state, msg, Instant::now());
+        if finished {
+            effects.extend(update(&mut self.state, Msg::KeptAnswers(self.drives.kept()), Instant::now()));
+        }
         if self.state.activity.side.is_none() || self.state.activity.pending.is_none() {
             self.monitor.cancel();
         }
         if self.state.docker.pending.is_none() {
             self.docker.cancel();
+        }
+        if self.state.docker.disk.loading.is_none() {
+            self.docker.cancel_disk();
+        }
+        if self.state.docker.disk.reading.is_none() {
+            self.docker.cancel_volumes();
         }
         if self.state.network.pending.is_none() {
             self.network.cancel();
@@ -302,7 +364,7 @@ impl App {
         let flow = self.apply(effects)?;
         self.fit_container_shell();
         self.settle_reveals();
-        self.link.sync(self.state.settings.preferences.agent_cloud && !self.cloud_suppressed);
+        self.link.sync(self.state.settings.preferences.agent_cloud && !self.cloud_elsewhere());
         Ok(flow)
     }
 }

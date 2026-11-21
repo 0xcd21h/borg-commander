@@ -87,36 +87,56 @@ pub fn draw(frame: &mut Frame<'_>, scene: &Scene<'_>) -> Vec<Placement> {
 }
 
 pub fn draw_with_cursor(frame: &mut Frame<'_>, scene: &Scene<'_>) -> (Vec<Placement>, Option<Position>) {
-    borg_i18n::with_locale(scene.state.settings.preferences.language, || draw_localized(frame, scene))
+    let (placements, cursor) = draw_into(frame.buffer_mut(), scene);
+    if let Some(position) = cursor {
+        frame.set_cursor_position(position);
+    }
+    (placements, cursor)
 }
 
-fn draw_localized(frame: &mut Frame<'_>, scene: &Scene<'_>) -> (Vec<Placement>, Option<Position>) {
-    let area = frame.area();
+/// Draws the scene over all of `buf`, and says where the terminal's cursor goes in it.
+pub fn draw_into(buf: &mut Buffer, scene: &Scene<'_>) -> (Vec<Placement>, Option<Position>) {
+    borg_i18n::with_locale(scene.state.settings.preferences.language, || draw_localized(buf, scene))
+}
+
+fn draw_localized(buf: &mut Buffer, scene: &Scene<'_>) -> (Vec<Placement>, Option<Position>) {
+    let area = buf.area;
     let theme = scene.theme_at(scene.state.appearance.current());
-    let (cursor, placements) = compose(frame.buffer_mut(), scene, theme, area);
-    crate::branding::draw(area, theme, scene.palette, frame.buffer_mut());
+    let (cursor, placements) = compose(buf, scene, theme, area);
+    crate::branding::draw(area, theme, scene.palette, buf);
     if !scene.state.settings.truecolor {
-        fx::quantize(frame.buffer_mut(), scene.palette);
-    }
-    if let Some(position) = cursor.filter(|position| area.contains(*position)) {
-        frame.set_cursor_position(position);
+        fx::quantize(buf, scene.palette);
     }
     (placements, cursor.filter(|position| area.contains(*position)))
 }
 
 fn compose(buf: &mut Buffer, scene: &Scene<'_>, theme: &Theme, area: Rect) -> (Option<Position>, Vec<Placement>) {
+    let under = compose_under_approval(buf, scene, theme, area);
+    let Some(approval) = &scene.state.approval else {
+        crate::toast_view::draw(scene.state, &scene.look(theme), scene.now, buf);
+        return under;
+    };
+    draw_approval_on_top(buf, scene, approval);
+    (None, Vec::new())
+}
+
+fn compose_under_approval(
+    buf: &mut Buffer,
+    scene: &Scene<'_>,
+    theme: &Theme,
+    area: Rect,
+) -> (Option<Position>, Vec<Placement>) {
     let state = scene.state;
     if let Some(editor) = &state.editor {
         let cursor = crate::editor_view::draw_editor(editor, theme, area, buf);
-        if matches!(state.overlay, Some(Overlay::Approval(_))) {
+        if state.question_shows() {
             return (console_overlay(buf, scene), Vec::new());
         }
         return (cursor, Vec::new());
     }
     if let Some(viewer) = &state.viewer {
         let (placements, cursor) = draw_viewer(viewer, theme, scene.pixels.pictures(), area, buf);
-        // An agent's approval shows over the viewer too; pictures under it would cover it.
-        if matches!(state.overlay, Some(Overlay::Approval(_))) {
+        if state.question_shows() {
             return (console_overlay(buf, scene), Vec::new());
         }
         return (cursor, placements);
@@ -131,6 +151,14 @@ fn compose(buf: &mut Buffer, scene: &Scene<'_>, theme: &Theme, area: Rect) -> (O
         return (None, Vec::new());
     }
     draw_main(buf, scene, area)
+}
+
+fn draw_approval_on_top(buf: &mut Buffer, scene: &Scene<'_>, approval: &borg_core::Approval) {
+    let theme = scene.theme_at(scene.state.appearance.current());
+    let screen = scene.state.layout(scene.now).screen;
+    fx::fade_to_background(buf, screen, BACKDROP, scene.palette);
+    let rect = crate::agent_view::draw_approval(approval, theme, screen, buf);
+    fx::shadow(buf, rect, scene.palette);
 }
 
 fn draw_main(buf: &mut Buffer, scene: &Scene<'_>, area: Rect) -> (Option<Position>, Vec<Placement>) {
@@ -271,7 +299,7 @@ fn backdrop(scene: &Scene<'_>, look: &Look<'_>, layout: &Layout, overlay: &Overl
     let bar = bar_of(layout, overlay);
     let amount = match overlay {
         Overlay::Find(_) => return,
-        Overlay::Menu(_) => MENU_BACKDROP,
+        Overlay::Menu(_) | Overlay::ContextMenu(_) => MENU_BACKDROP,
         _ => BACKDROP,
     };
     fx::fade_to_background(buf, backdrop_area(layout, overlay), amount, scene.palette);
@@ -316,13 +344,16 @@ fn paint_overlay(
             (crate::discovery_view::exclusions(editor, state, theme, screen, buf), None, Unfold::FromCenter)
         }
         Overlay::Menu(cursor) => {
-            let x = menu_view::title_positions(&all).get(cursor.menu).copied().unwrap_or_default();
+            let x = menu_view::dropdown_left(&all, cursor.menu, bar.map_or(screen.width, |b| b.width));
             let top = bar.map_or(screen.y, |b| b.bottom());
             let rect = all
                 .get(cursor.menu)
                 .map(|menu| menu_view::draw_dropdown(menu, cursor.item, x, top, theme, screen, buf))
                 .unwrap_or_default();
             (rect, None, Unfold::Down)
+        }
+        Overlay::ContextMenu(context) => {
+            (menu_view::draw_context_menu(context, theme, screen, buf), None, Unfold::Down)
         }
         Overlay::Settings { selected } | Overlay::Plugins { selected } => {
             (crate::settings_view::draw(state, *selected, theme, screen, buf), None, Unfold::FromCenter)
@@ -334,21 +365,47 @@ fn paint_overlay(
             (draw_picker(picker, state.appearance.choices(), theme, screen, buf), None, Unfold::FromCenter)
         }
         Overlay::Prompt(prompt) => {
-            let (rect, position) = dialog_view::draw_prompt(prompt, theme, screen, buf);
+            let typed = prompt.typed.map(|at| scene.now.saturating_duration_since(at).as_secs_f32());
+            let (rect, position) = dialog_view::draw_prompt(prompt, look, typed, screen, buf);
             (rect, Some(position), Unfold::FromCenter)
         }
         Overlay::Confirm(confirm) => (dialog_view::draw_confirm(confirm, theme, screen, buf), None, Unfold::FromCenter),
         Overlay::ProcessControl(dialog) => {
             (crate::activity_view::control::draw(dialog, theme, screen, buf), None, Unfold::FromCenter)
         }
+        Overlay::EntropyScan(dialog) => {
+            (crate::activity_view::entropy::draw_dialog(dialog, theme, screen, buf), None, Unfold::FromCenter)
+        }
         Overlay::Capture(dialog) => (
             crate::network_view::draw_capture_dialog(dialog, &state.network, theme, screen, buf),
             None,
             Unfold::FromCenter,
         ),
+        Overlay::Listen(form) => {
+            (crate::network_view::draw_listen_form(form, theme, screen, buf), None, Unfold::FromCenter)
+        }
         Overlay::Install(offer) => (crate::install_view::draw(offer, theme, screen, buf), None, Unfold::FromCenter),
-        Overlay::Approval(approval) => {
-            (crate::agent_view::draw_approval(approval, theme, screen, buf), None, Unfold::FromCenter)
+        Overlay::VaultKey(key) => {
+            let (rect, position) = crate::vault_view::draw(key, theme, screen, buf);
+            (rect, Some(position), Unfold::FromCenter)
+        }
+        Overlay::Service(offer) => (crate::service_view::draw(offer, theme, screen, buf), None, Unfold::FromCenter),
+        Overlay::Update(offer) => (crate::update_view::draw(offer, theme, screen, buf), None, Unfold::FromCenter),
+        Overlay::ScanNetwork(form) => {
+            (crate::network_view::draw_scan_form(&state.network, form, theme, screen, buf), None, Unfold::FromCenter)
+        }
+        Overlay::PortScan(form) => {
+            (crate::port_scan_view::draw_form(state, form, theme, scene.clock, screen, buf), None, Unfold::FromCenter)
+        }
+        Overlay::PortScanDone(record) => {
+            (crate::port_scan_view::draw_done(record, theme, screen, buf), None, Unfold::FromCenter)
+        }
+        Overlay::PortScanResult(view) => {
+            (crate::port_scan_view::draw_result(view, theme, scene.clock, screen, buf), None, Unfold::FromCenter)
+        }
+        Overlay::SaveReport(form) => (crate::report_view::draw(form, theme, screen, buf), None, Unfold::FromCenter),
+        Overlay::Storage(window) => {
+            (crate::storage_view::draw(state, window, scene.clock, theme, screen, buf), None, Unfold::FromCenter)
         }
         Overlay::AgentLog { scroll } => {
             (crate::agent_view::draw_log(state, *scroll, theme, screen, buf), None, Unfold::FromCenter)
@@ -375,7 +432,7 @@ fn paint_overlay(
             (rect, None, Unfold::FromCenter)
         }
         Overlay::Jobs(list) => {
-            (job_view::draw_jobs(*list, &state.jobs, look, scene.now, screen, buf), None, Unfold::FromCenter)
+            (crate::jobs_sheet::draw(*list, &state.jobs, look, scene.now, layout, buf), None, Unfold::FromCenter)
         }
     };
     let reach = UNFOLD_FLOOR + (FULLY_SHOWN - UNFOLD_FLOOR) * progress;

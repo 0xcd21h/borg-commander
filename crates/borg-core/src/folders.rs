@@ -28,6 +28,7 @@ pub const CLEAR_LINE: &[u8] = b"\x05\x15";
 pub const CD: &str = "cd";
 
 const HOME_PREFIX: &str = "~";
+const ROOT: char = '/';
 /// Characters that make a command line more than a change of folder.
 const COMPOUND: [char; 9] = [';', '&', '|', '<', '>', '`', '(', ')', '\n'];
 const SUBSTITUTION: &str = "$(";
@@ -115,15 +116,20 @@ impl Folders {
         list.retain(|dir| *dir != choice.path);
     }
 
-    /// The hotlist, then the recent folders not on it, that hold every word of `query`, with
-    /// `skip` left out. Folders named like the last word come first: the same name, then a name
-    /// that starts with it, then one that holds it.
+    /// The hotlist, then the recent folders not on it, that hold every word of `query` as they
+    /// are shown, with `skip` left out, so the home folder's own path matches none of the
+    /// folders in it. A word that starts at the root is looked for in the full path. Folders
+    /// named like the last word come first: the same name, then a name that starts with it, then
+    /// one that holds it.
     pub fn choices(&self, query: &str, skip: Option<&Path>) -> Vec<FolderChoice> {
         let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
         let matches = |dir: &Path| {
             let shown = self.display(dir).to_lowercase();
             let full = dir.to_string_lossy().to_lowercase();
-            words.iter().all(|word| shown.contains(word) || full.contains(word))
+            words.iter().all(|word| {
+                let path = if word.starts_with(ROOT) { &full } else { &shown };
+                path.contains(word.as_str())
+            })
         };
         let pinned = self.hotlist.iter().map(|path| (path, true));
         let recent = self.recent.iter().filter(|dir| !self.hotlist.contains(dir)).map(|path| (path, false));
@@ -232,8 +238,7 @@ fn at_host_command_line(state: &AppState) -> bool {
         && crate::editor::focused(state).is_none()
         && state.console == Console::Host
         && !state.shell.busy()
-        && panel.mount.is_none()
-        && panel.remote_mount.is_none()
+        && !panel.foreign()
         && !panel.is_results()
         && !panel.is_size_view()
 }
@@ -401,7 +406,7 @@ fn take_folder(state: &mut AppState, dir: PathBuf) -> Vec<Effect> {
     state.shell.clear_line();
     state.shell.observed.line = TypedLine::default();
     let mut effects = vec![Effect::Write(CLEAR_LINE.to_vec())];
-    effects.extend(open(state, state.active, dir));
+    effects.extend(open(state, state.active, dir, None));
     effects
 }
 
@@ -438,7 +443,7 @@ pub fn dialog_choices(state: &AppState, filter: &str) -> Vec<FolderChoice> {
 
 fn host_panel(state: &AppState, side: Side) -> bool {
     let panel = state.panel(side);
-    panel.mount.is_none() && panel.remote_mount.is_none() && !panel.is_results()
+    !panel.foreign() && !panel.is_results()
 }
 
 /// Ctrl-\ opens the dialog on the active panel's folder.
@@ -473,7 +478,7 @@ pub(crate) fn dialog_key(state: &mut AppState, mut dialog: FoldersDialog, key: &
         KeyCode::Enter => {
             let Some(choice) = chosen else { return keep(state, dialog) };
             state.overlay = None;
-            return open(state, state.active, choice.path);
+            return open(state, state.active, choice.path, None);
         }
         KeyCode::Insert => match chosen.filter(|choice| !choice.pinned) {
             Some(choice) if state.folders.pin(&choice.path) => {
@@ -513,11 +518,12 @@ fn keep(state: &mut AppState, dialog: FoldersDialog) -> Vec<Effect> {
     Vec::new()
 }
 
-/// Opens `dir` in the panel on `side`, leaving a container's or a remote machine's files first.
-pub(crate) fn open(state: &mut AppState, side: Side, dir: PathBuf) -> Vec<Effect> {
+/// Opens `dir` in the panel on `side`, with the cursor on `focus` when it is there, leaving a
+/// container's or a remote machine's files first.
+pub(crate) fn open(state: &mut AppState, side: Side, dir: PathBuf, focus: Option<String>) -> Vec<Effect> {
     crate::remote::unmount(state, side);
     state.panel_mut(side).mount = None;
-    vec![state.navigate(side, dir, None)]
+    vec![state.navigate(side, dir, focus)]
 }
 
 /// A panel's folder listed in full: a visit worth remembering, while folder history is on.

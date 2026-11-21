@@ -26,6 +26,7 @@ async fn a_contents_search_reads_text_files_for_their_first_match_and_leaves_bin
         Side::Left,
         3,
         SearchRequest {
+            typos: false,
             skip: None,
             root: root.path().into(),
             query: "*".into(),
@@ -65,6 +66,118 @@ async fn a_contents_search_reads_text_files_for_their_first_match_and_leaves_bin
 }
 
 #[tokio::test]
+async fn a_rules_search_lists_the_files_rules_match_and_passes_over_pipes() {
+    let rules = tempfile::tempdir().unwrap();
+    fs::write(rules.path().join("marker.yar"), "rule marker { strings: $a = \"borg-marker\" condition: $a }").unwrap();
+    fs::write(rules.path().join("broken.yar"), "rule broken {").unwrap();
+    let root = tempfile::tempdir().unwrap();
+    fs::write(root.path().join("hit.bin"), b"\0\0borg-marker\0").unwrap();
+    fs::write(root.path().join("clean.txt"), "nothing here").unwrap();
+    let made = std::process::Command::new("mkfifo").arg(root.path().join("pipe")).status().unwrap();
+    assert!(made.success());
+    let mut worker = Search::with_rules(rules.path());
+    worker.search(
+        Side::Left,
+        4,
+        SearchRequest {
+            typos: false,
+            skip: None,
+            root: root.path().into(),
+            query: "*".into(),
+            hidden: false,
+            options: borg_core::SearchOptions { kind: SearchKind::Rules, ..Default::default() },
+        },
+    );
+    let (mut found, mut progress) = (Vec::new(), SearchProgress::default());
+    loop {
+        match tokio::time::timeout(Duration::from_secs(5), worker.incoming.recv()).await.unwrap().unwrap() {
+            Msg::RuleHits { found: batch, .. } => found.extend(batch),
+            Msg::Batch { entries, .. } => assert!(entries.is_empty(), "every file comes with its rules"),
+            Msg::SearchProgress { progress: latest, .. } => progress = latest,
+            Msg::Listed { error, .. } => {
+                assert!(error.is_none());
+                break;
+            }
+            _ => {}
+        }
+    }
+    let hits: Vec<_> = found.iter().map(|(entry, hits)| (entry.name.as_str(), hits[0].rule.as_str())).collect();
+    assert_eq!(hits, [("hit.bin", "marker")]);
+    assert_eq!((progress.read, progress.unread, progress.errors), (2, 0, 0));
+    assert_eq!(progress.rules, borg_rules::Rules::compile(&[]).count() + 1);
+    let left_out: Vec<_> = progress.left_out.iter().map(|problem| problem.file.clone()).collect();
+    assert_eq!(left_out, [rules.path().join("broken.yar")]);
+}
+
+/// A 64-bit ELF program whose code segment, from the second block on, holds `code`.
+fn program(code: &[u8]) -> Vec<u8> {
+    let block = borg_view::entropy::BLOCK;
+    let mut file = vec![0; block as usize];
+    file[..7].copy_from_slice(b"\x7fELF\x02\x01\x01");
+    file[0x10..0x12].copy_from_slice(&2u16.to_le_bytes());
+    file[0x20..0x28].copy_from_slice(&64u64.to_le_bytes());
+    file[0x36..0x38].copy_from_slice(&56u16.to_le_bytes());
+    file[0x38..0x3a].copy_from_slice(&1u16.to_le_bytes());
+    file[64..68].copy_from_slice(&1u32.to_le_bytes());
+    file[68..72].copy_from_slice(&5u32.to_le_bytes());
+    file[72..80].copy_from_slice(&block.to_le_bytes());
+    file[96..104].copy_from_slice(&(code.len() as u64).to_le_bytes());
+    file.extend_from_slice(code);
+    file
+}
+
+fn noise(len: usize) -> Vec<u8> {
+    let mut state = 0x2545_f491_4f6c_dd1du64;
+    (0..len)
+        .map(|_| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state as u8
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn a_search_for_packed_programs_lists_those_whose_code_is_mostly_high_entropy() {
+    let block = borg_view::entropy::BLOCK as usize;
+    let root = tempfile::tempdir().unwrap();
+    let packed = [noise(3 * block), vec![0x90; block]].concat();
+    fs::write(root.path().join("packed"), program(&packed)).unwrap();
+    fs::write(root.path().join("plain"), program(&[vec![0x90; 3 * block], noise(block)].concat())).unwrap();
+    fs::write(root.path().join("archive.zip"), noise(4 * block)).unwrap();
+    let mut worker = Search::with_cache(crate::size_cache::SizeCache::at(None));
+    worker.search(
+        Side::Left,
+        5,
+        SearchRequest {
+            typos: false,
+            skip: None,
+            root: root.path().into(),
+            query: "*".into(),
+            hidden: false,
+            options: borg_core::SearchOptions { kind: SearchKind::Packed, ..Default::default() },
+        },
+    );
+    let (mut found, mut progress) = (Vec::new(), SearchProgress::default());
+    loop {
+        match tokio::time::timeout(Duration::from_secs(5), worker.incoming.recv()).await.unwrap().unwrap() {
+            Msg::PackedHits { found: batch, .. } => found.extend(batch),
+            Msg::Batch { entries, .. } => assert!(entries.is_empty(), "every program comes with its entropy"),
+            Msg::SearchProgress { progress: latest, .. } => progress = latest,
+            Msg::Listed { error, .. } => {
+                assert!(error.is_none());
+                break;
+            }
+            _ => {}
+        }
+    }
+    let hits: Vec<_> = found.iter().map(|(entry, tally)| (entry.name.as_str(), tally.high, tally.first_high)).collect();
+    assert_eq!(hits, [("packed", 3, Some(block as u64))], "the first high block is where the code starts");
+    assert_eq!((progress.read, progress.unread, progress.errors), (2, 1, 0), "the archive is no program");
+}
+
+#[tokio::test]
 async fn folder_totals_find_many_small_files_and_filter_only_after_measuring() {
     let root = tempfile::tempdir().unwrap();
     fs::create_dir_all(root.path().join("project/node_modules/.cache")).unwrap();
@@ -79,6 +192,7 @@ async fn folder_totals_find_many_small_files_and_filter_only_after_measuring() {
         Side::Left,
         9,
         SearchRequest {
+            typos: false,
             skip: None,
             root: root.path().into(),
             query: "node_modules".into(),
@@ -111,6 +225,7 @@ async fn folder_totals_find_many_small_files_and_filter_only_after_measuring() {
         Side::Left,
         10,
         SearchRequest {
+            typos: false,
             skip: None,
             root: root.path().into(),
             query: "node_modules".into(),
@@ -145,6 +260,7 @@ async fn recursive_search_preserves_sources_and_does_not_follow_symlink_loops() 
         Side::Left,
         7,
         SearchRequest {
+            typos: false,
             skip: None,
             root: root.path().into(),
             query: "*.toml".into(),
@@ -181,6 +297,7 @@ async fn matches_near_the_search_folder_come_first_and_nothing_is_counted_twice(
         Side::Left,
         7,
         SearchRequest {
+            typos: false,
             skip: None,
             root: root.path().into(),
             query: "*регламент*".into(),
@@ -213,7 +330,7 @@ async fn other_apps_data_is_left_out_from_above_and_read_when_searched_in_its_ow
     fs::write(root.path().join("Library/report.txt"), "mine").unwrap();
     async fn found(search: &mut Search, root: &std::path::Path, id: u64) -> (Vec<std::path::PathBuf>, usize) {
         let (skip, query, hidden, options) = (None, "report".into(), false, Default::default());
-        search.search(Side::Left, id, SearchRequest { skip, root: root.into(), query, hidden, options });
+        search.search(Side::Left, id, SearchRequest { typos: false, skip, root: root.into(), query, hidden, options });
         let mut found = Vec::new();
         loop {
             match tokio::time::timeout(Duration::from_secs(5), search.incoming.recv()).await.unwrap().unwrap() {
@@ -258,8 +375,14 @@ async fn name_searches_leave_out_generated_ignored_and_configured_paths_unless_a
     let run = |query: &str, skip: Option<borg_core::SearchSettings>| {
         let base = base.clone();
         let mut search = Search::with_cache(crate::size_cache::SizeCache::at(None));
-        let request =
-            SearchRequest { root: base.clone(), query: query.into(), hidden: false, options: Default::default(), skip };
+        let request = SearchRequest {
+            typos: false,
+            root: base.clone(),
+            query: query.into(),
+            hidden: false,
+            options: Default::default(),
+            skip,
+        };
         async move {
             search.search(Side::Left, 1, request);
             let mut found = Vec::new();
@@ -301,9 +424,10 @@ async fn indexed_folders_answer_from_their_index_and_searching_everything_walks(
     indexes.refresh(root.path().into(), borg_core::SearchSettings::default());
     let indexed = tokio::time::timeout(Duration::from_secs(5), built.recv()).await.unwrap();
     assert!(matches!(indexed, Some(Msg::Indexed { entries: 5, error: None, .. })), "{indexed:?}");
-    let mut search = Search::with_stores(crate::size_cache::SizeCache::at(None), indexes);
+    let mut search = Search::with_stores(crate::size_cache::SizeCache::at(None), indexes, None);
     for (skip, from_index) in [(Some(borg_core::SearchSettings::default()), true), (None, false)] {
         let request = SearchRequest {
+            typos: false,
             root: root.path().join("src"),
             query: "main".into(),
             hidden: false,
@@ -364,6 +488,7 @@ async fn replacing_a_search_cancels_backpressure_without_blocking_the_next_reque
         Side::Left,
         1,
         SearchRequest {
+            typos: false,
             skip: None,
             root: root.path().into(),
             query: "*".into(),
@@ -376,6 +501,7 @@ async fn replacing_a_search_cancels_backpressure_without_blocking_the_next_reque
         Side::Left,
         2,
         SearchRequest {
+            typos: false,
             skip: None,
             root: root.path().into(),
             query: "file-1499".into(),
@@ -399,6 +525,7 @@ async fn measured_tree(
     measured_request(
         search,
         SearchRequest {
+            typos: false,
             skip: None,
             root: root.into(),
             query: "*".into(),
@@ -473,6 +600,7 @@ async fn cancelled_tree_refresh_never_replaces_the_previous_saved_scan() {
     }
     fs::write(root.join("data"), "updated").unwrap();
     let request = SearchRequest {
+        typos: false,
         skip: None,
         root: root.clone(),
         query: "*".into(),
@@ -491,6 +619,8 @@ async fn cancelled_tree_refresh_never_replaces_the_previous_saved_scan() {
             cancelled: &cancel_worker,
             batch: Vec::new(),
             found: Vec::new(),
+            rule_hits: Vec::new(),
+            packed: Vec::new(),
             background: false,
         };
         scan_sizes(&request, &mut stream, &worker_cache);
@@ -511,6 +641,7 @@ async fn space_analysis_reuses_complete_snapshots_and_applies_filters_to_saved_t
     measured_tree(&mut search, &root, false).await;
     fs::write(root.join("cache/nested/data"), "changed outside Borg").unwrap();
     let request = SearchRequest {
+        typos: false,
         skip: None,
         root: root.clone(),
         query: "cache".into(),
@@ -572,6 +703,7 @@ async fn space_analysis_rescans_a_truncated_tree_snapshot_instead_of_hiding_larg
     let (fresh, progress) = measured_request(
         &mut search,
         SearchRequest {
+            typos: false,
             skip: None,
             root: root.clone(),
             query: "*".into(),

@@ -16,6 +16,7 @@ use borg_core::{
     Preferences, ProcessInfo, ProcessKey, ResultSource, Row, SearchKind, SearchOptions, SearchProgress, SearchRequest,
     Settings, Side, Sort, SortKey, SystemSample,
 };
+use borg_core::{DiskActivity, LoadAverage, Threads};
 use borg_core::{DockerData, DockerRequest};
 use borg_docker::{Container, Details, Mount, Network, State, Stats};
 use borg_term::GridSize;
@@ -37,6 +38,8 @@ const ACTIVITY_THEME: &str = "ember";
 const DOCKER_THEME: &str = "aurora";
 const NETWORK_THEME: &str = "midnight";
 const SAMPLES: usize = 60;
+/// How long the made-up system has been up.
+const UPTIME: Duration = Duration::from_secs(9 * 86_400 + 6 * 3_600 + 41 * 60 + 17);
 const KIB: u64 = 1024;
 const MIB: u64 = KIB * 1024;
 const GIB: u64 = MIB * 1024;
@@ -189,6 +192,7 @@ fn editor(output: &Path) -> Result<()> {
     });
     let contents = borg_view::Query { text: "TODO".into(), case: true, ..Default::default() };
     let request = SearchRequest {
+        typos: false,
         skip: None,
         root: ATLAS.into(),
         query: "*".into(),
@@ -196,11 +200,7 @@ fn editor(output: &Path) -> Result<()> {
         options: SearchOptions { kind: SearchKind::Files, contents: Some(Box::new(contents)), ..Default::default() },
     };
     stage.state.result_history[0] = Some(stage.state.panels[0].clone());
-    stage.state.panels[0].open_results(
-        ResultSource::Search { request, progress: SearchProgress::default() },
-        Vec::new(),
-        90,
-    );
+    stage.state.panels[0].open_results(ResultSource::Search { request, progress: Default::default() }, Vec::new(), 90);
     stage.state.panels[0].begin_search(90);
     stage.send(Msg::Found { side: Side::Left, generation: 90, found: found.into() });
     let progress = SearchProgress { visited: 1_284, read: 1_206, unread: 41, ..Default::default() };
@@ -263,13 +263,14 @@ fn size_tree(output: &Path) -> Result<()> {
     stage.state.panels[0].open_results(
         ResultSource::Search {
             request: SearchRequest {
+                typos: false,
                 skip: None,
                 root: ATLAS.into(),
                 query: "*".into(),
                 hidden: true,
                 options: SearchOptions { kind: SearchKind::FolderTree, ..Default::default() },
             },
-            progress: SearchProgress { measured: at(MEASURED), visited: 230_684, ..Default::default() },
+            progress: Box::new(SearchProgress { measured: at(MEASURED), visited: 230_684, ..Default::default() }),
         },
         tree.into(),
         80,
@@ -304,13 +305,14 @@ fn folder_totals(output: &Path) -> Result<()> {
     stage.state.panels[0].open_results(
         ResultSource::Search {
             request: SearchRequest {
+                typos: false,
                 skip: None,
                 root: PROJECTS.into(),
                 query: "*".into(),
                 hidden: true,
                 options: SearchOptions { kind: SearchKind::FolderTotals, minimum: 200 * MIB, ..Default::default() },
             },
-            progress: SearchProgress { measured: at(MEASURED), visited: 412_966, ..Default::default() },
+            progress: Box::new(SearchProgress { measured: at(MEASURED), visited: 412_966, ..Default::default() }),
         },
         found.into(),
         80,
@@ -473,6 +475,10 @@ fn sample(tick: usize) -> SystemSample {
         cpu: vec![9_100, 7_800, 6_400, 5_200, 2_900, 2_100, 1_400, 800],
         administrator: false,
         own: None,
+        disk: Some(DiskActivity { read: 48 * MIB, written: 22 * MIB, busy: Some(3_100) }),
+        load: Some(LoadAverage { one: 412, five: 356, fifteen: 298 }),
+        uptime: Some(UPTIME),
+        threads: Some(Threads { total: 1_284, running: 5 }),
     }
 }
 

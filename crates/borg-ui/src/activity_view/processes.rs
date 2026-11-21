@@ -2,8 +2,8 @@
 
 use super::{dim, heading, row, size, text};
 use crate::{Theme, format, look::Look};
-use borg_core::{Activity, ActivityPage, ActivitySort};
-use borg_i18n::tr;
+use borg_core::{Activity, ActivityPage, ActivitySort, Branch, ListedProcess};
+use borg_i18n::{Count, count, tr};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -12,6 +12,45 @@ use ratatui::{
     widgets::Widget,
 };
 use unicode_width::UnicodeWidthStr;
+
+/// The PID column's width when no PID needs more: room for the heading and its sort arrow.
+const PID_WIDTH: u16 = 7;
+/// Space between the longest PID and the next column.
+const PID_GAP: u16 = 1;
+/// The CPU column's width: room for the heading, its sort arrow and a space.
+const CPU_WIDTH: u16 = 8;
+/// What stands before a process in the tree whose processes are listed under it.
+const OPEN: &str = "▾ ";
+/// What stands before a process in the tree whose processes are folded away.
+const FOLDED: &str = "▸ ";
+/// What stands before a process in the tree that started none.
+const LEAF: &str = "  ";
+/// Cells each level of the tree indents by.
+const INDENT: usize = 2;
+/// Cells between the filter row's right edge and the counts on its right.
+const COUNTS_MARGIN: u16 = 1;
+/// The fewest cells between the filter and the counts on its right.
+const COUNTS_GAP: u16 = 2;
+
+/// The PID column's width: wide enough for the longest PID in the sample and a space after it.
+pub(super) fn pid_width(activity: &Activity) -> u16 {
+    let longest = activity.sample.processes.iter().map(|process| process.key.pid).max().unwrap_or_default();
+    (longest.to_string().len() as u16 + PID_GAP).max(PID_WIDTH)
+}
+
+/// A process's name as the list shows it: in the tree, indented under the process that started
+/// it, with a mark saying whether its processes are listed or folded away, and how many are.
+fn tree_name(activity: &Activity, row: &ListedProcess, name: &str, width: u16) -> String {
+    if !activity.tree || !activity.filter.is_empty() {
+        return name.to_owned();
+    }
+    let indent = " ".repeat(row.depth.saturating_mul(INDENT).min(usize::from(width / 2)));
+    match row.branch {
+        Branch::Leaf => format!("{indent}{LEAF}{name}"),
+        Branch::Open => format!("{indent}{OPEN}{name}"),
+        Branch::Folded(hidden) => format!("{indent}{FOLDED}{name} · {}", count(hidden, Count::Process)),
+    }
+}
 
 fn cpu(value: Option<u32>) -> String {
     value.map_or_else(|| "—".into(), |v| format!("{:.1}", f64::from(v) / 100.0))
@@ -31,14 +70,14 @@ fn growth(value: i128) -> String {
     )
 }
 
-pub(super) fn columns(area: Rect) -> Vec<(ActivitySort, Rect)> {
+pub(super) fn columns(area: Rect, pid_width: u16) -> Vec<(ActivitySort, Rect)> {
     let wide = area.width >= 100;
     let growth = area.width >= 72;
     let mut x = area.x;
     let mut out = Vec::new();
     for (key, width) in [
-        (ActivitySort::Pid, 7),
-        (ActivitySort::Cpu, if area.width >= 44 { 7 } else { 0 }),
+        (ActivitySort::Pid, pid_width),
+        (ActivitySort::Cpu, if area.width >= 44 { CPU_WIDTH } else { 0 }),
         (ActivitySort::Memory, 10),
         (ActivitySort::Growth, if growth { 10 } else { 0 }),
         (ActivitySort::Read, if wide { 10 } else { 0 }),
@@ -67,7 +106,8 @@ fn sort_label(sort: ActivitySort) -> &'static str {
 }
 
 /// The process filter: an input with a cursor while typing, a badge while a filter applies,
-/// and a hint otherwise, so it is always clear whether keys type or move.
+/// and a hint otherwise, so it is always clear whether keys type or move. While idle processes
+/// are hidden, it says how many on the right.
 pub(super) fn filter_row(activity: &Activity, look: &Look<'_>, area: Rect, buf: &mut Buffer) {
     let theme = look.theme;
     let styles = &theme.styles;
@@ -83,18 +123,31 @@ pub(super) fn filter_row(activity: &Activity, look: &Look<'_>, area: Rect, buf: 
             buf[(x, area.y)].set_style(styles.input.add_modifier(Modifier::REVERSED));
         }
         let hint = tr!(activity_filter_typing, shown = shown, total = total);
-        let start = area.right().saturating_sub(hint.width() as u16 + 1).max(x.saturating_add(2));
+        let start = area.right().saturating_sub(hint.width() as u16 + COUNTS_MARGIN).max(x.saturating_add(COUNTS_GAP));
         text(buf, Rect { x: start, width: area.right().saturating_sub(start), ..area }, hint, styles.input);
-    } else if !activity.filter.is_empty() {
-        let hint = tr!(activity_filter_applied, shown = shown, total = total);
-        Line::from(vec![
+        return;
+    }
+    let used = if activity.filter.is_empty() {
+        let placeholder = tr!(activity_filter_placeholder);
+        text(buf, area, placeholder, dim(theme));
+        placeholder.width()
+    } else {
+        let line = Line::from(vec![
             Span::styled(label, styles.cursor),
             Span::styled(format!(" {} ", activity.filter), heading(theme)),
-            Span::styled(hint, dim(theme)),
-        ])
-        .render(area, buf);
-    } else {
-        text(buf, area, tr!(activity_filter_placeholder), dim(theme));
+            Span::styled(tr!(activity_filter_applied, shown = shown, total = total), dim(theme)),
+        ]);
+        let used = line.width();
+        line.render(area, buf);
+        used
+    };
+    if activity.hide_idle {
+        let note = tr!(activity_idle_hidden, hidden = activity.idle_hidden());
+        let start = area
+            .right()
+            .saturating_sub(note.width() as u16 + COUNTS_MARGIN)
+            .max(area.x.saturating_add(used as u16).saturating_add(COUNTS_GAP));
+        text(buf, Rect { x: start, width: area.right().saturating_sub(start), ..area }, note, heading(theme));
     }
 }
 
@@ -102,34 +155,33 @@ pub(super) fn filter_row(activity: &Activity, look: &Look<'_>, area: Rect, buf: 
 /// list has focus.
 pub(super) fn list(activity: &Activity, theme: &Theme, header: Rect, body: Rect, focused: bool, buf: &mut Buffer) {
     let styles = &theme.styles;
-    for (sort, cell) in columns(header) {
+    let pid_width = pid_width(activity);
+    for (sort, cell) in columns(header, pid_width) {
         let arrow = if activity.sort == sort { if activity.reverse { " ↓" } else { " ↑" } } else { "" };
         text(buf, cell, format!("{}{arrow}", sort_label(sort)), styles.menu);
     }
-    for (offset, &(i, depth)) in activity
+    for (offset, listed) in activity
         .rows
         .iter()
         .skip(activity.list_start(ActivityPage::Processes, usize::from(body.height)))
         .take(usize::from(body.height))
         .enumerate()
     {
-        let p = &activity.sample.processes[i];
+        let p = &activity.sample.processes[listed.index];
         let line = row(body, offset as u16);
         let selected = focused && Some(p.key) == activity.selected;
         let style = if selected { styles.cursor } else { styles.overlay };
         buf.set_style(line, style);
-        for (sort, cell) in columns(line) {
+        for (sort, cell) in columns(line, pid_width) {
             let value = match sort {
                 ActivitySort::Pid => p.key.pid.to_string(),
-                ActivitySort::Cpu => cpu(p.cpu),
+                ActivitySort::Cpu => cpu(activity.cpu(p.key)),
                 ActivitySort::Memory => size(p.resident),
                 ActivitySort::Growth if p.resident.is_some() => growth(activity.growth(p.key)),
                 ActivitySort::Growth => "—".into(),
                 ActivitySort::Read => size(p.read),
                 ActivitySort::Write => size(p.written),
-                ActivitySort::Name => {
-                    format!("{}{}", " ".repeat(depth.saturating_mul(2).min(usize::from(cell.width / 2))), p.name)
-                }
+                ActivitySort::Name => tree_name(activity, listed, &p.name, cell.width),
             };
             text(buf, cell, value, style);
         }

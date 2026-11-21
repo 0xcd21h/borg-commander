@@ -1,4 +1,4 @@
-use borg_core::{Confirm, Prompt, PromptPurpose};
+use borg_core::{Confirm, ConfirmPurpose, DeleteCheck, DeleteSize, FileHolder, Prompt, PromptPurpose};
 use borg_i18n::tr;
 use ratatui::{
     buffer::Buffer,
@@ -8,7 +8,11 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 
-use crate::{Theme, format};
+use crate::{
+    Theme, format,
+    fx::{self, Cipher},
+    look::Look,
+};
 
 const MAX_WIDTH: u16 = 64;
 const MARGIN: u16 = 4;
@@ -16,8 +20,13 @@ const PROMPT_HEIGHT: u16 = 6;
 /// A prompt with a checkbox below its field.
 const OPTION_HEIGHT: u16 = 8;
 const CONFIRM_HEIGHT: u16 = 6;
+/// What holds the place of each character of a password under its noise.
+const HIDDEN: char = ' ';
 const PADDING: u16 = 1;
 const BUTTON_GAP: &str = "   ";
+/// The programs a delete dialog names before it counts the rest.
+const HOLDERS_SHOWN: usize = 3;
+const HOLDER_GAP: &str = ", ";
 
 /// The prompt and the keys its border lists, as many as fit.
 pub(crate) fn prompt_hint(prompt: &Prompt, screen: Rect) -> (Rect, &'static str) {
@@ -36,7 +45,15 @@ pub(crate) fn prompt_hint(prompt: &Prompt, screen: Rect) -> (Rect, &'static str)
     (rect, hint)
 }
 
-pub fn draw_prompt(prompt: &Prompt, theme: &Theme, screen: Rect, buf: &mut Buffer) -> (Rect, Position) {
+/// Draws the prompt, `typed` seconds after a key last changed its text.
+pub fn draw_prompt(
+    prompt: &Prompt,
+    look: &Look<'_>,
+    typed: Option<f32>,
+    screen: Rect,
+    buf: &mut Buffer,
+) -> (Rect, Position) {
+    let theme = look.theme;
     let styles = &theme.styles;
     let (rect, hint) = prompt_hint(prompt, screen);
     let checkbox = prompt.purpose.option();
@@ -47,11 +64,17 @@ pub fn draw_prompt(prompt: &Prompt, theme: &Theme, screen: Rect, buf: &mut Buffe
     Line::styled(format::truncate_end(&prompt.label, width), styles.overlay).render(label, buf);
     buf.set_style(field, styles.input);
 
-    let text = prompt.input.text();
+    let count = prompt.input.text().chars().count();
+    let hidden = prompt.purpose.masked().then(|| HIDDEN.to_string().repeat(count));
+    let text = hidden.as_deref().unwrap_or(prompt.input.text());
     let cursor = prompt.input.cursor_chars();
     let before: String = text.chars().take(cursor).collect();
     let shift = before.width().saturating_sub(width.saturating_sub(1));
     Line::styled(skip_columns(text, shift), styles.input).render(field, buf);
+    if hidden.is_some() {
+        let cipher = Cipher { first: shift, count, t: look.t, typed };
+        fx::draw_cipher(buf, field, cipher, look.accent(), look.bg(styles.input));
+    }
 
     if let Some((caption, checked)) = checkbox {
         let style = if prompt.option_focused { styles.overlay_selected } else { styles.overlay };
@@ -97,21 +120,88 @@ pub(crate) fn prompt_field_at(prompt: &Prompt, screen: Rect, point: Position) ->
 }
 
 pub fn draw_confirm(confirm: &Confirm, theme: &Theme, screen: Rect, buf: &mut Buffer) -> Rect {
+    let hint = delete_check(confirm)
+        .and_then(DeleteCheck::first_holder)
+        .map(|holder| tr!(delete_signal_hint, name = holder.name));
+    draw_question(confirm.title, &confirm_message(confirm), hint.as_deref(), confirm.accept, theme, screen, buf)
+}
+
+fn delete_check(confirm: &Confirm) -> Option<&DeleteCheck> {
+    match &confirm.purpose {
+        ConfirmPurpose::Delete { check, .. } => check.as_ref(),
+        _ => None,
+    }
+}
+
+/// The question, and for a delete of files on this computer how much it removes and which
+/// programs use them.
+fn confirm_message(confirm: &Confirm) -> String {
+    let Some(check) = delete_check(confirm) else { return confirm.message.clone() };
+    let holders = match &check.holders {
+        None => Some(tr!(delete_checking_open).to_owned()),
+        Some(Ok(holders)) if holders.is_empty() => None,
+        Some(Ok(holders)) => Some(in_use(holders)),
+        Some(Err(error)) => Some(tr!(delete_open_unknown, error = error)),
+    };
+    [Some(confirm.message.clone()), Some(delete_size(check.size)), holders]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn delete_size(size: Option<DeleteSize>) -> String {
+    let Some(size) = size else { return tr!(delete_counting).to_owned() };
+    let files = format::count(usize::try_from(size.files).unwrap_or(usize::MAX), format::Count::File);
+    let bytes = format::size(size.bytes);
+    if size.complete {
+        tr!(delete_total, files = files, size = bytes)
+    } else {
+        tr!(delete_total_at_least, files = files, size = bytes)
+    }
+}
+
+fn in_use(holders: &[FileHolder]) -> String {
+    let named: Vec<String> =
+        holders.iter().take(HOLDERS_SHOWN).map(|holder| format!("{} ({})", holder.name, holder.pid)).collect();
+    let programs = named.join(HOLDER_GAP);
+    match holders.len().saturating_sub(HOLDERS_SHOWN) {
+        0 => tr!(delete_in_use, programs = programs),
+        more => tr!(delete_in_use_more, programs = programs, more = more),
+    }
+}
+
+/// A question with Yes and No buttons, Yes chosen while `accept` is true.
+pub(crate) fn draw_yes_no(
+    title: &str,
+    message: &str,
+    accept: bool,
+    theme: &Theme,
+    screen: Rect,
+    buf: &mut Buffer,
+) -> Rect {
+    draw_question(title, message, None, accept, theme, screen, buf)
+}
+
+/// A question with Yes and No buttons and the keys its border lists.
+fn draw_question(
+    title: &str,
+    message: &str,
+    hint: Option<&str>,
+    accept: bool,
+    theme: &Theme,
+    screen: Rect,
+    buf: &mut Buffer,
+) -> Rect {
     let styles = &theme.styles;
-    let rect = confirm_rect(confirm, screen);
-    let inner = frame(confirm.title, None, theme, rect, buf);
-    let [message, _, buttons] =
+    let rect = confirm_rect(message, screen);
+    let inner = frame(title, hint, theme, rect, buf);
+    let [lines, _, buttons] =
         Layout::vertical([Constraint::Fill(1), Constraint::Length(1), Constraint::Length(1)]).areas(inner);
 
-    Paragraph::new(message_lines(&confirm.message, message.width))
-        .style(styles.overlay)
-        .centered()
-        .render(message, buf);
-    let (yes, no) = if confirm.accept {
-        (styles.overlay_selected, styles.overlay)
-    } else {
-        (styles.overlay, styles.overlay_selected)
-    };
+    Paragraph::new(message_lines(message, lines.width)).style(styles.overlay).centered().render(lines, buf);
+    let (yes, no) =
+        if accept { (styles.overlay_selected, styles.overlay) } else { (styles.overlay, styles.overlay_selected) };
     Line::from(vec![Span::styled(tr!(yes), yes), Span::styled(BUTTON_GAP, styles.overlay), Span::styled(tr!(no), no)])
         .centered()
         .render(buttons, buf);
@@ -150,16 +240,21 @@ pub(crate) fn message_lines(message: &str, width: u16) -> Vec<Line<'static>> {
     lines
 }
 
-fn confirm_rect(confirm: &Confirm, screen: Rect) -> Rect {
+fn confirm_rect(message: &str, screen: Rect) -> Rect {
     let width = dialog_width(screen);
-    let lines = message_lines(&confirm.message, width.saturating_sub(4)).len();
+    let lines = message_lines(message, width.saturating_sub(4)).len();
     let height =
         CONFIRM_HEIGHT.saturating_add(u16::try_from(lines.saturating_sub(1)).unwrap_or(u16::MAX)).min(screen.height);
     centered(screen, width, height)
 }
 
 pub(crate) fn confirm_at(confirm: &Confirm, screen: Rect, point: Position) -> Option<bool> {
-    let rect = confirm_rect(confirm, screen);
+    yes_no_at(&confirm_message(confirm), screen, point)
+}
+
+/// The button of the question asking `message` at `point`: true for Yes, false for No.
+pub(crate) fn yes_no_at(message: &str, screen: Rect, point: Position) -> Option<bool> {
+    let rect = confirm_rect(message, screen);
     if !rect.contains(point)
         || rect.width < (tr!(yes).width() + BUTTON_GAP.len() + tr!(no).width()) as u16
         || rect.height < CONFIRM_HEIGHT
@@ -182,7 +277,7 @@ pub(crate) fn confirm_at(confirm: &Confirm, screen: Rect, point: Position) -> Op
     }
 }
 
-fn frame(title: &str, hint: Option<&str>, theme: &Theme, rect: Rect, buf: &mut Buffer) -> Rect {
+pub(crate) fn frame(title: &str, hint: Option<&str>, theme: &Theme, rect: Rect, buf: &mut Buffer) -> Rect {
     let styles = &theme.styles;
     Clear.render(rect, buf);
     let block = Block::bordered()
@@ -197,6 +292,11 @@ fn frame(title: &str, hint: Option<&str>, theme: &Theme, rect: Rect, buf: &mut B
     let inner = block.inner(rect);
     block.render(rect, buf);
     padded(inner)
+}
+
+/// Where a dialog framed in `rect` puts its content.
+pub(crate) fn content(rect: Rect) -> Rect {
+    padded(Block::bordered().inner(rect))
 }
 
 fn padded(inner: Rect) -> Rect {
@@ -266,7 +366,7 @@ mod localized_button_tests {
                     accept: false,
                 };
                 let screen = Rect::new(0, 0, 80, 24);
-                let rect = confirm_rect(&confirm, screen);
+                let rect = confirm_rect(&confirm.message, screen);
                 let yes = tr!(yes).width() as u16;
                 let gap = BUTTON_GAP.width() as u16;
                 let no = tr!(no).width() as u16;

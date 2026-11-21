@@ -246,25 +246,36 @@ fn secret(text: &str, lower: &str) -> bool {
     if lower.contains("private key-----") || SECRET_NAMES.iter().any(|name| lower.contains(name)) {
         return true;
     }
-    let jwt = text.contains("eyJ")
-        && text.split(|c: char| !(token_char(c) || c == '.')).any(|word| {
-            let mut parts = word.split('.');
-            matches!(
-                (parts.next(), parts.next(), parts.next(), parts.next()),
-                (Some(header), Some(claims), Some(signature), None)
-                    if header.starts_with("eyJ") && claims.starts_with("eyJ") && signature.len() >= 16
-            )
-        });
-    jwt || text.split(|c: char| !token_char(c)).any(|word| {
-        word.len() >= CREDENTIAL_CHARS
-            && CREDENTIALS.iter().any(|&(prefix, len, capitals)| {
-                word.starts_with(prefix)
-                    && word.len() >= len
-                    // A credential mixes digits in; a word that merely starts like one does not.
-                    && word.chars().any(|c| c.is_ascii_digit())
-                    && (!capitals || word.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit()))
-            })
-    })
+    let jwt = text.contains(WEB_TOKEN_START) && text.split(|c: char| !(token_char(c) || c == '.')).any(web_token);
+    jwt || text.split(|c: char| !token_char(c)).any(credential)
+}
+
+const WEB_TOKEN_START: &str = "eyJ";
+const WEB_TOKEN_SIGNATURE_CHARS: usize = 16;
+
+/// Whether a word of letters, digits, dots, `_` and `-` is a JSON web token.
+pub fn web_token(word: &str) -> bool {
+    let mut parts = word.split('.');
+    matches!(
+        (parts.next(), parts.next(), parts.next(), parts.next()),
+        (Some(header), Some(claims), Some(signature), None)
+            if header.starts_with(WEB_TOKEN_START)
+                && claims.starts_with(WEB_TOKEN_START)
+                && signature.len() >= WEB_TOKEN_SIGNATURE_CHARS
+    )
+}
+
+/// Whether a word of letters, digits, `_` and `-` is a well-known kind of credential, such as
+/// an AWS access key or a GitHub token.
+pub fn credential(word: &str) -> bool {
+    word.len() >= CREDENTIAL_CHARS
+        && CREDENTIALS.iter().any(|&(prefix, len, capitals)| {
+            word.starts_with(prefix)
+                && word.len() >= len
+                // A credential mixes digits in; a word that merely starts like one does not.
+                && word.chars().any(|c| c.is_ascii_digit())
+                && (!capitals || word.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit()))
+        })
 }
 
 fn url(lower: &str) -> bool {

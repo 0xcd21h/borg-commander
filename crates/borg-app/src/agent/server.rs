@@ -1,7 +1,8 @@
 //! `borg mcp` itself: the MCP server that routes an agent's calls to a session here or to a paired borg.
 
 use super::{
-    Call, PROTOCOL, Reply, SOCKET_PREFIX, SOCKET_SUFFIX, hostname, routing_tools, socket_dir, tools, transfer_tools,
+    Call, PROTOCOL, Reply, SOCKET_PREFIX, SOCKET_SUFFIX, hostname, hosts_tool, routing_tools, socket_dir, tools,
+    transfer_tools,
 };
 use anyhow::{Result, bail};
 use serde_json::{Value, json};
@@ -90,6 +91,7 @@ impl Router {
                     name: "Default".into(),
                     archived: false,
                     last_opened: 0,
+                    background: false,
                 }]
             })
     }
@@ -147,6 +149,12 @@ impl Router {
                     self.servers().into_iter().map(|server| format!("remote:{}  {}", server.name, server.relay)),
                 );
                 return Reply::ok(lines.join("\n"));
+            }
+            "hosts" => {
+                let Some(state) = self.state.as_ref() else {
+                    return Reply::error("Borg has no state folder for paired servers");
+                };
+                return super::hosts::hosts(state, call.args["filter"].as_str().unwrap_or_default()).await;
             }
             "use_session" => {
                 let Some(name) = call.args["session"].as_str() else {
@@ -260,7 +268,7 @@ impl Backend {
                 server.name
             ),
             Self::Routing(_) => format!(
-                "Borg Commander can work in the local session on {} or a paired remote. Call list_sessions, then use_session to choose the target for this MCP connection. Every tool also accepts an optional session ID to override the target for one call. Commands and changes wait for approval in the target Borg.",
+                "Borg Commander can work in the local session on {} or a paired remote. Call hosts to see how every paired host is doing, list_sessions to see every target, then use_session to choose the target for this MCP connection. Every tool also accepts an optional session ID to override the target for one call. Commands and changes wait for approval in the target Borg.",
                 hostname()
             ),
         }
@@ -280,8 +288,15 @@ impl Backend {
                     "description": "Target ID from list_sessions. Overrides the session selected with use_session for this call."
                 });
             }
+            list.push(hosts_tool());
         }
         tools
+    }
+
+    /// Whether the agent may call `tool`: only the tools listed to it, so it cannot reach the
+    /// calls of a mirror, a console or a panel, which act as the user's own keys and clicks.
+    pub(super) fn lists(&self, tool: &str) -> bool {
+        self.tools().as_array().is_some_and(|tools| tools.iter().any(|listed| listed["name"] == tool))
     }
 
     pub(super) async fn call(&mut self, call: &Call) -> Reply {
@@ -345,20 +360,56 @@ pub(super) fn local_path(text: &str) -> PathBuf {
     }
 }
 
+/// The folder `download` saves into on this computer. Nothing approves what lands on this
+/// computer, so an agent's downloads stay in it.
+const DOWNLOADS: &str = "~/Downloads";
+/// The name a download takes when the path it comes from names no file.
+const DOWNLOAD_NAME: &str = "download";
+
+/// Where `download` saves a file: in `downloads`, under the name `to` gives inside it, or the
+/// file's own name, and never in place of something already there.
+pub(super) fn download_destination(downloads: &Path, to: Option<&str>, remote: &str) -> Result<PathBuf, String> {
+    let outside = || format!("download saves only inside {}: name a file or a folder there", downloads.display());
+    let name = Path::new(remote).file_name().map_or_else(|| DOWNLOAD_NAME.into(), std::ffi::OsStr::to_os_string);
+    let wanted = match to.map(local_path) {
+        None => downloads.to_path_buf(),
+        Some(path) if path.is_absolute() => super::location::clean(&path),
+        Some(path) => super::location::clean(&downloads.join(path)),
+    };
+    if !wanted.starts_with(downloads) {
+        return Err(outside());
+    }
+    let target = if wanted.is_dir() { wanted.join(name) } else { wanted };
+    let real = |path: &Path| std::fs::canonicalize(path).ok();
+    let inside = target
+        .parent()
+        .and_then(real)
+        .zip(real(downloads))
+        .is_some_and(|(parent, downloads)| parent.starts_with(downloads));
+    if !inside {
+        return Err(outside());
+    }
+    if target.symlink_metadata().is_ok() {
+        return Err(format!("{} already exists: name another file with to", target.display()));
+    }
+    Ok(target)
+}
+
 pub(super) async fn transfer_download(remote: &mut crate::link::Remote, call: &Call) -> Result<Reply> {
     let Some(path) = call.args["path"].as_str() else { return Ok(Reply::error("download needs a path")) };
-    let name = Path::new(path).file_name().map_or_else(|| "download".into(), |name| name.to_os_string());
-    let mut to = match call.args["to"].as_str() {
-        Some(to) => local_path(to),
-        None => {
-            let downloads = local_path("~/Downloads");
-            if downloads.is_dir() { downloads } else { PathBuf::from(".") }
-        }
-    };
-    if to.is_dir() {
-        to = to.join(name);
+    let downloads = local_path(DOWNLOADS);
+    if !downloads.is_absolute() {
+        return Ok(Reply::error("download needs a home folder on this computer"));
     }
-    match crate::link::download_in_session(remote, call.args["session"].as_str(), path, &to, |_, _| {}).await {
+    if let Err(error) = std::fs::create_dir_all(&downloads) {
+        return Ok(Reply::error(format!("{}: {error}", downloads.display())));
+    }
+    let to = match download_destination(&downloads, call.args["to"].as_str(), path) {
+        Ok(to) => to,
+        Err(refused) => return Ok(Reply::error(refused)),
+    };
+    let session = call.args["session"].as_str();
+    match crate::link::download_in_session(remote, session, path, &to, crate::link::Existing::Keep, |_, _| {}).await {
         Ok(size) => Ok(Reply::ok(format!("Downloaded {path} ({size} bytes) to {}", to.display()))),
         Err(error) if error.downcast_ref::<std::io::Error>().is_some() => Ok(Reply::error(format!("{error:#}"))),
         Err(error) => Err(error),
@@ -430,9 +481,17 @@ pub(super) async fn serve_with(mut backend: Backend) -> Result<()> {
             "ping" => json!({}),
             "tools/list" => json!({ "tools": backend.tools() }),
             "tools/call" => {
-                let call = Call::new(params["name"].as_str().unwrap_or_default(), params["arguments"].clone());
-                let reply = backend.call(&call).await;
-                json!({ "content": [{ "type": "text", "text": reply.text }], "isError": !reply.ok })
+                let name = params["name"].as_str().unwrap_or_default();
+                let reply = match backend.lists(name).then(|| Call::new(name, params["arguments"].clone()).external()) {
+                    Some(Ok(call)) => backend.call(&call).await,
+                    Some(Err(refused)) => refused,
+                    None => Reply::error(format!("unknown tool {name}")),
+                };
+                let mut result = json!({ "content": [{ "type": "text", "text": reply.text }], "isError": !reply.ok });
+                if let Some(structured) = reply.structured {
+                    result["structuredContent"] = structured;
+                }
+                result
             }
             _ => {
                 let error =
@@ -463,7 +522,7 @@ pub fn setup(host: Option<&str>) -> String {
         ),
         None => (
             "borg".to_owned(),
-            std::env::current_exe().map_or_else(|_| "borg".into(), |exe| exe.display().to_string()),
+            crate::program::path().map_or_else(|_| "borg".into(), |exe| exe.display().to_string()),
             vec!["mcp".to_owned()],
         ),
     };

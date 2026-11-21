@@ -524,6 +524,95 @@ fn the_counter_stops_at_bytes_that_are_no_capture() {
     assert_eq!(counter.packets, 0);
 }
 
+/// `bytes` with each conversation kept whole for `budget` bytes, fed in chunks of `size`.
+fn budgeted(bytes: &[u8], budget: u64, size: usize) -> Vec<u8> {
+    let mut trimmer = ConnectionBudget::new(budget);
+    let mut out: Vec<u8> = bytes.chunks(size).flat_map(|chunk| trimmer.feed(chunk)).collect();
+    out.extend(trimmer.rest());
+    out
+}
+
+/// What each packet kept of its length on the wire.
+fn kept(capture: &Capture) -> Vec<(usize, u32)> {
+    capture.packets.iter().map(|packet| (packet.data.len(), packet.length)).collect()
+}
+
+const BUDGET: u64 = 100;
+const ODD_PAYLOAD: [u8; 61] = [7; 61];
+/// Ethernet, IPv4 and TCP without options.
+const TCP_HEADERS: usize = 54;
+
+/// Three segments from the client and an answer, with a DNS question between them.
+fn budget_frames() -> Vec<Vec<u8>> {
+    let sent = |seq| over_tcp(CLIENT, SERVER, tcp(CLIENT_PORT, 443, seq, PSH | ACK, &ODD_PAYLOAD));
+    vec![
+        sent(1),
+        sent(62),
+        over_udp(CLIENT, RESOLVER, udp(CLIENT_PORT, 53, &dns("example.com", None))),
+        sent(123),
+        over_tcp(SERVER, CLIENT, tcp(443, CLIENT_PORT, 9, PSH | ACK, &ODD_PAYLOAD)),
+    ]
+}
+
+#[test]
+fn the_budget_trims_a_conversation_to_its_headers_once_it_carried_the_budget() {
+    let frames = budget_frames();
+    let bytes = pcap(&frames);
+    let whole = budgeted(&bytes, BUDGET, bytes.len());
+    for size in [1, 7, 64, 1000] {
+        assert_eq!(budgeted(&bytes, BUDGET, size), whole, "the same in chunks of {size}");
+    }
+    let capture = Capture::read(&whole).unwrap();
+    let (frame, question) = (frames[0].len(), frames[2].len());
+    let wire = frame as u32;
+    assert_eq!(
+        kept(&capture),
+        [(frame, wire), (frame, wire), (question, question as u32), (TCP_HEADERS, wire), (TCP_HEADERS, wire)],
+        "122 bytes carried before the third segment, and the answer belongs to the same conversation"
+    );
+    let tcp = capture.flows.iter().find(|flow| flow.kind == FlowKind::Tcp).unwrap();
+    let stream = Stream::of(tcp, &capture.packets);
+    assert_eq!((stream.bytes.len(), stream.left_out), (2 * ODD_PAYLOAD.len(), 2 * ODD_PAYLOAD.len() as u64));
+    assert_eq!(Stream::of(tcp, &Capture::read(&bytes).unwrap().packets).left_out, 0);
+}
+
+#[test]
+fn the_budget_trims_pcapng_packets_and_keeps_their_options() {
+    let frames = budget_frames();
+    let tagged: Vec<(Vec<u8>, Option<u32>)> = frames.iter().map(|frame| (frame.clone(), Some(BROWSER))).collect();
+    let bytes = pktap_of(&tagged, &[(BROWSER, "browser")]);
+    let whole = budgeted(&bytes, BUDGET, bytes.len());
+    assert_eq!(budgeted(&bytes, BUDGET, 3), whole);
+    let capture = Capture::read(&whole).unwrap();
+    let wire = frames[0].len() as u32;
+    assert_eq!(kept(&capture)[3..], [(TCP_HEADERS, wire), (TCP_HEADERS, wire)]);
+    assert!(capture.packets.iter().all(|packet| packet.pid == Some(BROWSER)), "each packet keeps its process");
+    let mut counter = PcapCounter::default();
+    counter.feed(&whole);
+    assert_eq!(counter.packets, frames.len());
+}
+
+#[test]
+fn the_budget_passes_what_is_no_capture_and_holds_an_unfinished_record_until_the_end() {
+    let text = b"not a capture at all, nothing to trim here";
+    assert_eq!(budgeted(text, BUDGET, 5), text);
+    let bytes = pcap(&budget_frames());
+    let cut = &bytes[..bytes.len() - 1];
+    let mut trimmer = ConnectionBudget::new(BUDGET);
+    let fed = trimmer.feed(cut);
+    assert!(fed.len() < cut.len(), "the last record waits for the rest of it");
+    let out = [fed, trimmer.rest()].concat();
+    assert_eq!(out.len(), cut.len() - ODD_PAYLOAD.len(), "only the third segment loses its payload");
+}
+
+#[test]
+fn a_packet_cut_short_still_tells_how_much_payload_it_carried() {
+    let frame = over_tcp(CLIENT, SERVER, tcp(CLIENT_PORT, 443, 1, PSH | ACK, &ODD_PAYLOAD));
+    let layers = decode::layers(ETHERNET, &frame[..TCP_HEADERS + 1]);
+    assert_eq!((layers.payload.len(), layers.carried), (1, ODD_PAYLOAD.len()));
+    assert_eq!(decode::layers(ETHERNET, &frame).carried, ODD_PAYLOAD.len());
+}
+
 #[test]
 fn dns_names_follow_pointers_and_stop_at_loops() {
     let mut message = dns("a.example", None);
@@ -533,12 +622,74 @@ fn dns_names_follow_pointers_and_stop_at_loops() {
     assert_eq!(apps::dns(&message, false).map(|dns| dns.questions), None);
 }
 
+/// Key log lines for the connection `client_hello` begins, and for one the captures lack.
+fn key_log() -> String {
+    format!("# keys\nCLIENT_RANDOM {} {}\nCLIENT_RANDOM {} 02\n", "07".repeat(32), "01".repeat(48), "08".repeat(32))
+}
+
 #[test]
-fn a_hex_dump_gives_offsets_bytes_and_their_text() {
-    let data: Vec<u8> = b"GET / HTTP/1.1\r\nHost".to_vec();
-    let lines = hex_lines(&data, true);
-    assert_eq!(lines.len(), 2);
-    assert_eq!(lines[0], "0000  47 45 54 20 2f 20 48 54 54 50 2f 31 2e 31 0d 0a  GET / HTTP/1.1..");
-    assert_eq!(lines[1].len(), HEX_LINE_WIDTH - (HEX_WIDTH - 4));
-    assert_eq!(hex_lines(&data, false)[1], "0010  48 6f 73 74");
+fn a_pcap_with_secrets_turns_pcapng_and_keeps_its_packets() {
+    let hello = over_tcp(CLIENT, SERVER, tcp(CLIENT_PORT, 443, 1, PSH | ACK, &client_hello("example.com", 0)));
+    let question = over_udp(CLIENT, RESOLVER, udp(CLIENT_PORT, 53, &dns("example.com", None)));
+    let records = [(100, 250, hello.clone()), (101, 999_999_999, question.clone())];
+    for big in [false, true] {
+        let pcap = pcap_with(ETHERNET, big, true, &records);
+        let before = Capture::read(&pcap).unwrap();
+        let with = with_secrets(&pcap, &key_log()).unwrap();
+        assert_eq!(&with[..4], SECTION.to_le_bytes(), "pcapng");
+        let after = Capture::read(&with).unwrap();
+        assert_eq!(after.packets, before.packets);
+        assert_eq!(after.keys, KeyLog::parse(&key_log()));
+    }
+}
+
+#[test]
+fn secrets_go_right_after_a_pcapng_section_header() {
+    let capture = pktap();
+    let with = with_secrets(&capture, &key_log()).unwrap();
+    let header = u32::from_le_bytes(capture[4..8].try_into().unwrap()) as usize;
+    assert_eq!(with[..header], capture[..header]);
+    assert_eq!(&with[header..header + 4], 0x0000_000a_u32.to_le_bytes(), "a decryption secrets block");
+    let (before, after) = (Capture::read(&capture).unwrap(), Capture::read(&with).unwrap());
+    assert_eq!((after.packets, after.processes), (before.packets, before.processes));
+    assert_eq!(after.keys.len(), 2);
+    assert_eq!(with_secrets(b"not a capture at all", &key_log()), None);
+}
+
+#[test]
+fn a_capture_keeps_the_key_log_lines_of_its_connections() {
+    let hello = over_tcp(CLIENT, SERVER, tcp(CLIENT_PORT, 443, 1, PSH | ACK, &client_hello("example.com", 0)));
+    let capture = Capture::read(&pcap(&[hello])).unwrap();
+    assert_eq!(capture.keys_for(&key_log()), format!("CLIENT_RANDOM {} {}\n", "07".repeat(32), "01".repeat(48)));
+    let mut added = capture.clone();
+    added.add_keys(&key_log());
+    assert_eq!(added.keys.len(), 2);
+}
+
+#[test]
+fn live_frames_come_whole_however_the_stream_is_cut() {
+    let frames = vec![ethernet(0x0806, &[1; 28]), ethernet(0x0800, &[2; 40])];
+    let expected: Vec<LiveFrame> = frames.iter().map(|data| LiveFrame { link: ETHERNET, data: data.clone() }).collect();
+    let stream = pcap(&frames);
+    for cut in 0..stream.len() {
+        let mut live = LiveFrames::default();
+        let mut found = live.feed(&stream[..cut]);
+        found.extend(live.feed(&stream[cut..]));
+        assert_eq!(found, expected, "cut at {cut}");
+    }
+}
+
+#[test]
+fn live_frames_read_pcapng_with_the_link_of_each_interface() {
+    let frame = ethernet(0x0806, &[1; 28]);
+    let stream = [section(), interface(&[]), enhanced(1, &frame, &[])].concat();
+    let mut live = LiveFrames::default();
+    assert_eq!(live.feed(&stream), vec![LiveFrame { link: ETHERNET, data: frame }]);
+}
+
+#[test]
+fn live_frames_pass_bytes_that_are_no_capture() {
+    let mut live = LiveFrames::default();
+    assert!(live.feed(b"tcpdump: listening on en0, link-type EN10MB (Ethernet)").is_empty());
+    assert!(live.feed(&pcap(&[ethernet(0x0806, &[1; 28])])).is_empty());
 }

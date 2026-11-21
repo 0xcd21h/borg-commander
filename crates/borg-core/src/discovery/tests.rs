@@ -174,3 +174,118 @@ fn sizes_accept_units_but_reject_invalid_or_overflowing_input() {
         assert_eq!(parse_size(input), None);
     }
 }
+
+#[test]
+fn a_rules_search_takes_no_text_or_file_count_and_lists_files() {
+    let now = std::time::Instant::now();
+    let (mut state, _) = AppState::new(
+        crate::Startup::at("/work".into()),
+        100,
+        30,
+        crate::Settings::default(),
+        crate::Appearance::new(vec![crate::ThemeChoice { id: "midnight".into(), name: "Midnight".into() }], 0),
+        now,
+    );
+    let mut form = SearchForm::new(&state, false);
+    form.kind = SearchKind::FolderTree;
+    form.selected = KIND_FIELD;
+    form.contents.load(&borg_view::Query { text: "secret".into(), ..Default::default() });
+    form.files = LineInput::new("3");
+    form.minimum = LineInput::new("1k");
+    state.overlay = Some(Overlay::Search(form));
+    search_key_of(&mut state, KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+    let Some(Overlay::Search(form)) = state.overlay.clone() else { panic!("search window") };
+    assert_eq!(form.kind, SearchKind::Rules);
+    assert_eq!(form.kind.label(), "Rule matches");
+    assert!(!form.shows(CONTENTS_FIELD) && !form.shows(FILES_FIELD) && form.shows(SKIP_FIELD));
+    let effects = search_key_of(&mut state, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(matches!(&effects[..], [.., Effect::Search { request, .. }]
+        if request.options.kind == SearchKind::Rules
+            && request.options.contents.is_none()
+            && request.options.minimum_files == 0
+            && request.options.minimum == 1024
+            && request.options.reads_files()));
+}
+
+#[test]
+fn packed_executables_come_after_rule_matches_and_take_the_same_fields() {
+    assert_eq!(SearchKind::Rules.step(false), SearchKind::Packed);
+    assert_eq!(SearchKind::Packed.step(false), SearchKind::All);
+    assert_eq!(SearchKind::Packed.label(), "Packed executables");
+    let options = crate::SearchOptions { kind: SearchKind::Packed, ..Default::default() };
+    assert!(options.reads_files() && SearchKind::Packed.judges_files() && !SearchKind::Files.judges_files());
+}
+
+fn search_key_of(state: &mut AppState, key: KeyEvent) -> Vec<Effect> {
+    let Some(Overlay::Search(form)) = state.overlay.take() else { panic!("search window") };
+    search_key(state, form, &key)
+}
+
+#[test]
+fn the_dialog_opens_with_what_it_held_when_it_closed_in_the_current_folder() {
+    let (mut state, _) = AppState::new(
+        crate::Startup::at("/work".into()),
+        100,
+        30,
+        crate::Settings::default(),
+        crate::Appearance::new(vec![crate::ThemeChoice { id: "midnight".into(), name: "Midnight".into() }], 0),
+        std::time::Instant::now(),
+    );
+    let esc = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
+    let mut form = SearchForm::new(&state, false);
+    assert_eq!(form.pattern.text(), "*");
+    form.pattern = LineInput::new("*.log");
+    form.kind = SearchKind::Files;
+    form.minimum = LineInput::new("10M");
+    form.root = LineInput::new("/elsewhere");
+    form.selected = KIND_FIELD;
+    search_key(&mut state, form, &esc);
+    assert_eq!(state.overlay, None);
+
+    let form = SearchForm::new(&state, false);
+    assert_eq!((form.pattern.text(), form.kind, form.minimum.text()), ("*.log", SearchKind::Files, "10M"));
+    assert_eq!((form.root.text(), form.selected), ("/work", 0), "it searches where you are, from the first field");
+
+    let space = SearchForm::new(&state, true);
+    assert_eq!((space.pattern.text(), space.kind), ("*", SearchKind::FolderTotals));
+    search_key(&mut state, space, &esc);
+    assert_eq!(SearchForm::new(&state, false).pattern.text(), "*.log", "analyzing space keeps the search's values");
+}
+
+#[test]
+fn close_matches_follow_the_setting_the_checkbox_and_the_query() {
+    let mut settings = crate::Settings::default();
+    settings.search.typos = false;
+    let (mut state, _) = AppState::new(
+        crate::Startup::at("/work".into()),
+        100,
+        30,
+        settings,
+        crate::Appearance::new(vec![crate::ThemeChoice { id: "midnight".into(), name: "Midnight".into() }], 0),
+        std::time::Instant::now(),
+    );
+    let key = |code| KeyEvent::new(code, KeyModifiers::NONE);
+    let typos = |effects: &[Effect]| {
+        effects.iter().find_map(|effect| match effect {
+            Effect::Search { request, .. } => Some(request.typos),
+            _ => None,
+        })
+    };
+    let mut form = SearchForm::new(&state, false);
+    assert!(!form.typos && form.shows(TYPOS_FIELD));
+    form.pattern = LineInput::new("reciept");
+    form.selected = TYPOS_FIELD;
+    state.overlay = Some(Overlay::Search(form));
+    search_key_of(&mut state, key(KeyCode::Char(' ')));
+    assert_eq!(typos(&search_key_of(&mut state, key(KeyCode::Enter))), Some(true));
+
+    let mut form = SearchForm::new(&state, false);
+    assert!(form.typos, "the dialog keeps what it held");
+    form.pattern = LineInput::new("reciept typos:no");
+    assert_eq!(typos(&search_key(&mut state, form, &key(KeyCode::Enter))), Some(false));
+
+    let mut sizes = SearchForm::new(&state, true);
+    assert!(!sizes.shows(TYPOS_FIELD));
+    sizes.typos = true;
+    assert_eq!(typos(&search_key(&mut state, sizes, &key(KeyCode::Enter))), Some(false), "sizes match names as typed");
+}

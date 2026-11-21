@@ -2,21 +2,35 @@
 //! project or container with its live resource use in the other. Ctrl-O stays the host
 //! console.
 
+use crate::screens::{CHROME_ROWS, FILTER_LIMIT, PAGE};
 use borg_i18n::tr;
 use std::{
     collections::{HashMap, HashSet},
+    ops::Add,
     path::PathBuf,
     time::{Duration, Instant},
 };
 
-use borg_docker::{Action, Container, Details, State, Stats};
+use borg_docker::{Action, Container, Details, DiskUse, State, Stats};
 use borg_term::{GridSize, Scroll};
 
-use crate::{AppState, Effect, HISTORY, ShellStatus, Side, View};
+use crate::{AppState, CpuAverage, Effect, HISTORY, ShellStatus, Side, View};
 
+mod disk;
 mod files;
 mod keys;
 mod shells;
+mod volume;
+
+pub use disk::{
+    Disk, DiskFamily, DiskGroup, DiskItem, DiskKind, DiskRow, DiskTotals, LastUsed, NoCleanup, VolumeContents,
+};
+pub(crate) use disk::{command_ended, toggle as toggle_disk};
+pub use volume::{Opening, VolumeMount};
+pub(crate) use volume::{
+    at_root as at_volume_root, open as open_volume, refusal as volume_refusal, release as release_helpers,
+    unmount as leave_volume,
+};
 
 pub(crate) use files::{browse, copy, delete, mkdir, unmount, view};
 pub(crate) use keys::{act, click, paste, route_key, start, stats, tab_key};
@@ -32,15 +46,31 @@ const REFRESH: Duration = Duration::from_secs(2);
 const RETRY: Duration = Duration::from_secs(5);
 /// Moving through the list inspects the container the cursor rests on, not every one it passes.
 const INSPECT_DELAY: Duration = Duration::from_millis(150);
-const PAGE: usize = 10;
-const FILTER_LIMIT: usize = 128;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DockerRequest {
     List,
     Inspect(String),
-    Act { action: Action, ids: Vec<String> },
-    Files { container: String, op: FileOp },
+    Act {
+        action: Action,
+        ids: Vec<String>,
+    },
+    Files {
+        container: String,
+        op: FileOp,
+    },
+    /// What the engine keeps on disk, which takes a while to measure.
+    DiskUse,
+    /// The files of these volumes, by name, where they are on this machine: their newest change
+    /// and what their top holds, a volume at a time.
+    ReadVolumes(Vec<(String, PathBuf)>),
+    /// A helper container that shows a volume's files, after downloading its image when `pull`.
+    OpenVolume {
+        name: String,
+        pull: bool,
+    },
+    /// Removes the helper container with this ID.
+    CloseVolume(String),
 }
 
 impl DockerRequest {
@@ -62,6 +92,21 @@ pub enum DockerData {
     },
     /// A container file copied out for viewing.
     Fetched(PathBuf),
+    /// Disk use as the context it was measured on reports it, with the CLI's contexts and the
+    /// volumes whose files Borg can read on this machine.
+    DiskUse {
+        usage: Box<DiskUse>,
+        context: Option<String>,
+        contexts: Option<Vec<String>>,
+        folders: HashMap<String, PathBuf>,
+    },
+    /// The ID of a helper container that shows a volume's files.
+    Helper(String),
+    /// What one volume's files hold.
+    VolumeRead {
+        name: String,
+        contents: VolumeContents,
+    },
     Done,
 }
 
@@ -141,12 +186,39 @@ pub struct DockerGroup {
     pub running: usize,
 }
 
+/// CPU use in hundredths of a percent of one core: the latest reading, and the average over
+/// the last few seconds rounded to the step the view shows.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CpuUse {
+    pub now: u64,
+    pub average: u64,
+}
+
+impl Add for CpuUse {
+    type Output = Self;
+
+    fn add(self, other: Self) -> Self {
+        Self { now: self.now + other.now, average: self.average + other.average }
+    }
+}
+
 /// A container's recent CPU and memory, one sample a second.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Usage {
     pub cpu: Vec<u64>,
     pub memory: Vec<u64>,
     pub latest: Stats,
+    average: CpuAverage,
+}
+
+impl Usage {
+    fn new(stats: Stats, now: Instant) -> Self {
+        Self { cpu: Vec::new(), memory: Vec::new(), latest: stats, average: CpuAverage::next(None, stats.cpu, now) }
+    }
+
+    pub fn cpu_use(&self) -> CpuUse {
+        CpuUse { now: u64::from(self.latest.cpu), average: u64::from(self.average.shown()) }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -182,6 +254,9 @@ pub struct Docker {
     /// Whether the details panel shows the selected container's shell, when it has one.
     pub shell_tab: bool,
     pub pending: Option<(u64, DockerRequest)>,
+    pub disk: Disk,
+    /// The helper containers Borg started to show volumes, removed once no panel shows them.
+    pub helpers: Vec<String>,
     collapsed: HashSet<Option<String>>,
     selected: Option<Key>,
     watching: bool,
@@ -250,13 +325,13 @@ impl Docker {
         self.working.iter().find(|w| w.ids.iter().any(|i| i == id)).map(|w| w.action)
     }
 
-    /// Total CPU (hundredths of a percent) and memory of a group's running containers.
-    pub fn group_usage(&self, group: &DockerGroup) -> (u64, u64) {
+    /// Total CPU and memory of a group's running containers.
+    pub fn group_usage(&self, group: &DockerGroup) -> (CpuUse, u64) {
         group
             .containers
             .iter()
             .filter_map(|&i| self.usage.get(&self.containers[i].id))
-            .fold((0, 0), |(cpu, memory), usage| (cpu + u64::from(usage.latest.cpu), memory + usage.latest.memory))
+            .fold((CpuUse::default(), 0), |(cpu, memory), usage| (cpu + usage.cpu_use(), memory + usage.latest.memory))
     }
 
     pub fn list_start(&self, height: usize) -> usize {
@@ -337,6 +412,15 @@ impl Docker {
                 self.working.push(Working { id, action: *action, ids: ids.clone() });
             }
             DockerRequest::Files { .. } => {}
+            DockerRequest::DiskUse => {
+                self.disk.loading = Some(id);
+                self.disk.stale = false;
+            }
+            DockerRequest::ReadVolumes(_) => self.disk.reading = Some(id),
+            DockerRequest::OpenVolume { name, pull } => {
+                self.disk.opening = Some(volume::Opening { id, name: name.clone(), pull: *pull });
+            }
+            DockerRequest::CloseVolume(_) => {}
             _ => {
                 self.pending = Some((id, request.clone()));
                 self.next = None;
@@ -345,9 +429,10 @@ impl Docker {
         vec![Effect::Docker { id, request }]
     }
 
-    fn sample(&mut self, frame: Vec<(String, Stats)>) {
+    fn sample(&mut self, frame: Vec<(String, Stats)>, now: Instant) {
         for (id, stats) in frame {
-            let usage = self.usage.entry(id).or_default();
+            let usage = self.usage.entry(id).or_insert_with(|| Usage::new(stats, now));
+            usage.average = CpuAverage::next(Some(usage.average), stats.cpu, now);
             for (values, value) in [(&mut usage.cpu, u64::from(stats.cpu)), (&mut usage.memory, stats.memory)] {
                 values.push(value);
                 if values.len() > HISTORY {
@@ -365,8 +450,7 @@ pub(crate) fn open(state: &mut AppState, now: Instant) -> Vec<Effect> {
         return Vec::new();
     }
     state.overlay = None;
-    state.activity.side = None;
-    crate::network::close(state);
+    crate::screens::close_others(state, crate::screens::Screen::Docker);
     let docker = &mut state.docker;
     docker.side = Some(state.active);
     docker.details_focused = false;
@@ -376,8 +460,15 @@ pub(crate) fn open(state: &mut AppState, now: Instant) -> Vec<Effect> {
 }
 
 pub(crate) fn close(state: &mut AppState) {
-    state.docker.side = None;
-    state.docker.filtering = false;
+    let docker = &mut state.docker;
+    docker.side = None;
+    docker.filtering = false;
+    docker.disk.open = false;
+    docker.disk.filtering = false;
+    docker.disk.opening = None;
+    if docker.disk.loading.take().is_some() {
+        docker.disk.stale = true;
+    }
 }
 
 pub(crate) fn toggle(state: &mut AppState, now: Instant) -> Vec<Effect> {
@@ -390,26 +481,34 @@ pub(crate) fn toggle(state: &mut AppState, now: Instant) -> Vec<Effect> {
 }
 
 pub(crate) fn filter(state: &mut AppState) {
-    if state.docker.is_open() {
-        state.docker.filtering = true;
-        state.docker.details_focused = false;
+    let docker = &mut state.docker;
+    if docker.disk.open {
+        docker.disk.filtering = true;
+    } else if docker.is_open() {
+        docker.filtering = true;
+        docker.details_focused = false;
     }
+}
+
+/// Whether the container list shows, so its selection can be acted on.
+fn listing(state: &AppState) -> bool {
+    state.docker.is_open() && !state.docker.disk.open
 }
 
 /// Whether an action would change anything in the selection, for the Docker menu.
 pub(crate) fn can(state: &AppState, action: Action) -> bool {
-    state.docker.is_open() && !targets(&state.docker, action).is_empty()
+    listing(state) && !targets(&state.docker, action).is_empty()
 }
 
 /// Whether the selection is a container with a shell open, or a running one to open one in.
 pub(crate) fn can_open_shell(state: &AppState) -> bool {
-    state.docker.is_open()
+    listing(state)
         && state.docker.container().is_some_and(|c| c.state == State::Running || state.docker.shell(&c.id).is_some())
 }
 
 /// Whether the selection is a running container, whose files can be browsed.
 pub(crate) fn can_browse(state: &AppState) -> bool {
-    state.docker.is_open() && state.docker.container().is_some_and(|c| c.state == State::Running)
+    listing(state) && state.docker.container().is_some_and(|c| c.state == State::Running)
 }
 
 /// Pause, or Resume when the selection is paused.
@@ -447,9 +546,13 @@ pub(crate) fn sync(state: &mut AppState, now: Instant) -> Vec<Effect> {
         }
         return effects;
     }
-    let rows = state.layout(now).panels[docker_side(state).index()].height.saturating_sub(6);
+    let rows = state.layout(now).panels[docker_side(state).index()].height.saturating_sub(CHROME_ROWS);
     let docker = &mut state.docker;
     docker.keep_visible(usize::from(rows));
+    docker.disk.keep_visible(usize::from(rows));
+    if docker.disk.open && docker.disk.stale && docker.disk.loading.is_none() {
+        effects.extend(disk::measure(docker));
+    }
     if docker.pending.is_some() {
         return effects;
     }
@@ -472,6 +575,22 @@ fn docker_side(state: &AppState) -> Side {
 
 pub(crate) fn receive(state: &mut AppState, id: u64, result: Result<DockerData, String>, now: Instant) -> Vec<Effect> {
     let docker = &mut state.docker;
+    if docker.disk.loading == Some(id) {
+        docker.disk.loading = None;
+        disk::receive(&mut docker.disk, result);
+        let unread = docker.disk.unread();
+        return if unread.is_empty() { Vec::new() } else { docker.request(DockerRequest::ReadVolumes(unread)) };
+    }
+    if docker.disk.reading == Some(id) {
+        disk::read(&mut docker.disk, result);
+        return Vec::new();
+    }
+    if let Ok(DockerData::Helper(container)) = &result {
+        docker.helpers.push(container.clone());
+    }
+    if let Some(opening) = docker.disk.opening.take_if(|opening| opening.id == id) {
+        return volume::opened(state, opening, result);
+    }
     if let Some(index) = docker.files.iter().position(|w| w.id == id) {
         let work = docker.files.remove(index);
         return finish_files(state, work, result);
@@ -513,7 +632,13 @@ pub(crate) fn receive(state: &mut AppState, id: u64, result: Result<DockerData, 
             docker.details = Some((id, *details));
             docker.next.get_or_insert(now + REFRESH);
         }
-        Ok(DockerData::Done | DockerData::Fetched(_)) => {}
+        Ok(
+            DockerData::Done
+            | DockerData::Fetched(_)
+            | DockerData::DiskUse { .. }
+            | DockerData::VolumeRead { .. }
+            | DockerData::Helper(_),
+        ) => {}
         Err(error) => {
             docker.loaded = true;
             docker.error = Some(error);

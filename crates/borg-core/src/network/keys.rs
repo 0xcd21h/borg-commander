@@ -6,7 +6,7 @@ use std::{net::SocketAddr, time::Instant};
 use borg_i18n::tr;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use super::{Exposure, FILTER_LIMIT, Network, NetworkPage, NetworkSort, Order, PAGE, close, leave};
+use super::{Exposure, FILTER_LIMIT, NeighborEntry, Network, NetworkPage, NetworkSort, Order, PAGE, close, leave};
 use crate::{Action, AppState, Effect};
 
 const LOCALHOST: &str = "localhost";
@@ -29,6 +29,8 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
             }
             KeyCode::Char('m') => crate::actions::perform(state, Action::Activity, now),
             KeyCode::Char('c') => crate::actions::perform(state, Action::Docker, now),
+            KeyCode::Char('u') => crate::actions::perform(state, Action::StartupItems, now),
+            KeyCode::Char('l') => crate::actions::perform(state, Action::Alerts, now),
             _ => Vec::new(),
         };
     }
@@ -36,7 +38,7 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
         return crate::actions::perform(state, action, now);
     }
     if state.network.viewer.is_some() {
-        return super::viewer::route_key(state, key);
+        return super::viewer::route_key(state, key, now);
     }
     if state.network.filtering && filter_key(&mut state.network, key) {
         return Vec::new();
@@ -45,6 +47,12 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
     let code = key.code;
     if code == KeyCode::Char('c') && modifiers == KeyModifiers::CONTROL {
         return copy(state);
+    }
+    if code == KeyCode::Char(crate::port_scan::SAVE_KEY)
+        && modifiers == KeyModifiers::CONTROL
+        && state.network.page == NetworkPage::Neighbors
+    {
+        return crate::report::save_neighbors(state);
     }
     if !(modifiers.is_empty() || modifiers == KeyModifiers::SHIFT) {
         return Vec::new();
@@ -60,10 +68,20 @@ pub(crate) fn route_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> V
         }
         KeyCode::Char(' ') => network.paused = !network.paused,
         KeyCode::Char('r' | 'R') => return super::capture::capture_key(state),
+        KeyCode::Char('l' | 'L') => return super::capture::copy_key_log_prefix(state),
         KeyCode::Char('k' | 'K') => return show_process(state, true),
-        KeyCode::Char(digit @ '1'..='4') => show_page(network, NetworkPage::ALL[usize::from(digit as u8 - b'1')]),
+        KeyCode::Char('s' | 'S') if network.page == NetworkPage::Neighbors => return super::scan(state),
+        KeyCode::Char('p' | 'P') if network.page == NetworkPage::Neighbors => return super::scan_ports(state),
+        KeyCode::Char('d' | 'D') if network.page == NetworkPage::Neighbors => return super::discover(state),
+        KeyCode::Char('h' | 'H') if network.page == NetworkPage::Neighbors => return super::listen_key(state, now),
+        KeyCode::Char('o' | 'O') if network.page == NetworkPage::Neighbors => {
+            return crate::port_scan::show_scans(state);
+        }
+        KeyCode::F(8) | KeyCode::Delete if network.page == NetworkPage::Neighbors => return super::forget(state),
         KeyCode::Char(c) => {
-            if let Some(sort) = NetworkSort::from_key(c) {
+            if let Some(page) = NetworkPage::from_key(c) {
+                show_page(network, page);
+            } else if let Some(sort) = NetworkSort::from_key(c) {
                 sort_by(state, sort);
             }
         }
@@ -142,19 +160,17 @@ fn filter_key(network: &mut Network, key: &KeyEvent) -> bool {
     true
 }
 
-/// Esc gives the list back the keys, then clears a filter, then closes the screen or goes back
-/// to the activity monitor it was opened from.
+/// Esc gives the list back the keys, then closes the screen, which keeps its filter for the
+/// next time it opens, or goes back to the activity monitor it was opened from.
 fn escape(state: &mut AppState) -> Vec<Effect> {
-    let network = &mut state.network;
-    if network.details_focused {
-        network.details_focused = false;
-    } else if !network.filter.is_empty() {
-        network.filter.clear();
-        network.rebuild();
-    } else {
-        return leave(state);
+    if state.network.details_focused {
+        state.network.details_focused = false;
+        return Vec::new();
     }
-    Vec::new()
+    if state.network.scan.as_ref().is_some_and(|scan| !scan.stopping) {
+        return super::stop_scan(state);
+    }
+    leave(state)
 }
 
 /// Enter shows the selected row's process in the activity monitor; on a row without one it
@@ -220,7 +236,7 @@ fn copy(state: &mut AppState) -> Vec<Effect> {
     crate::clipboard::copy(state, text)
 }
 
-fn copied_text(network: &Network) -> Option<String> {
+pub(crate) fn copied_text(network: &Network) -> Option<String> {
     match network.page {
         NetworkPage::Ports => {
             let row = network.port()?;
@@ -241,5 +257,18 @@ fn copied_text(network: &Network) -> Option<String> {
                 .map(|(address, _)| address.to_string());
             Some(address.unwrap_or_else(|| interface.name.clone()))
         }
+        NetworkPage::Neighbors => match network.entry()? {
+            NeighborEntry::Host(row) => Some(network.neighborhood.neighbors[row.neighbor].address.to_string()),
+            NeighborEntry::Network(index) => Some(network.routed.get(index)?.cidr()),
+            NeighborEntry::Interface(index) => {
+                let interface = network.sample.interfaces.get(index)?;
+                let address = interface.addresses.iter().find(|(address, _)| address.is_ipv4()).map(|(a, _)| a);
+                Some(address.map_or_else(|| interface.name.clone(), ToString::to_string))
+            }
+            NeighborEntry::Internet(index) => {
+                let route = network.internet.get(index)?;
+                Some(route.gateways.first().map_or_else(|| route.interface.clone(), ToString::to_string))
+            }
+        },
     }
 }

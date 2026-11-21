@@ -2,7 +2,7 @@
 //! searches, each page in a module of its own; the drawing they share is here.
 
 use crate::{Rgb, Theme, format, look::Look, spinner::Spinner};
-use borg_core::{Activity, ActivityPage, ActivityRequest, AppState};
+use borg_core::{Activity, ActivityPage, ActivityRequest, AppState, FindingsReport, Severity};
 use borg_i18n::tr;
 use crossterm::event::KeyCode;
 use ratatui::{
@@ -14,17 +14,20 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 
+mod choices;
 pub(crate) mod control;
 mod controls;
+pub(crate) mod entropy;
 mod files;
 mod memory;
 mod processes;
 mod regions;
 mod search;
+mod system;
 
 pub(crate) use controls::{keybar, panel_mouse};
 use files::{file_details, files};
-pub(crate) use memory::{Unit, chart};
+pub(crate) use memory::{Fill, Unit, chart, meter};
 use memory::{memory, metrics, sized_line, sizes};
 use processes::filter_row;
 use regions::{Page, regions, snapshot};
@@ -63,8 +66,14 @@ fn colors(theme: &Theme) -> (Rgb, Rgb) {
 }
 
 pub(crate) fn readable(theme: &Theme, color: Option<Color>) -> Option<Color> {
-    let (_, background) = colors(theme);
-    color.filter(|&c| crate::Palette::default().foreground_of(c).contrast(background) >= READABLE)
+    readable_on(theme.styles.overlay, color)
+}
+
+/// `color`, when text in it reads well on the background of `base`.
+pub(crate) fn readable_on(base: Style, color: Option<Color>) -> Option<Color> {
+    let palette = crate::Palette::default();
+    let background = palette.background_of(base.bg.unwrap_or(Color::Reset));
+    color.filter(|&c| palette.foreground_of(c).contrast(background) >= READABLE)
 }
 
 /// Accented text: values and summaries that should stand out from body text.
@@ -84,6 +93,15 @@ pub(crate) fn dim(theme: &Theme) -> Style {
 }
 
 /// Splits text into lines of at most `width` cells, breaking between words.
+/// The style of a finding's level: alerts stand out, notices recede.
+pub(crate) fn severity_style(severity: Severity, theme: &Theme) -> Style {
+    match severity {
+        Severity::Alert => theme.styles.notice.add_modifier(Modifier::BOLD),
+        Severity::Warning => emphasis(theme),
+        Severity::Notice => dim(theme),
+    }
+}
+
 pub(crate) fn wrap(value: &str, width: usize) -> Vec<String> {
     let mut lines = vec![String::new()];
     for word in value.split_whitespace() {
@@ -120,11 +138,25 @@ pub(crate) fn text(buf: &mut Buffer, area: Rect, value: impl Into<String>, style
 fn displayable(value: &str) -> String {
     value.chars().map(|c| if c.is_control() { '�' } else { c }).collect()
 }
+/// `area` without its top `rows` rows.
+pub(crate) fn below(area: Rect, rows: u16) -> Rect {
+    let rows = rows.min(area.height);
+    Rect { y: area.y + rows, height: area.height - rows, ..area }
+}
+/// Rows the system summary takes from the list pane `screen` on the `page` it shows, beyond
+/// the overview's one row.
+pub(crate) fn summary_rows(activity: &Activity, page: ActivityPage, screen: Rect) -> u16 {
+    if page == ActivityPage::Processes { activity.summary_rows(screen) } else { 0 }
+}
 pub(crate) fn row(area: Rect, offset: u16) -> Rect {
     Rect { y: area.y.saturating_add(offset).min(area.bottom()), height: u16::from(offset < area.height), ..area }
 }
 fn size(value: Option<u64>) -> String {
     value.map_or_else(|| "—".into(), format::size)
+}
+/// CPU use in hundredths of a percent, as a percentage with one decimal.
+fn percent(value: Option<u32>) -> String {
+    value.map_or_else(|| "—".into(), |v| format!("{:.1}%", f64::from(v) / 100.0))
 }
 /// Draws the activity monitor. Inspecting a process opens a window over it, holding the
 /// inspection list and its preview, while the process list and overview stay beneath.
@@ -190,9 +222,22 @@ fn draw_panel(state: &AppState, look: &Look<'_>, screen: Rect, pane: Pane, buf: 
     if inner.is_empty() {
         return screen;
     }
-    text(buf, row(inner, 0), summary(activity, page, processes), emphasis(look.theme));
+    let system = if processes && page == ActivityPage::Processes {
+        activity.summary_layout(inner.width, inner.height)
+    } else {
+        None
+    };
+    match system {
+        Some(layout) => system::draw(activity, look, Rect { height: layout.rows(), ..inner }, layout, buf),
+        None if processes && page == ActivityPage::Processes => {
+            system::overview(activity, summary(activity, page, processes), look, row(inner, 0), buf);
+        }
+        None => text(buf, row(inner, 0), summary(activity, page, processes), emphasis(look.theme)),
+    }
+    let extra = system.map_or(0, |layout| layout.rows().saturating_sub(1));
+    let inner = below(inner, extra);
     subtitle(activity, look, inner, page, processes, buf);
-    let body = body(screen);
+    let body = below(body(screen), extra);
     match activity.search_form.as_ref().filter(|_| searching) {
         Some(form) => search_form(form, look.theme, body, buf),
         None => draw_page(activity, look, page, (inner, body), focused, spinner, buf),
@@ -223,11 +268,15 @@ fn frame(
             ActivityPage::Regions => tr!(activity_map),
             ActivityPage::Snapshot => tr!(activity_snapshot),
             ActivityPage::Search => tr!(memory_search_results),
-            ActivityPage::Integrity => tr!(integrity_title),
+            ActivityPage::Findings if by_rules(activity) => tr!(rules_title),
+            ActivityPage::Findings => tr!(integrity_title),
             ActivityPage::Files => tr!(process_files_title),
             ActivityPage::FileDetails => tr!(process_file_details),
+            ActivityPage::Entropy => tr!(entropy_title),
+            ActivityPage::EntropyDetails => tr!(entropy_details_title),
         }
     };
+    let title = if page == ActivityPage::Entropy && !searching { entropy::title(activity) } else { title.into() };
     let status = if activity.pending.as_ref().is_some_and(|(_, r)| matches!(r, ActivityRequest::Search { .. })) {
         tr!(memory_search_running)
     } else if activity.paused {
@@ -260,6 +309,11 @@ fn frame(
 
 /// The pane's first row: the machine's load, or what the page shows of the process or region.
 fn summary(activity: &Activity, page: ActivityPage, processes: bool) -> String {
+    match (page, &activity.entropy) {
+        (ActivityPage::Entropy, Some(scan)) => return entropy::summary(scan),
+        (ActivityPage::EntropyDetails, _) => return entropy::process_line(activity),
+        _ => {}
+    }
     if processes && page != ActivityPage::Processes {
         let pid = activity.selected.map_or(0, |p| p.pid);
         return if activity.regions().is_empty() {
@@ -294,11 +348,9 @@ fn summary(activity: &Activity, page: ActivityPage, processes: bool) -> String {
             )
         });
     }
-    let cores = activity.sample.cpu.len().max(1) as u64;
-    let cpu_total = activity.sample.cpu.iter().map(|&c| u64::from(c)).sum::<u64>() / cores;
     tr!(
         activity_overview,
-        cpu = format_args!("{:.1}%", cpu_total as f64 / 100.0),
+        cpu = percent(activity.system_cpu()),
         used = format::size(activity.sample.used),
         total = format::size(activity.sample.total),
         swap = format::size(activity.sample.swap_used),
@@ -314,6 +366,11 @@ fn subtitle(activity: &Activity, look: &Look<'_>, inner: Rect, page: ActivityPag
     let line = row(inner, 1);
     let subtitle = if page == ActivityPage::Snapshot && activity.search_form.is_none() {
         activity.shown_region().map(|r| r.name.clone()).unwrap_or_default()
+    } else if page == ActivityPage::Entropy {
+        activity.entropy.as_ref().map(entropy::left_out).unwrap_or_default()
+    } else if page == ActivityPage::EntropyDetails {
+        let hit = activity.entropy.as_ref().and_then(borg_core::EntropyScan::selected);
+        hit.map(|hit| hit.region.name.clone()).unwrap_or_default()
     } else if page == ActivityPage::Processes {
         String::new()
     } else if let Some(p) = activity.process() {
@@ -330,7 +387,7 @@ fn subtitle(activity: &Activity, look: &Look<'_>, inner: Rect, page: ActivityPag
     if page == ActivityPage::Processes {
         filter_row(activity, look, line, buf);
     }
-    if processes && page != ActivityPage::Processes {
+    if processes && !matches!(page, ActivityPage::Processes | ActivityPage::Entropy) {
         Clear.render(line, buf);
         buf.set_style(line, styles.overlay);
         for (rect, label, code) in tabs(line) {
@@ -346,6 +403,11 @@ fn subtitle(activity: &Activity, look: &Look<'_>, inner: Rect, page: ActivityPag
     }
 }
 
+/// Whether the findings shown come from scanning with rules.
+fn by_rules(activity: &Activity) -> bool {
+    matches!(activity.findings, Some(FindingsReport::Rules(_)))
+}
+
 fn draw_page(
     activity: &Activity,
     look: &Look<'_>,
@@ -358,8 +420,8 @@ fn draw_page(
     let theme = look.theme;
     match page {
         ActivityPage::Search => search_results(activity, theme, body, buf),
-        ActivityPage::Integrity => {
-            if let Some(report) = &activity.integrity {
+        ActivityPage::Findings => {
+            if let Some(report) = &activity.findings {
                 findings(activity, report, theme, body, buf);
             }
         }
@@ -368,6 +430,8 @@ fn draw_page(
         ActivityPage::Regions => regions(activity, theme, inner, body, buf),
         ActivityPage::Files => files(activity, look, inner, body, spinner, buf),
         ActivityPage::FileDetails => file_details(activity, look, body, buf),
+        ActivityPage::Entropy => entropy::hits(activity, theme, body, buf),
+        ActivityPage::EntropyDetails => entropy::details(activity, theme, body, buf),
         ActivityPage::Snapshot => {
             // Group and file previews have no region header, so they start at the top.
             let whole = Rect { height: inner.height.saturating_sub(FOOTER_ROWS), ..inner };
@@ -388,13 +452,17 @@ fn footer(state: &AppState, look: &Look<'_>, inner: Rect, live: bool, spinner: O
         height: FOOTER_ROWS.min(inner.height),
         ..inner
     };
-    let checking = activity.pending.as_ref().is_some_and(|(_, r)| matches!(r, ActivityRequest::Integrity { .. }));
+    let running = activity.pending.as_ref().map(|(_, request)| request);
     let progress = activity.search_progress.map(|(scanned, total, hits)| {
         let (scanned, total) = (format::size(scanned), format::size(total));
-        if checking {
-            tr!(integrity_progress, checked = scanned, total = total, findings = hits)
-        } else {
-            tr!(memory_search_progress, scanned = scanned, total = total, hits = hits)
+        match running {
+            Some(ActivityRequest::Integrity { .. }) => {
+                tr!(integrity_progress, checked = scanned, total = total, findings = hits)
+            }
+            Some(ActivityRequest::Rules { .. }) => {
+                tr!(rules_progress, scanned = scanned, total = total, findings = hits)
+            }
+            _ => tr!(memory_search_progress, scanned = scanned, total = total, hits = hits),
         }
     });
     let files_note = (activity.list == ActivityPage::Files && activity.files_loaded)

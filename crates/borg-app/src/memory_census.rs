@@ -1,21 +1,26 @@
 //! The page map of a region: what each page holds, read without suspending the process.
 
 use anyhow::Result;
-use borg_core::{MemoryCensus, MemoryRegion, PageClass, ProcessKey};
+use borg_core::{CensusPage, MemoryCensus, MemoryRegion, PageClass, ProcessKey};
+use borg_view::entropy::{BLOCK, Entropy, stride};
 
-const PAGE: u64 = 4096;
+const PAGE: u64 = BLOCK;
 /// Entries a census reports at most; a larger region is sampled evenly.
 const ENTRIES: u64 = 16_384;
 const TEXT_SHARE: f32 = 0.85;
 const WIDE_SHARE: f32 = 0.7;
 const POINTER_SHARE: f32 = 0.25;
-/// Bits per byte above which a page looks compressed or encrypted; text is near 4.5.
-const DENSE_BITS: f32 = 7.2;
 const WORD: usize = 8;
 
-/// What `page` holds. `mapped` lists the process's readable mappings, sorted by start, so
-/// words that point into them count as pointers.
-pub fn classify(page: &[u8], executable: bool, mapped: &[(u64, u64)]) -> PageClass {
+/// What `page` holds, and how varied its bytes are.
+pub fn judge(page: &[u8], executable: bool, mapped: &[(u64, u64)]) -> CensusPage {
+    let entropy = Entropy::of(page);
+    CensusPage { class: classify(page, entropy, executable, mapped), entropy: Some(entropy) }
+}
+
+/// What `page`, of the given `entropy`, holds. `mapped` lists the process's readable mappings,
+/// sorted by start, so words that point into them count as pointers.
+fn classify(page: &[u8], entropy: Entropy, executable: bool, mapped: &[(u64, u64)]) -> PageClass {
     let Some(&first) = page.first() else { return PageClass::Unread };
     if page.iter().all(|&byte| byte == 0) {
         return PageClass::Zero;
@@ -40,7 +45,7 @@ pub fn classify(page: &[u8], executable: bool, mapped: &[(u64, u64)]) -> PageCla
     if share(pointers, page.len() / WORD) >= POINTER_SHARE {
         return PageClass::Pointers;
     }
-    if entropy(page) >= DENSE_BITS {
+    if entropy.high() {
         return PageClass::Dense;
     }
     PageClass::Data
@@ -49,13 +54,6 @@ pub fn classify(page: &[u8], executable: bool, mapped: &[(u64, u64)]) -> PageCla
 fn points_into(address: u64, mapped: &[(u64, u64)]) -> bool {
     let after = mapped.partition_point(|(start, _)| *start <= address);
     after > 0 && address < mapped[after - 1].1
-}
-
-fn entropy(bytes: &[u8]) -> f32 {
-    let mut counts = [0u32; 256];
-    bytes.iter().for_each(|&byte| counts[usize::from(byte)] += 1);
-    let total = bytes.len() as f32;
-    counts.iter().filter(|&&count| count > 0).map(|&count| count as f32 / total).map(|p| -p * p.log2()).sum()
 }
 
 /// Classifies the region's pages, or an even sample of them when there are more than `ENTRIES`.
@@ -70,7 +68,7 @@ pub fn census(
 ) -> MemoryCensus {
     let start = region.start - region.start % PAGE;
     let total = region.end.saturating_sub(start).div_ceil(PAGE);
-    let stride = total.div_ceil(ENTRIES).max(1);
+    let stride = stride(total, ENTRIES);
     let executable = region.permissions.contains('x');
     let mut residency = false;
     let pages = (0..total.div_ceil(stride))
@@ -79,21 +77,45 @@ pub fn census(
             match resident(address) {
                 Some(false) => {
                     residency = true;
-                    return PageClass::Absent;
+                    return CensusPage::unread(PageClass::Absent);
                 }
                 Some(true) => residency = true,
                 None => {}
             }
-            read(address, PAGE as usize).map_or(PageClass::Unread, |page| classify(&page, executable, mapped))
+            read(address, PAGE as usize)
+                .map_or(CensusPage::unread(PageClass::Unread), |page| judge(&page, executable, mapped))
         })
         .collect();
     MemoryCensus { process, start, end: region.end, page: PAGE, stride, pages, residency }
 }
 
+/// Bytes of one entry in Linux's page map.
+#[cfg(target_os = "linux")]
+const MAP_ENTRY: u64 = 8;
+
+/// Where the page map keeps the kernel pages that hold `count` of Borg's pages from `address`:
+/// the first kernel page and how many follow. The kernel's pages are 4 KiB on most machines
+/// and 16 or 64 KiB on some, while Borg always counts in pages of [`PAGE`] bytes.
+#[cfg(any(target_os = "linux", test))]
+fn kernel_pages(address: u64, count: usize, kernel_page: u64) -> (u64, usize) {
+    let first = address / kernel_page;
+    let last = (address + (count as u64 * PAGE).saturating_sub(1)) / kernel_page;
+    (first, (last - first + 1) as usize)
+}
+
+/// Which of the kernel pages read from `first` holds each of Borg's `count` pages from `address`.
+#[cfg(any(target_os = "linux", test))]
+fn kernel_page_of(address: u64, count: usize, kernel_page: u64, first: u64) -> impl Iterator<Item = usize> {
+    (0..count as u64).map(move |page| ((address + page * PAGE) / kernel_page - first) as usize)
+}
+
 /// Whether pages are in memory, from Linux's page map, which whoever may read the process's
 /// memory may read too.
 #[cfg(target_os = "linux")]
-pub struct Residency(Option<std::fs::File>);
+pub struct Residency {
+    map: Option<std::fs::File>,
+    kernel_page: u64,
+}
 
 #[cfg(target_os = "linux")]
 impl Residency {
@@ -103,19 +125,23 @@ impl Residency {
     pub const FILE: u64 = 1 << 61;
 
     pub fn open(pid: u32) -> Self {
-        Self(std::fs::File::open(format!("/proc/{pid}/pagemap")).ok())
+        let map = std::fs::File::open(format!("/proc/{pid}/pagemap")).ok();
+        Self { map, kernel_page: rustix::param::page_size() as u64 }
     }
 
     pub fn resident(&self, address: u64) -> Option<bool> {
         Some(self.entries(address, 1)?[0] & Self::PRESENT != 0)
     }
 
-    /// The page map entries of `count` pages from `address`.
+    /// The page map entries of `count` of Borg's pages from `address`, each the entry of the
+    /// kernel page that holds it.
     pub fn entries(&self, address: u64, count: usize) -> Option<Vec<u64>> {
         use std::os::unix::fs::FileExt;
-        let mut bytes = vec![0u8; count * 8];
-        self.0.as_ref()?.read_exact_at(&mut bytes, address / PAGE * 8).ok()?;
-        Some(bytes.as_chunks::<8>().0.iter().map(|entry| u64::from_le_bytes(*entry)).collect())
+        let (first, length) = kernel_pages(address, count, self.kernel_page);
+        let mut bytes = vec![0u8; length * MAP_ENTRY as usize];
+        self.map.as_ref()?.read_exact_at(&mut bytes, first * MAP_ENTRY).ok()?;
+        let read: Vec<u64> = bytes.as_chunks::<8>().0.iter().map(|entry| u64::from_le_bytes(*entry)).collect();
+        Some(kernel_page_of(address, count, self.kernel_page, first).map(|at| read[at]).collect())
     }
 }
 
@@ -127,28 +153,41 @@ mod tests {
         (0..PAGE as usize).map(fill).collect()
     }
 
-    #[test]
-    fn pages_are_told_apart_by_what_they_hold() {
-        let mapped = [(0x1000, 0x9000), (0x7f00_0000_0000, 0x7f00_0010_0000)];
-        assert_eq!(classify(&page(|_| 0), false, &mapped), PageClass::Zero);
-        assert_eq!(classify(&page(|_| 0xcc), false, &mapped), PageClass::Filler);
-        assert_eq!(classify(&page(|i| b"hello world\n"[i % 12]), false, &mapped), PageClass::Text);
-        assert_eq!(
-            classify(&page(|i| if i % 2 == 0 { b'A' + (i % 26) as u8 } else { 0 }), false, &mapped),
-            PageClass::Wide
-        );
-        let pointers: Vec<u8> = (0..PAGE / 8).flat_map(|i| (0x7f00_0000_0000u64 + i * 16).to_le_bytes()).collect();
-        assert_eq!(classify(&pointers, false, &mapped), PageClass::Pointers);
+    fn random() -> Vec<u8> {
         let mut noise = 0x2545_f491_4f6c_dd1du64;
-        let random = page(|_| {
+        page(|_| {
             noise ^= noise << 13;
             noise ^= noise >> 7;
             noise ^= noise << 17;
             noise as u8
-        });
-        assert_eq!(classify(&random, false, &mapped), PageClass::Dense);
-        assert_eq!(classify(&random, true, &mapped), PageClass::Code);
-        assert_eq!(classify(&page(|i| (i % 7) as u8), false, &mapped), PageClass::Data);
+        })
+    }
+
+    #[test]
+    fn pages_are_told_apart_by_what_they_hold() {
+        let mapped = [(0x1000, 0x9000), (0x7f00_0000_0000, 0x7f00_0010_0000)];
+        let kind = |bytes: &[u8], executable: bool| judge(bytes, executable, &mapped).class;
+        assert_eq!(kind(&page(|_| 0), false), PageClass::Zero);
+        assert_eq!(kind(&page(|_| 0xcc), false), PageClass::Filler);
+        assert_eq!(kind(&page(|i| b"hello world\n"[i % 12]), false), PageClass::Text);
+        assert_eq!(kind(&page(|i| if i % 2 == 0 { b'A' + (i % 26) as u8 } else { 0 }), false), PageClass::Wide);
+        let pointers: Vec<u8> = (0..PAGE / 8).flat_map(|i| (0x7f00_0000_0000u64 + i * 16).to_le_bytes()).collect();
+        assert_eq!(kind(&pointers, false), PageClass::Pointers);
+        assert_eq!(kind(&random(), false), PageClass::Dense);
+        assert_eq!(kind(&random(), true), PageClass::Code);
+        assert_eq!(kind(&page(|i| (i % 7) as u8), false), PageClass::Data);
+    }
+
+    #[test]
+    fn every_page_read_carries_its_entropy_so_packed_code_stands_out() {
+        let packed = judge(&random(), true, &[]);
+        assert!(packed.class == PageClass::Code && packed.high(), "{packed:?}");
+        let opcodes = [0x48, 0x89, 0xe5, 0xc3, 0x90, 0x55, 0x8b, 0x45, 0xe8, 0x0f, 0x1f, 0x44, 0x00, 0x83, 0xec, 0x10];
+        let code: Vec<u8> = random().iter().map(|&byte| opcodes[usize::from(byte) % opcodes.len()]).collect();
+        let unpacked = judge(&code, true, &[]);
+        assert!(unpacked.class == PageClass::Code && !unpacked.high(), "{unpacked:?}");
+        assert_eq!(judge(&page(|_| 0), false, &[]).entropy.map(Entropy::bits), Some(0.0));
+        assert!(!CensusPage::unread(PageClass::Absent).high());
     }
 
     #[test]
@@ -164,7 +203,25 @@ mod tests {
         let census = census(process, &region, &[], read, |address| Some(address % (2 * PAGE * 3) == 0));
         assert_eq!((census.stride, census.pages.len()), (3, ENTRIES as usize));
         assert_eq!(reads.get(), ENTRIES as usize / 2, "only resident pages are read");
-        assert!(census.residency && census.pages[1] == PageClass::Absent && census.pages[0] == PageClass::Zero);
+        assert!(
+            census.residency && census.pages[1].class == PageClass::Absent && census.pages[0].class == PageClass::Zero
+        );
+        assert_eq!((census.pages[1].entropy, census.highest()), (None, census.pages[0].entropy));
         assert_eq!(census.address(1), PAGE * 3);
+    }
+
+    /// Borg counts in 4 KiB pages. Where the kernel's pages are larger, several of Borg's pages
+    /// share one entry of the page map, and the entry is found by the kernel's page size.
+    #[test]
+    fn page_map_entries_are_found_by_the_kernels_own_page_size() {
+        const SMALL: u64 = 4 * 1024;
+        const LARGE: u64 = 16 * 1024;
+        assert_eq!(kernel_pages(5 * PAGE, 3, SMALL), (5, 3));
+        assert_eq!(kernel_page_of(5 * PAGE, 3, SMALL, 5).collect::<Vec<_>>(), [0, 1, 2]);
+
+        assert_eq!(kernel_pages(5 * PAGE, 1, LARGE), (1, 1));
+        let (first, length) = kernel_pages(6 * PAGE, 4, LARGE);
+        assert_eq!((first, length), (1, 2), "pages 6 and 7 lie in kernel page 1, pages 8 and 9 in 2");
+        assert_eq!(kernel_page_of(6 * PAGE, 4, LARGE, first).collect::<Vec<_>>(), [0, 0, 1, 1]);
     }
 }

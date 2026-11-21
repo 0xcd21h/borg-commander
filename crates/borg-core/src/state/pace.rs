@@ -11,7 +11,8 @@ impl AppState {
             || self.appearance.is_animating(now)
             || self.overlay_fade.is_animating(now)
             || self.leaving.as_ref().is_some_and(|leaving| leaving.fade.is_animating(now))
-            || self.motions.iter().any(|motion| motion.is_animating(now));
+            || self.motions.iter().any(|motion| motion.is_animating(now))
+            || crate::jobs::animating(self, now);
         if smooth {
             Some(Pace::Smooth)
         } else if crate::motion::ambient(self, now) {
@@ -28,8 +29,9 @@ impl AppState {
     pub fn can_screensave(&self) -> bool {
         !self.shell.busy()
             && self.intro.is_none()
-            && self.jobs.is_empty()
+            && !self.jobs.iter().any(crate::Job::running)
             && self.overlay.is_none()
+            && self.approval.is_none()
             && self.viewer.is_none()
             && !self.monitor_open()
             && self.sizing.is_none()
@@ -50,10 +52,13 @@ impl AppState {
             intro,
             self.busy.reveal_at(),
             self.glitch_wake,
+            self.jobs_wake,
             crate::plugins::wake_at(self),
             crate::activity::wake_at(self),
             crate::docker::wake_at(self),
             crate::network::wake_at(self),
+            crate::update_offer::wake_at(self),
+            crate::port_scan::wake_at(self),
         ]
         .into_iter()
         .flatten()

@@ -95,6 +95,11 @@ pub struct AppState {
     pub activity: crate::Activity,
     pub docker: crate::Docker,
     pub network: crate::Network,
+    /// Port scans that run, ended or are remembered.
+    pub port_scans: crate::PortScans,
+    pub startup_items: crate::StartupItems,
+    pub hosts: crate::Hosts,
+    pub alerts: crate::Alerts,
     pub agent: crate::Agent,
     pub backup: crate::Backup,
     /// When background work started, for spinners that wait before appearing.
@@ -127,12 +132,19 @@ pub struct AppState {
     pub notice: Option<String>,
     pub appearance: Appearance,
     pub overlay: Option<Overlay>,
+    pub approval: Option<crate::Approval>,
     pub operation: Option<Operation>,
     /// The program the shell is installing, whose end gives a notice.
     pub(crate) installing: Option<crate::Tool>,
+    /// The shell runs the command that sets up the background service, whose end gives a notice.
+    pub(crate) setting_up_service: bool,
     pub sizing: Option<crate::SizeScan>,
+    /// Size counts that start once the one being measured ends, oldest first.
+    pub(crate) waiting_sizes: Vec<crate::measure::WaitingCount>,
     pub(crate) measured: crate::measure::Measured,
     pub next_size: u64,
+    /// How many delete dialogs counted their files, which numbers the answers.
+    pub(crate) delete_checks: u64,
     pub viewer: Option<Viewer>,
     /// The file the viewer is opening. A load that arrives for another file, or after Esc
     /// gave it up, is dropped.
@@ -150,13 +162,26 @@ pub struct AppState {
     pub leaving: Option<Leaving>,
     pub last_find: Option<String>,
     pub jobs: Vec<Job>,
+    /// Notes in a corner that jobs started, ended or wait for an answer.
+    pub toasts: Vec<crate::Toast>,
+    /// When a toast next moves or goes, or a question waiting for the keys to rest opens.
+    pub(crate) jobs_wake: Option<Instant>,
     pub aside: Option<Aside>,
     pub preview_focused: bool,
-    pub(crate) last_menu: Option<MenuCursor>,
+    /// The side where a screen lends a file panel beside its list, while it does.
+    pub lent: Option<Side>,
+    /// The file the lent panel was opened to show, and the listing of its folder, until it ends.
+    pub(crate) awaited: Option<(u64, PathBuf)>,
+    /// What the Find in folder dialog held when it closed, for the next time it opens.
+    pub(crate) search_draft: Option<crate::SearchForm>,
+    pub(crate) last_menu: Option<crate::menu::MenuPlace>,
     pub(crate) escaped: Option<Instant>,
     pub peeked: Option<Peeked>,
+    pub preview_find: crate::PagerFind,
     pub(crate) peeking: Option<(Aside, PathBuf, Option<crate::FirstMatch>)>,
     pub next_job: u64,
+    /// How many answers keep Borg from asking before long jobs.
+    pub kept_answers: usize,
     pub idle_since: Instant,
     pub screensaver: bool,
     /// Which screensaver shows; picked again each time it starts.
@@ -176,10 +201,19 @@ pub struct AppState {
     pub find_recent: Vec<String>,
     /// The id of the viewer's latest search.
     pub(crate) next_find: u64,
+    /// The id of the viewer's latest read of entropy.
+    pub(crate) next_profile: u64,
     /// A folder just added to the index, whose first build ends with a notice.
     pub indexing: Option<PathBuf>,
     /// When the next flash over an empty folder starts, while one is shown.
     pub(crate) glitch_wake: Option<Instant>,
+    /// The newer Borg the session moves to once nothing here would be lost.
+    pub(crate) relaunch: Option<String>,
+    /// A newer release, offered once the panels show and you pause.
+    pub(crate) update_offer: Option<crate::UpdateOffer>,
+    /// The shell runs the command that updates Borg, whose end gives a notice.
+    pub(crate) updating: bool,
+    pub(crate) creating_vaults: Vec<PathBuf>,
     generation: u64,
 }
 
@@ -200,6 +234,9 @@ impl AppState {
             activity: crate::Activity::default(),
             docker: crate::Docker::default(),
             network: crate::Network::default(),
+            startup_items: crate::StartupItems::default(),
+            hosts: crate::Hosts::default(),
+            alerts: crate::Alerts::default(),
             agent: crate::Agent::default(),
             backup: crate::Backup::default(),
             console: Console::Host,
@@ -228,11 +265,15 @@ impl AppState {
             notice: None,
             appearance,
             overlay: None,
+            approval: None,
             operation: None,
             installing: None,
+            setting_up_service: false,
             sizing: None,
+            waiting_sizes: Vec::new(),
             measured: Default::default(),
             next_size: 0,
+            delete_checks: 0,
             viewer: None,
             opening: None,
             landing: None,
@@ -245,13 +286,20 @@ impl AppState {
             leaving: None,
             last_find: None,
             jobs: Vec::new(),
+            toasts: Vec::new(),
+            jobs_wake: None,
             aside: None,
+            lent: None,
+            awaited: None,
+            search_draft: None,
             preview_focused: false,
             last_menu: None,
             escaped: None,
             peeked: None,
+            preview_find: crate::PagerFind::default(),
             peeking: None,
             next_job: 0,
+            kept_answers: 0,
             idle_since: now,
             screensaver: false,
             saver: Saver::default(),
@@ -264,8 +312,14 @@ impl AppState {
             cd_picker: crate::CdPicker::default(),
             find_recent: Vec::new(),
             next_find: 0,
+            next_profile: 0,
             indexing: None,
             glitch_wake: None,
+            relaunch: None,
+            update_offer: None,
+            port_scans: crate::PortScans::new(),
+            updating: false,
+            creating_vaults: Vec::new(),
             generation: 0,
         };
         state.refit();
@@ -282,13 +336,35 @@ impl AppState {
         &self.panels[side.index()]
     }
 
+    /// The host's shell, which a container's shell may stand in for as the console.
+    pub fn host_shell(&self) -> &ShellStatus {
+        self.parked_host.as_ref().unwrap_or(&self.shell)
+    }
+
     pub fn active_panel(&self) -> &Panel {
         self.panel(self.active)
     }
 
-    /// Whether a monitor covers the panels: the activity monitor, Docker or the network screen.
+    /// Whether a monitor covers the panels: the activity monitor, Docker, the network screen or
+    /// the startup items.
     pub fn monitor_open(&self) -> bool {
-        self.activity.side.is_some() || self.docker.is_open() || self.network.is_open()
+        self.activity.side.is_some()
+            || self.docker.is_open()
+            || self.network.is_open()
+            || self.startup_items.is_open()
+            || self.alerts.is_open()
+            || self.hosts.is_open()
+    }
+
+    pub fn question_shows(&self) -> bool {
+        matches!(self.overlay, Some(Overlay::Question(_)))
+    }
+
+    pub fn secret_on_screen(&self) -> bool {
+        let sealed_editor = self.editor.iter().chain(self.docked.iter().flatten()).any(|editor| editor.seal.is_some());
+        matches!(self.overlay, Some(Overlay::VaultKey(_)))
+            || self.viewer.as_ref().is_some_and(|viewer| viewer.sealed)
+            || sealed_editor
     }
 
     pub fn effective_view(&self) -> View {
@@ -359,7 +435,14 @@ impl AppState {
             self.last_results[side.index()] = Some(self.panel(side).clone());
         }
         let generation = self.next_generation();
-        self.panel_mut(side).navigate(dir.clone(), generation, focus);
+        let panel = self.panel_mut(side);
+        if panel.volume.as_ref().is_some_and(|volume| !volume.holds(&dir) || !volume.shown_by(panel.mount.as_ref())) {
+            panel.volume = None;
+        }
+        if panel.vault.as_ref().is_some_and(|vault| !vault.holds(&dir)) {
+            panel.vault = None;
+        }
+        panel.navigate(dir.clone(), generation, focus);
         Effect::List { side, generation, dir }
     }
 
@@ -385,7 +468,7 @@ impl AppState {
                     }) = &mut panel.results
                     {
                         *saved = request.clone();
-                        *progress = crate::SearchProgress::default();
+                        **progress = crate::SearchProgress::default();
                     }
                     Effect::Search { side, generation, request }
                 }

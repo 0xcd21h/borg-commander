@@ -4,7 +4,7 @@ use alacritty_terminal::{
     grid::Dimensions,
     index::{Column, Line},
     term::{
-        Term,
+        Term, TermMode,
         cell::{Cell, Flags},
     },
     vte::ansi::{Color, NamedColor},
@@ -13,6 +13,18 @@ use alacritty_terminal::{
 const RESET: &str = "\x1b[0m";
 const NEWLINE: &str = "\r\n";
 const BRIGHT_OFFSET: u8 = 8;
+/// The private modes a program sets with `CSI ? code h`, as the terminal tracks them.
+const PRIVATE_MODES: [(TermMode, u16); 9] = [
+    (TermMode::APP_CURSOR, 1),
+    (TermMode::ORIGIN, 6),
+    (TermMode::MOUSE_REPORT_CLICK, 1000),
+    (TermMode::MOUSE_DRAG, 1002),
+    (TermMode::MOUSE_MOTION, 1003),
+    (TermMode::FOCUS_IN_OUT, 1004),
+    (TermMode::UTF8_MOUSE, 1005),
+    (TermMode::SGR_MOUSE, 1006),
+    (TermMode::BRACKETED_PASTE, 2004),
+];
 const FLAG_CODES: [(Flags, u8); 7] = [
     (Flags::BOLD, 1),
     (Flags::DIM, 2),
@@ -93,6 +105,44 @@ pub fn export<T>(term: &Term<T>, max_lines: usize) -> Vec<u8> {
     out.into_bytes()
 }
 
+/// The scrollback above the screen, its last `max_lines` lines, pushed above a blank screen of
+/// the same height.
+pub fn history<T>(term: &Term<T>, max_lines: usize) -> Vec<u8> {
+    let grid = term.grid();
+    let history = i32::try_from(grid.history_size()).unwrap_or(i32::MAX);
+    let columns = grid.columns();
+    let kept = history.min(i32::try_from(max_lines).unwrap_or(i32::MAX));
+    if kept == 0 {
+        return Vec::new();
+    }
+    let lines: Vec<String> = (-kept..0)
+        .map(|line| {
+            let row = &grid[Line(line)];
+            let cells: Vec<&Cell> = (0..columns).map(|col| &row[Column(col)]).collect();
+            let used = cells.iter().rposition(|cell| !blank(cell)).map_or(0, |i| i + 1);
+            render(&cells[..used])
+        })
+        .collect();
+    (lines.join(NEWLINE) + &NEWLINE.repeat(grid.screen_lines())).into_bytes()
+}
+
+/// The modes a program set that change what the terminal sends it or where it draws.
+pub fn modes(mode: TermMode) -> Vec<u8> {
+    let mut out = String::new();
+    if mode.contains(TermMode::ALT_SCREEN) {
+        out.push_str("\x1b[?1049h");
+    }
+    for (flag, code) in PRIVATE_MODES {
+        if mode.contains(flag) {
+            let _ = write!(out, "\x1b[?{code}h");
+        }
+    }
+    if mode.contains(TermMode::APP_KEYPAD) {
+        out.push_str("\x1b=");
+    }
+    out.into_bytes()
+}
+
 /// The visible grid at absolute coordinates, without scrollback or replaying animation.
 /// Restore the live pen and cursor so subsequent incremental PTY output still applies.
 pub fn snapshot<T>(term: &Term<T>) -> Vec<u8> {
@@ -147,6 +197,35 @@ fn render(cells: &[&Cell]) -> String {
 #[cfg(test)]
 mod tests {
     use crate::{Emulator, GridSize};
+
+    #[test]
+    fn a_carried_screen_keeps_its_scrollback_cursor_and_modes() {
+        let size = GridSize { cols: 40, rows: 5 };
+        let mut host = Emulator::new(size, 2000);
+        for line in 0..12 {
+            host.feed(format!("line {line}\r\n").as_bytes());
+        }
+        host.feed(b"\x1b[?1h\x1b[?2004h\x1b[?1006h\x1b[1000h\x1b[3;7H\x1b[32mprompt");
+        let mut next = Emulator::new(size, 2000);
+        next.feed(&host.carry_ansi(2000));
+        assert_eq!(next.export_ansi(2000), host.export_ansi(2000));
+        assert_eq!(next.screen().cursor(), host.screen().cursor());
+        assert_eq!(next.mode(), host.mode());
+        host.feed(b" typed");
+        next.feed(b" typed");
+        assert_eq!(next.export_ansi(2000), host.export_ansi(2000));
+    }
+
+    #[test]
+    fn a_program_on_the_alternate_screen_stays_there_when_carried() {
+        let size = GridSize { cols: 40, rows: 5 };
+        let mut host = Emulator::new(size, 2000);
+        host.feed(b"shell\r\n\x1b[?1049h\x1b[2;2Hfull screen");
+        let mut next = Emulator::new(size, 2000);
+        next.feed(&host.carry_ansi(2000));
+        assert_eq!(next.snapshot_ansi(), host.snapshot_ansi());
+        assert_eq!(next.mode(), host.mode());
+    }
 
     #[test]
     fn current_screen_snapshot_preserves_tall_grid_cursor_and_next_delta() {

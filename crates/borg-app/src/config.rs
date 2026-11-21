@@ -1,11 +1,15 @@
-use std::{env, fs, io, path::PathBuf, time::Duration};
+use std::{
+    env, fs, io,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 use anyhow::{Context, Result};
 use borg_core::{AfterCommand, ICON_SPACING, Preferences};
 use borg_gfx::Preference;
 use serde::{Deserialize, Serialize};
 
-use crate::store::write_atomically;
+use crate::store::write_privately;
 
 const ENV_CONFIG_DIR: &str = "BORG_CONFIG_DIR";
 const ENV_XDG_CONFIG: &str = "XDG_CONFIG_HOME";
@@ -13,7 +17,12 @@ const ENV_HOME: &str = "HOME";
 const DOT_CONFIG: &str = ".config";
 const APP_DIR: &str = "borg-commander";
 const CONFIG_FILE: &str = "config.toml";
+const DEFAULT_VAULT_IDLE_MINUTES: u64 = 15;
+const SECONDS_PER_MINUTE: u64 = 60;
+/// A configuration Borg could not read, kept under this name when a new one is saved.
+const CONFIG_ASIDE: &str = "config-unreadable.toml";
 const THEMES_DIR: &str = "themes";
+const RULES_DIR: &str = "rules";
 const HOME_PREFIX: &str = "~/";
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -43,33 +52,186 @@ pub struct Config {
     pub language: Option<String>,
     pub status_line: Option<bool>,
     pub menu_bar: Option<bool>,
-    #[serde(skip_serializing)]
-    pub animations: Option<bool>,
     pub show_hidden: Option<bool>,
     pub return_to_panels: Option<bool>,
     pub restore_terminal: Option<bool>,
-    #[serde(skip_serializing)]
-    pub startup_animation: Option<bool>,
     pub screensaver: Option<bool>,
     pub screensaver_after: Option<u64>,
-    #[serde(skip_serializing)]
-    pub delight: Option<bool>,
-    #[serde(skip_serializing)]
-    pub icons: Option<bool>,
+    pub vault_idle_minutes: Option<u64>,
+    /// Toasts that say when a job starts, ends or waits for an answer.
+    pub job_notifications: Option<bool>,
     pub icon_spacing: Option<u8>,
-    #[serde(skip_serializing)]
-    pub nerd_font: Option<bool>,
     pub icon_style: Option<IconStyle>,
-    #[serde(rename = "pixel-chrome", skip_serializing)]
-    pub _legacy_pixel_chrome: Option<bool>,
     pub unlocked: Option<Vec<String>>,
     pub graphics: Option<String>,
     pub update_check: Option<bool>,
+    /// Start the background service when Borg opens and none runs.
+    pub start_service: Option<bool>,
     /// The borg cloud relay, as `wss://host`.
     pub relay: Option<String>,
     pub search: Option<Search>,
     pub index: Option<Index>,
     pub folders: Option<Folders>,
+    pub network: Option<Network>,
+    pub watch: Option<Watch>,
+}
+
+/// `[watch]`: what the process watcher does. It watches nothing until `on` is true, which the
+/// Watch switch in Options sets.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
+pub struct Watch {
+    pub on: bool,
+    /// Whether Borg may stop a process it is sure about, once it has learned the machine.
+    pub freeze: bool,
+    /// Days Borg learns what is normal here before it freezes anything.
+    pub learning_days: u64,
+    pub alerts_per_minute: usize,
+    pub freezes_per_minute: usize,
+    /// Starts Borg leaves alone: a program, the parent that starts it, the user it runs as, or
+    /// any of those together.
+    pub allow: Vec<Allowed>,
+    /// Programs Borg never freezes, besides the ones it never freezes anyway.
+    pub keep_running: Vec<String>,
+    /// Where alerts go as they happen, besides the Alerts page.
+    pub notify: Option<Notify>,
+}
+
+/// `[watch.notify]`: the places alerts go as they happen, and the heartbeat.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
+pub struct Notify {
+    /// How messages name this machine; its host name otherwise.
+    pub name: Option<String>,
+    /// The least level an alert needs to be sent: `alert`, `warning` or `notice`.
+    pub level: Option<NotifyLevel>,
+    pub telegram: Option<Telegram>,
+    pub ntfy: Option<Ntfy>,
+    pub webhook: Option<Webhook>,
+    pub heartbeat: Option<Heartbeat>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum NotifyLevel {
+    Alert,
+    Warning,
+    Notice,
+}
+
+/// A Telegram bot's token and the chat it writes to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+pub struct Telegram {
+    pub token: String,
+    pub chat: String,
+}
+
+/// An ntfy topic's whole address, and the access token where the topic needs one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+pub struct Ntfy {
+    #[serde(deserialize_with = "ntfy_address")]
+    pub url: String,
+    pub token: Option<String>,
+}
+
+/// An address that takes every message as JSON, signed with `secret` when one is given.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+pub struct Webhook {
+    #[serde(deserialize_with = "notify_address")]
+    pub url: String,
+    pub secret: Option<String>,
+}
+
+/// An address Borg calls every few minutes while the watcher runs.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+pub struct Heartbeat {
+    #[serde(deserialize_with = "notify_address")]
+    pub url: String,
+    pub minutes: Option<u64>,
+}
+
+/// An address alerts may go to: HTTPS, or plain HTTP to this machine itself.
+fn notify_address<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+    let url = String::deserialize(deserializer)?;
+    if crate::watch::notify::safe_address(&url) {
+        Ok(url)
+    } else {
+        Err(serde::de::Error::custom(crate::watch::notify::UNSAFE_ADDRESS))
+    }
+}
+
+/// An ntfy topic's address, which names the topic at its end.
+fn ntfy_address<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+    let url = notify_address(deserializer)?;
+    if crate::watch::notify::ntfy_parts(&url).is_some() {
+        Ok(url)
+    } else {
+        Err(serde::de::Error::custom(crate::watch::notify::NO_TOPIC))
+    }
+}
+
+impl Notify {
+    /// The sender's own settings. A heartbeat comes at least once a minute.
+    fn settings(self) -> crate::watch::notify::Settings {
+        use crate::watch::notify;
+        let level = match self.level {
+            Some(NotifyLevel::Alert) => borg_rules::Level::Alert,
+            Some(NotifyLevel::Notice) => borg_rules::Level::Notice,
+            Some(NotifyLevel::Warning) | None => borg_rules::Level::Warning,
+        };
+        notify::Settings {
+            name: self.name.filter(|name| !name.trim().is_empty()),
+            level,
+            telegram: self.telegram.map(|telegram| notify::Telegram { token: telegram.token, chat: telegram.chat }),
+            ntfy: self.ntfy.map(|ntfy| notify::Ntfy { url: ntfy.url, token: ntfy.token }),
+            webhook: self.webhook.map(|webhook| notify::Webhook { url: webhook.url, secret: webhook.secret }),
+            heartbeat: self.heartbeat.map(|heartbeat| notify::Heartbeat {
+                url: heartbeat.url,
+                every: Duration::from_secs(heartbeat.minutes.unwrap_or(notify::HEARTBEAT_MINUTES).max(1) * 60),
+            }),
+        }
+    }
+}
+
+impl Default for Watch {
+    fn default() -> Self {
+        let limits = borg_core::Limits::default();
+        Self {
+            on: borg_core::Preferences::DEFAULT.process_watch,
+            freeze: borg_core::Preferences::DEFAULT.process_freeze,
+            learning_days: borg_core::LEARNING_DAYS,
+            alerts_per_minute: limits.alerts_per_minute,
+            freezes_per_minute: limits.freezes_per_minute,
+            allow: Vec::new(),
+            keep_running: Vec::new(),
+            notify: None,
+        }
+    }
+}
+
+/// One start the watcher leaves alone. Every field that is given must match.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
+pub struct Allowed {
+    pub program: Option<String>,
+    pub parent: Option<String>,
+    pub user: Option<String>,
+}
+
+/// `[network]`: the development CA that signs the certificates of Borg's capture proxy, and
+/// the space captures leave free on the disk.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
+pub struct Network {
+    /// A folder with a CA certificate and its key, such as mkcert's.
+    pub proxy_ca: Option<String>,
+    /// The MiB a capture leaves free on its folder's disk; without it a capture runs until the
+    /// disk is full.
+    pub keep_free_mib: Option<u64>,
 }
 
 /// `[folders]`: the folder hotlist, and whether Borg remembers the folders the panels visit.
@@ -100,7 +262,8 @@ impl Default for Index {
     }
 }
 
-/// `[search]`: what recursive search leaves out, and whether it remembers searches.
+/// `[search]`: what recursive search leaves out, whether it remembers searches, and whether
+/// it also finds names with typos.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 pub struct Search {
@@ -108,6 +271,7 @@ pub struct Search {
     pub artifacts: bool,
     pub ignore_files: bool,
     pub history: bool,
+    pub typos: bool,
 }
 
 impl Default for Search {
@@ -118,6 +282,7 @@ impl Default for Search {
             artifacts: defaults.artifacts,
             ignore_files: defaults.ignore_files,
             history: defaults.history,
+            typos: defaults.typos,
         }
     }
 }
@@ -173,6 +338,8 @@ impl Config {
             language: self.language.as_deref().and_then(borg_i18n::Locale::parse).unwrap_or(base.language),
             git_plugin: self.plugins.as_ref().map_or(base.git_plugin, |plugins| plugins.git),
             system_plugin: self.plugins.as_ref().map_or(base.system_plugin, |plugins| plugins.system),
+            process_watch: self.watch.as_ref().map_or(base.process_watch, |watch| watch.on),
+            process_freeze: self.watch.as_ref().map_or(base.process_freeze, |watch| watch.freeze),
             docker_plugin: self.plugins.as_ref().map_or(base.docker_plugin, |plugins| plugins.docker),
             docker_console: self.plugins.as_ref().map_or(base.docker_console, |plugins| plugins.docker_console),
             agent_log: self.plugins.as_ref().map_or(base.agent_log, |plugins| plugins.agent_log),
@@ -184,15 +351,12 @@ impl Config {
             menu_bar: self.menu_bar.unwrap_or(base.menu_bar),
             restore_terminal: self.restore_terminal.unwrap_or(base.restore_terminal),
             screensaver: self.screensaver.unwrap_or(base.screensaver),
-            nerd_font: self.effective_icon_style().nerd_font(terminal_draws_icons),
+            job_notifications: self.job_notifications.unwrap_or(base.job_notifications),
+            nerd_font: self.icon_style.unwrap_or_default().nerd_font(terminal_draws_icons),
             icon_spacing: self
                 .icon_spacing
                 .map_or(base.icon_spacing, |gap| gap.clamp(*ICON_SPACING.start(), *ICON_SPACING.end())),
         }
-    }
-
-    fn effective_icon_style(&self) -> IconStyle {
-        self.icon_style.unwrap_or(if self.nerd_font == Some(true) { IconStyle::Nerd } else { IconStyle::Auto })
     }
 
     pub fn search(&self) -> borg_core::SearchSettings {
@@ -202,6 +366,7 @@ impl Config {
             artifacts: search.artifacts,
             ignore_files: search.ignore_files,
             history: search.history,
+            typos: search.typos,
         }
     }
 
@@ -213,6 +378,7 @@ impl Config {
             artifacts: search.artifacts,
             ignore_files: search.ignore_files,
             history: search.history,
+            typos: search.typos,
         };
         self.search = (self.search.is_some() || search != Search::default()).then_some(search);
         self
@@ -226,6 +392,43 @@ impl Config {
     /// The folder hotlist, with `~/` read as the home folder.
     pub fn hotlist(&self) -> Vec<PathBuf> {
         expand_home(&self.folders.clone().unwrap_or_default().hotlist)
+    }
+
+    /// Who signs the certificates of Borg's capture proxy: the CA in `proxy-ca`, with `~/` read
+    /// as the home folder, or a temporary one.
+    pub fn proxy_authority(&self) -> borg_core::Authority {
+        let folder = self.network.as_ref().and_then(|network| network.proxy_ca.clone());
+        expand_home(folder.as_slice()).pop().map_or(borg_core::Authority::Temporary, borg_core::Authority::Folder)
+    }
+
+    /// What the process watcher does, as the watcher's own settings.
+    pub fn watch(&self) -> crate::watch::Settings {
+        let watch = self.watch.clone().unwrap_or_default();
+        crate::watch::Settings {
+            on: watch.on,
+            freeze: watch.freeze,
+            learning: borg_core::learning_period(watch.learning_days),
+            limits: borg_core::Limits {
+                alerts_per_minute: watch.alerts_per_minute,
+                freezes_per_minute: watch.freezes_per_minute,
+            },
+            allow: watch
+                .allow
+                .into_iter()
+                .map(|allowed| borg_core::Allowance {
+                    program: allowed.program,
+                    parent: allowed.parent,
+                    user: allowed.user,
+                })
+                .collect(),
+            keep_running: watch.keep_running,
+            notify: watch.notify.map(Notify::settings).unwrap_or_default(),
+        }
+    }
+
+    /// The MiB captures leave free on their folder's disk, from `keep-free-mib`.
+    pub fn capture_keep_free_mib(&self) -> Option<u64> {
+        self.network.as_ref().and_then(|network| network.keep_free_mib)
     }
 
     pub fn folder_history(&self) -> bool {
@@ -248,12 +451,21 @@ impl Config {
         self.screensaver_after.map(Duration::from_secs)
     }
 
+    pub fn vault_idle(&self) -> Option<Duration> {
+        let minutes = self.vault_idle_minutes.unwrap_or(DEFAULT_VAULT_IDLE_MINUTES);
+        (minutes > 0).then(|| Duration::from_secs(minutes * SECONDS_PER_MINUTE))
+    }
+
     pub fn graphics(&self) -> Result<Preference, String> {
         self.graphics.as_deref().map_or(Ok(Preference::default()), str::parse)
     }
 
     pub fn update_check(&self) -> bool {
         self.update_check.unwrap_or(true)
+    }
+
+    pub fn start_service(&self) -> bool {
+        self.start_service.unwrap_or(true)
     }
 
     pub fn unlocked(&self) -> &[String] {
@@ -275,26 +487,29 @@ impl Config {
             language: Some(prefs.language.code().to_owned()),
             status_line: Some(prefs.status_line),
             menu_bar: Some(prefs.menu_bar),
-            animations: None,
             show_hidden: Some(prefs.show_hidden),
             return_to_panels: Some(prefs.after_command == AfterCommand::ReturnToPanels),
             restore_terminal: Some(prefs.restore_terminal),
-            startup_animation: None,
             screensaver: Some(prefs.screensaver),
             screensaver_after: self.screensaver_after,
-            delight: None,
-            icons: None,
+            vault_idle_minutes: self.vault_idle_minutes,
+            job_notifications: Some(prefs.job_notifications),
             icon_spacing: self.icon_spacing,
-            nerd_font: None,
-            icon_style: Some(self.effective_icon_style()),
-            _legacy_pixel_chrome: None,
+            icon_style: Some(self.icon_style.unwrap_or_default()),
             unlocked: (!unlocked.is_empty()).then(|| unlocked.to_vec()),
             graphics: self.graphics.clone(),
             update_check: self.update_check,
+            start_service: self.start_service,
             relay: self.relay.clone(),
             search: self.search.clone(),
             index: self.index.clone(),
             folders: self.folders.clone(),
+            network: self.network.clone(),
+            watch: Some(Watch {
+                on: prefs.process_watch,
+                freeze: prefs.process_freeze,
+                ..self.watch.clone().unwrap_or_default()
+            }),
         }
     }
 }
@@ -336,28 +551,75 @@ impl ConfigDir {
         explicit.or_else(xdg).or_else(home).map(Self)
     }
 
+    pub fn path(&self) -> &Path {
+        &self.0
+    }
+
     pub fn themes(&self) -> PathBuf {
         self.0.join(THEMES_DIR)
     }
 
+    /// The user's own rule files, which scans add to Borg's.
+    pub fn rules(&self) -> PathBuf {
+        self.0.join(RULES_DIR)
+    }
+
+    /// The settings, without what Borg has to say about the file.
     pub fn load(&self) -> Result<Config> {
+        self.read().map(|loaded| loaded.settings)
+    }
+
+    /// The settings and Borg's remarks on the file: settings it does not have, values it cannot
+    /// use and settings it has retired. Only a file that is not TOML at all fails.
+    pub fn read(&self) -> Result<Loaded<Config>> {
+        let path = self.file();
+        match self.text()? {
+            Some(text) => document::load(&text).with_context(|| format!("reading {}", path.display())),
+            None => Ok(Loaded { settings: Config::default(), remarks: Vec::new() }),
+        }
+    }
+
+    fn text(&self) -> Result<Option<String>> {
         let path = self.file();
         match fs::read_to_string(&path) {
-            Ok(text) => toml::from_str(&text).with_context(|| format!("parsing {}", path.display())),
-            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(Config::default()),
+            Ok(text) => Ok(Some(text)),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
             Err(e) => Err(e).with_context(|| format!("reading {}", path.display())),
         }
     }
 
+    /// Saves the settings into the file as the user keeps it: what changed is written, and the
+    /// rest of the file, with its comments, stays. A file that is not TOML at all started Borg
+    /// on its defaults, so it is kept aside and a new one is written.
     pub fn save(&self, config: &Config) -> Result<()> {
         fs::create_dir_all(&self.0).with_context(|| format!("creating {}", self.0.display()))?;
-        write_atomically(&self.file(), toml::to_string(config)?.as_bytes())
+        let text = self.text()?.unwrap_or_default();
+        let saved = match document::save(&text, config) {
+            Ok(saved) => saved,
+            Err(_) => {
+                self.keep_aside()?;
+                document::save("", config)?
+            }
+        };
+        write_privately(&self.file(), saved.as_bytes())
+    }
+
+    fn keep_aside(&self) -> Result<()> {
+        let taken = |name: &Path| fs::symlink_metadata(name).is_ok();
+        let aside = self.0.join(CONFIG_ASIDE);
+        let aside = if taken(&aside) { borg_jobs::unique_by(&aside, taken) } else { aside };
+        let path = self.file();
+        fs::rename(&path, &aside).with_context(|| format!("keeping {} as {}", path.display(), aside.display()))
     }
 
     fn file(&self) -> PathBuf {
         self.0.join(CONFIG_FILE)
     }
 }
+
+mod document;
+
+pub use document::{Loaded, Remark};
 
 #[cfg(test)]
 mod tests;

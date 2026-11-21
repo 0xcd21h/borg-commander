@@ -35,6 +35,10 @@ pub struct Preferences {
     pub icon_spacing: u8,
     pub git_plugin: bool,
     pub system_plugin: bool,
+    /// The process watcher runs in the background service and may freeze what it finds.
+    pub process_watch: bool,
+    /// The watcher freezes what its rules are sure about, once it has learned the machine.
+    pub process_freeze: bool,
     pub docker_plugin: bool,
     /// The command line runs inside a container while its filesystem panel is active.
     pub docker_console: bool,
@@ -44,13 +48,15 @@ pub struct Preferences {
     pub agent_cloud: bool,
     /// Reads asked from another computer wait for the user's approval too.
     pub agent_ask_reads: bool,
+    /// Toasts say when a job starts, ends or waits for an answer.
+    pub job_notifications: bool,
 }
 
 impl Preferences {
     pub const DEFAULT: Self = Self {
         language: borg_i18n::Locale::English,
         after_command: AfterCommand::ReturnToPanels,
-        show_hidden: false,
+        show_hidden: true,
         status_line: true,
         menu_bar: false,
         restore_terminal: false,
@@ -59,11 +65,14 @@ impl Preferences {
         icon_spacing: *ICON_SPACING.start(),
         git_plugin: true,
         system_plugin: true,
+        process_watch: false,
+        process_freeze: false,
         docker_plugin: true,
         docker_console: true,
         agent_log: true,
         agent_cloud: true,
         agent_ask_reads: false,
+        job_notifications: true,
     };
 }
 
@@ -84,11 +93,13 @@ pub struct SearchSettings {
     pub ignore_files: bool,
     /// Searches are remembered for Ctrl-P and Ctrl-N.
     pub history: bool,
+    /// Plain words also find names with typos, shuffled digits or letters left out.
+    pub typos: bool,
 }
 
 impl Default for SearchSettings {
     fn default() -> Self {
-        Self { exclude: Vec::new(), artifacts: true, ignore_files: true, history: true }
+        Self { exclude: Vec::new(), artifacts: true, ignore_files: true, history: true, typos: true }
     }
 }
 
@@ -105,6 +116,8 @@ pub struct Settings {
     pub screensaver_after: Duration,
     pub listing_batch: usize,
     pub scrollback: usize,
+    /// Where the configuration sends the watcher's alerts.
+    pub alert_delivery: crate::AlertDelivery,
 }
 
 impl Settings {
@@ -125,6 +138,7 @@ impl Default for Settings {
             screensaver_after: DEFAULT_SCREENSAVER_AFTER,
             listing_batch: 2048,
             scrollback: 10_000,
+            alert_delivery: crate::AlertDelivery::default(),
         }
     }
 }

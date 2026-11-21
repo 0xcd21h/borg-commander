@@ -6,6 +6,11 @@ version.workspace      = true
 license.workspace      = true
 rust-version.workspace = true
 
+[dependencies]
+borg-drives = { workspace = true }
+borg-i18n = { workspace = true }
+rustix = { workspace = true }
+
 [dev-dependencies]
 tempfile = { workspace = true }
 

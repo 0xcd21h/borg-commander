@@ -1,7 +1,7 @@
 //! What the monitor reads of each process and of the system.
 
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::{path::PathBuf, time::Duration};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ProcessKey {
@@ -54,4 +54,39 @@ pub struct SystemSample {
     /// Borg's own process, which the monitor sends no signals to.
     #[serde(default)]
     pub own: Option<u32>,
+    /// What the disks read and wrote, from the second sample on.
+    #[serde(default)]
+    pub disk: Option<DiskActivity>,
+    #[serde(default)]
+    pub load: Option<LoadAverage>,
+    #[serde(default)]
+    pub uptime: Option<Duration>,
+    /// The system's threads, where it counts them.
+    #[serde(default)]
+    pub threads: Option<Threads>,
+}
+
+/// Bytes the disks read and wrote per second, and how busy the busiest disk was, in
+/// hundredths of a percent, where the system reports it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiskActivity {
+    pub read: u64,
+    pub written: u64,
+    pub busy: Option<u32>,
+}
+
+/// The number of processes waiting to run, averaged over one, five and fifteen minutes, in
+/// hundredths.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LoadAverage {
+    pub one: u32,
+    pub five: u32,
+    pub fifteen: u32,
+}
+
+/// All of the system's threads, and those running or ready to run.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Threads {
+    pub total: u32,
+    pub running: u32,
 }

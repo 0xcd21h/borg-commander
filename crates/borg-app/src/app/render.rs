@@ -16,11 +16,14 @@ use crossterm::{
     },
 };
 use jiff::Zoned;
-use ratatui::DefaultTerminal;
+use ratatui::{DefaultTerminal, buffer::Buffer};
 use std::{io::Write as _, path::Path, time::Instant};
 
 impl App {
     pub(super) fn render(&mut self, terminal: &mut DefaultTerminal, now: Instant) -> Result<()> {
+        if self.state.approval.is_some() {
+            self.plain = self.plain.take().and_then(Plain::interrupted);
+        }
         match self.plain.take() {
             Some(Plain::Waiting(text)) => {
                 show_plain(terminal.backend_mut(), &text)?;
@@ -67,18 +70,30 @@ impl App {
         let mut placements = Vec::new();
         let mut resized = Ok(());
         let mut mirror_cursor = None;
+        let mut fitted = None;
         let frame = terminal.draw(|frame| {
-            let area = frame.area();
+            let area = self.native_mirror.fit(frame.area());
             if (self.state.cols, self.state.rows) != (area.width, area.height) {
                 resized = self.resize(area.width, area.height).map(|_| ());
                 if resized.is_err() {
                     return;
                 }
             }
-            (placements, mirror_cursor) = borg_ui::draw_with_cursor(frame, &self.scene(clock, now));
+            let scene = self.scene(clock, now);
+            if area == frame.area() {
+                (placements, mirror_cursor) = borg_ui::draw_with_cursor(frame, &scene);
+                return;
+            }
+            let mut screen = Buffer::empty(area);
+            (placements, mirror_cursor) = borg_ui::draw_into(&mut screen, &scene);
+            frame.buffer_mut().merge(&screen);
+            if let Some(position) = mirror_cursor {
+                frame.set_cursor_position(position);
+            }
+            fitted = Some(screen);
         })?;
         resized?;
-        self.native_mirror.publish(frame.buffer, mirror_cursor);
+        self.native_mirror.publish(fitted.as_ref().unwrap_or(frame.buffer), mirror_cursor);
         Ok(self.graphics.frame(&placements, frame.buffer))
     }
 
@@ -137,15 +152,6 @@ impl App {
     }
 }
 
-/// Where an ask happens, with the computer that asked when it came through borg cloud.
-pub(super) fn from_origin(place: String, origin: Option<&str>) -> String {
-    match origin {
-        None => place,
-        Some(origin) if place.is_empty() => tr!(agent_asked_from).replace("{origin}", origin),
-        Some(origin) => tr!(agent_from).replace("{place}", &place).replace("{origin}", origin),
-    }
-}
-
 /// A drawn frame's text row by row, a wide character once, trailing spaces left out.
 pub(super) fn frame_text(buffer: &ratatui::buffer::Buffer) -> Vec<String> {
     let area = buffer.area;
@@ -195,6 +201,15 @@ pub(super) enum Plain {
     Waiting(String),
     Shown,
     Ending,
+}
+
+impl Plain {
+    fn interrupted(self) -> Option<Self> {
+        match self {
+            Self::Waiting(_) => None,
+            Self::Shown | Self::Ending => Some(Self::Ending),
+        }
+    }
 }
 
 /// Leaves borg's screen and lets the mouse select again, then prints `text` as one line, which

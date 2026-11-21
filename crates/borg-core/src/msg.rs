@@ -28,6 +28,12 @@ pub enum Msg {
         total: u64,
         hits: usize,
     },
+    /// What a run of the entropy scan found since its last message; `done` with its last.
+    EntropyScan {
+        id: u64,
+        found: Result<crate::EntropyReport, String>,
+        done: bool,
+    },
     SizeChildren {
         side: Side,
         generation: u64,
@@ -46,13 +52,78 @@ pub enum Msg {
         id: u64,
         result: Result<crate::NetworkSample, String>,
     },
+    StartupItems {
+        id: u64,
+        result: Result<crate::StartupReport, String>,
+    },
+    Alerts {
+        id: u64,
+        result: Result<crate::AlertsReply, String>,
+    },
+    /// The paired hosts the hosts screen shows, listed before each round of asking them.
+    HostsListed(Result<Vec<crate::PairedHost>, String>),
+    /// What a paired host answered the hosts screen.
+    HostAnswered {
+        identity: String,
+        answer: crate::HostHeard,
+    },
+    /// The alert log changed under Borg: the watcher wrote one, or another Borg read them.
+    AlertsChanged(Box<crate::AlertLog>),
     /// Names for addresses the network screen asked about; `None` where there is none.
     HostNames(Vec<(std::net::IpAddr, Option<String>)>),
+    /// One address a subnet scan probed, at a time in seconds since the epoch.
+    Probed {
+        id: u64,
+        probe: crate::Probe,
+        at: u64,
+    },
+    /// The report asked for at `path` was written, at the path the result names with the home
+    /// folder spelled out, or why it was not.
+    ReportSaved {
+        path: PathBuf,
+        result: Result<PathBuf, crate::ReportError>,
+    },
+    /// The name of a host to scan for open ports was looked up.
+    ScanTargetResolved {
+        name: String,
+        result: Result<std::net::IpAddr, String>,
+    },
+    /// How far a port scan got, or how it ended.
+    PortScan {
+        id: u64,
+        event: crate::PortScanEvent,
+    },
+    /// What listening heard, or how it ended.
+    Listen {
+        id: u64,
+        event: crate::ListenEvent,
+    },
+    /// The subnet scan sent its last probe, or stopped.
+    ScanFinished {
+        id: u64,
+        result: Result<(), String>,
+    },
     /// How far the running capture got.
     CaptureProgress {
         id: u64,
-        bytes: u64,
-        packets: usize,
+        progress: crate::CaptureProgress,
+    },
+    /// The running capture reached a limit, and is being saved.
+    CaptureLimited {
+        id: u64,
+        limit: crate::CaptureLimit,
+    },
+    /// The running capture keeps the TLS key log at `path`, empty for now, and Borg's proxy
+    /// listens as `proxy` says when the capture sends HTTPS through it.
+    CaptureKeys {
+        id: u64,
+        path: PathBuf,
+        proxy: Option<crate::ProxyEndpoint>,
+    },
+    /// Borg's proxy opened a connection for a program during the running capture.
+    CaptureProxied {
+        id: u64,
+        proxied: crate::Proxied,
     },
     /// A capture ended: the file it was saved to and what it caught, or why it has none.
     CaptureDone {
@@ -75,6 +146,12 @@ pub enum Msg {
         container: String,
     },
     Agent(crate::AgentEvent),
+    /// What the borg of a host session a panel here shows said about the asks waiting there.
+    HostAsks {
+        machine: String,
+        session: String,
+        event: crate::HostEvent,
+    },
     RemoteConsoleOutput {
         echoed: bool,
         machine: String,
@@ -99,6 +176,10 @@ pub enum Msg {
         machine: String,
         result: Result<(), String>,
     },
+    RemoteHostUpdated {
+        machine: String,
+        result: Result<crate::HostUpdate, String>,
+    },
     RemoteCatalog {
         choices: Vec<crate::RemoteChoice>,
         complete: bool,
@@ -121,6 +202,13 @@ pub enum Msg {
     },
     Key(KeyEvent),
     Pointer(crate::Pointer),
+    /// A right-click at a cell: `pick` puts the cursor on the row under it, and the context
+    /// menu opens there.
+    ContextMenu {
+        pick: crate::Pointer,
+        column: u16,
+        row: u16,
+    },
     Paste(String),
     Resize {
         cols: u16,
@@ -137,10 +225,51 @@ pub enum Msg {
         generation: u64,
         found: Vec<(Entry, crate::LineMatch)>,
     },
+    /// Files a rules search found, each with the rules it matched, worst first.
+    RuleHits {
+        side: Side,
+        generation: u64,
+        found: Vec<(Entry, Vec<borg_rules::RuleMatch>)>,
+    },
+    /// Programs a search for packed ones found, each with the entropy of its code.
+    PackedHits {
+        side: Side,
+        generation: u64,
+        found: Vec<(Entry, borg_view::entropy::Tally)>,
+    },
     Listed {
         side: Side,
         generation: u64,
         error: Option<String>,
+    },
+    /// How much of an archive its first listing has read, of `total` bytes.
+    ArchiveReading {
+        side: Side,
+        generation: u64,
+        read: u64,
+        total: u64,
+    },
+    /// An archive opened for listing; `left_out` entries have names or kinds Borg does not unpack.
+    ArchiveOpened {
+        side: Side,
+        generation: u64,
+        format: borg_archive::Format,
+        left_out: usize,
+    },
+    /// An archive that only an installed program reads, and none is; `installer` installs one.
+    ArchiveNeedsTool {
+        side: Side,
+        generation: u64,
+        installer: Option<crate::Installer>,
+    },
+    ComputerKeyLocked {
+        wrong: bool,
+    },
+    /// An archive that needs a password, or a better one than it was given.
+    ArchiveLocked {
+        side: Side,
+        generation: u64,
+        wrong: bool,
     },
     Observe(ShellView),
     ShellOutput(ShellView),
@@ -159,17 +288,73 @@ pub enum Msg {
     },
     /// A file read for the editor in a slot, or why it was not.
     EditorOpened(crate::EditorSlot, Result<crate::EditorFile, crate::OpenError>),
+    /// How many answers keep Borg from asking before long jobs, after a job may have kept one.
+    KeptAnswers(usize),
+    /// The editor in `slot` opened a file unpacked from an archive, which saves write back.
+    ArchiveEditorOpened {
+        slot: crate::EditorSlot,
+        packed: crate::PackedFile,
+        result: Result<crate::EditorFile, crate::OpenError>,
+    },
+    VaultFound {
+        side: crate::Side,
+        generation: u64,
+        cipher: PathBuf,
+        open: Option<PathBuf>,
+    },
+    VaultShown {
+        side: crate::Side,
+        generation: u64,
+        vault: crate::VaultMount,
+    },
+    VaultOpened {
+        side: crate::Side,
+        vault: crate::VaultMount,
+    },
+    VaultCreated {
+        side: crate::Side,
+        cipher: PathBuf,
+        key: crate::Password,
+        opened: Result<crate::VaultMount, crate::VaultError>,
+    },
+    VaultFailed {
+        side: crate::Side,
+        cipher: PathBuf,
+        error: crate::VaultError,
+    },
+    VaultClosed {
+        root: PathBuf,
+        error: Option<crate::VaultError>,
+    },
+    Sealed(crate::SealedFile),
+    UnsealFailed {
+        file: crate::SealedFile,
+        error: crate::UnsealError,
+    },
+    SealedEditorOpened {
+        slot: crate::EditorSlot,
+        file: crate::EditorFile,
+        seal: borg_crypt::sealed::Seal,
+    },
     /// The save of the editor in a slot landed, with the file's new stamp, or did not.
     EditorSaved(crate::EditorSlot, Result<crate::FileStamp, crate::SaveError>),
-    /// What the viewer's search `id` found, or why it could not look.
-    FoundInViewer {
+    /// What the search `id` through the viewer's or the quick view's text found, or why it
+    /// could not look.
+    FoundInPager {
         id: u64,
-        found: Result<crate::FoundInViewer, String>,
+        slot: crate::PagerSlot,
+        found: Result<crate::FoundInPager, String>,
     },
-    /// How far the viewer's search `id` got through a large file.
-    SearchingViewer {
+    /// How far the search `id` got through a large file.
+    SearchingPager {
         id: u64,
+        slot: crate::PagerSlot,
         percent: u8,
+    },
+    /// The entropy of the viewer's source that `id` asked for, or why it could not be read.
+    ViewerProfiled {
+        id: u64,
+        profile: Result<borg_view::entropy::Profile, String>,
     },
     ShellExited,
     Notice(String),
@@ -195,6 +380,22 @@ pub enum Msg {
         result: Result<Option<Viewer>, String>,
     },
     Backup(crate::BackupEvent),
+    /// What Borg keeps where, for the Borg's files window.
+    Storage(crate::StorageReport),
+    /// How the background service stands, after the Remote menu asked.
+    Service(crate::ServiceCheck),
+    /// The service runs Borg `version`, which the program file holds now: the session moves
+    /// to it once nothing here would be lost.
+    Relaunch {
+        version: String,
+    },
+    /// A release newer than the running Borg, which the daily check found.
+    UpdateAvailable(crate::UpdateOffer),
+    /// What counting or checking the files of the delete dialog `id` found.
+    DeleteChecked {
+        id: u64,
+        found: crate::DeleteFound,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -202,12 +403,26 @@ pub enum Effect {
     CancelShellExit {
         token: String,
     },
+    /// Counts what deleting `sources` removes and finds the programs that have them open.
+    CheckDelete {
+        id: u64,
+        sources: Vec<PathBuf>,
+    },
     MeasureSizes {
         id: u64,
         root: PathBuf,
     },
     CancelMeasure,
     CancelMemorySearch,
+    /// Reads the memory of `processes` for the entropy scan, as administrator with `admin`.
+    EntropyScan {
+        id: u64,
+        scope: crate::EntropyScope,
+        processes: Vec<crate::ProcessKey>,
+        admin: bool,
+    },
+    /// Stops the entropy scan, which reports the processes it did not reach.
+    StopEntropyScan,
     SizeChildren {
         side: Side,
         generation: u64,
@@ -226,9 +441,60 @@ pub enum Effect {
     /// Samples the machine's sockets and interfaces for the network screen.
     Network {
         id: u64,
+        neighbors: bool,
+    },
+    /// Reads the places programs start from for the startup items screen.
+    StartupItems {
+        id: u64,
+    },
+    /// Reads the alert log, or does what the Alerts page asks of a process.
+    Alerts {
+        id: u64,
+        request: crate::AlertsRequest,
     },
     /// Looks up the names of addresses, in the background.
     ResolveHosts(Vec<std::net::IpAddr>),
+    /// Probes each address with ping and connections to the scanned ports, a few at a time,
+    /// with a `nudge` that makes the system ask each one on the link for its MAC address.
+    ScanSubnet {
+        id: u64,
+        addresses: Vec<std::net::Ipv4Addr>,
+        nudge: bool,
+    },
+    /// Pings each address, or connects where ping is not allowed, many at a time, and traces the
+    /// way to each one that answers.
+    Discover {
+        id: u64,
+        addresses: Vec<std::net::Ipv4Addr>,
+    },
+    /// Sends no more probes for the scan.
+    StopScan {
+        id: u64,
+    },
+    /// Saves the remembered neighbors.
+    SaveNeighbors,
+    /// Looks up the address of a host to scan for open ports.
+    ResolveScanTarget(String),
+    /// Runs a port scan as a job, until it ends or the job's control cancels it.
+    ScanPorts {
+        id: u64,
+        request: Box<crate::PortScanRequest>,
+    },
+    /// Saves the remembered port scans.
+    SavePortScans,
+    /// Writes a report readable by its owner alone, with a leading `~` read as the home folder.
+    /// Without `replace`, a file that is there already is left alone and reported as such.
+    SaveReport {
+        path: PathBuf,
+        text: String,
+        replace: bool,
+    },
+    /// Runs `tcpdump` to listen for neighbors as a job, until its time is up or the job's
+    /// control cancels it.
+    Listen {
+        id: u64,
+        request: crate::ListenRequest,
+    },
     /// Runs `tcpdump` for the network screen's capture.
     Capture {
         id: u64,
@@ -242,6 +508,10 @@ pub enum Effect {
     OpenCapture(PathBuf),
     /// Starts or stops streaming container stats.
     DockerWatch(bool),
+    /// Starts or stops asking every paired host for its figures, every few seconds.
+    WatchHosts(bool),
+    /// Asks every paired host again at once.
+    RefreshHosts,
     DockerShell(crate::ShellRequest),
     /// The command line and Ctrl-O console now belong to this shell.
     UseConsole(crate::Console),
@@ -252,6 +522,10 @@ pub enum Effect {
     OpenRemotes,
     CancelRemoteConnection,
     ForgetRemoteHost {
+        machine: String,
+    },
+    /// Updates a paired host to the latest Borg and waits for it to come back.
+    UpdateRemoteHost {
         machine: String,
     },
     DeleteRemoteSession {
@@ -279,6 +553,17 @@ pub enum Effect {
         id: u64,
         approved: bool,
     },
+    /// The user's answer to an ask that waits in a host session a panel here shows.
+    AnswerHost {
+        machine: String,
+        session: String,
+        answer: crate::HostAnswer,
+    },
+    /// Turns off Approve all in a host session a panel here shows.
+    StopHostApproveAll {
+        machine: String,
+        session: String,
+    },
     /// Puts text on the clipboard of the computer the user sits at, through the terminal.
     Copy(String),
     /// Shows text alone in the terminal, outside borg's screen, for the user to select and
@@ -286,10 +571,15 @@ pub enum Effect {
     ShowPlain(String),
     /// Makes a pairing link for borg cloud, for the Connect dialog.
     StartPairing,
+    UnlockComputerKey(crate::Password),
     /// Saves the relay borg cloud goes through, empty for none, and makes a pairing link there.
     SetRelay(String),
     /// Forgets every computer paired through borg cloud, and ends their sessions.
     ForgetComputers,
+    /// Adds an entry to the log of what agents did that the session keeps on disk.
+    SaveAgentNote(String),
+    /// Removes the session's saved log of what agents did.
+    ForgetAgentLog,
     ExportMemory {
         path: PathBuf,
         bytes: Vec<u8>,
@@ -338,16 +628,24 @@ pub enum Effect {
         path: PathBuf,
         at: Option<crate::FirstMatch>,
     },
-    /// Looks for `query` in the viewer's file in the background, stopping any search before.
-    FindInViewer {
+    /// Looks for `query` in the file the viewer or the quick view shows, in the background,
+    /// stopping any search before through the same one.
+    FindInPager {
         id: u64,
+        slot: crate::PagerSlot,
         query: borg_view::Query,
         from: u64,
         direction: crate::Direction,
         /// Count the matches too, which reads all of the file.
         count: bool,
     },
-    StopFindInViewer,
+    StopFindInPager(crate::PagerSlot),
+    /// Reads the entropy of the viewer's source in the background, for the strip beside its
+    /// hex rows, stopping any read before.
+    ProfileViewer {
+        id: u64,
+    },
+    StopProfileViewer,
     /// Reads a file for the built-in editor in `slot`.
     OpenEditor {
         path: PathBuf,
@@ -361,6 +659,24 @@ pub enum Effect {
         expected: crate::FileStamp,
         force: bool,
         slot: crate::EditorSlot,
+        seal: Option<borg_crypt::sealed::Seal>,
+    },
+    Unseal {
+        file: crate::SealedFile,
+        password: crate::Password,
+    },
+    OpenVault {
+        side: crate::Side,
+        cipher: PathBuf,
+        password: crate::Password,
+    },
+    CreateVault {
+        side: crate::Side,
+        cipher: PathBuf,
+        password: crate::Password,
+    },
+    CloseVault {
+        root: PathBuf,
     },
     RemoteView {
         machine: String,
@@ -380,6 +696,23 @@ pub enum Effect {
         sources: Vec<PathBuf>,
         target: PathBuf,
     },
+    /// A job that unpacks entries of an archive.
+    StartUnpack {
+        id: u64,
+        request: crate::UnpackRequest,
+    },
+    /// A job that replaces text in files.
+    StartReplace {
+        id: u64,
+        request: crate::ReplaceRequest,
+    },
+    /// A job that changes an archive.
+    StartRewrite {
+        id: u64,
+        request: crate::RewriteRequest,
+    },
+    /// Forgets the answers that keep Borg from asking before long jobs.
+    AskAgain,
     /// A copy job between a container and a host folder; `inbound` copies into the container.
     StartDockerCopy {
         id: u64,
@@ -411,5 +744,17 @@ pub enum Effect {
     },
     /// Reads or changes Time Machine exclusions (macOS).
     Backup(crate::BackupRequest),
+    /// Measures Borg's places and finds the leftovers.
+    ScanStorage,
+    /// Removes those of these leftovers that are still left over, then measures again.
+    CleanStorage(Vec<PathBuf>),
+    /// Looks at how the background service stands on this machine.
+    CheckService,
+    /// Starts the newer Borg in place of this one, handing it the shell and the session.
+    Relaunch,
+    /// Remembers that you skipped this release, so the daily check offers the next one only.
+    SkipUpdate(String),
+    /// Turns the daily look for a new release off in the config.
+    StopUpdateChecks,
     Quit,
 }

@@ -31,11 +31,17 @@ fn update_localized(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect>
     effects
 }
 
+/// Does what `key` does where it is pressed, as a menu entry standing for it needs.
+pub(crate) fn press(state: &mut AppState, key: &crossterm::event::KeyEvent, now: Instant) -> Vec<Effect> {
+    keys::on_key(state, key, now)
+}
+
 /// Hands each message to the part of the state it is for.
 fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
     match msg {
         Msg::Key(key) => keys::on_key(state, &key, now),
         Msg::Pointer(pointer) => crate::pointer::on_pointer(state, pointer, now),
+        Msg::ContextMenu { pick, column, row } => crate::context_menu::on_right_click(state, pick, (column, row), now),
         Msg::Paste(text) => keys::on_paste(state, &text),
         Msg::Resize { cols, rows } => {
             state.resize(cols, rows, now);
@@ -52,9 +58,44 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
             crate::results::found(state, side, generation, found);
             Vec::new()
         }
+        Msg::RuleHits { side, generation, found } => {
+            crate::results::found_by_rules(state, side, generation, found);
+            Vec::new()
+        }
+        Msg::PackedHits { side, generation, found } => {
+            crate::results::found_packed(state, side, generation, found);
+            Vec::new()
+        }
         Msg::Listed { side, generation, error } => listed(state, side, generation, error),
+        Msg::ArchiveReading { side, generation, read, total } => {
+            crate::archive::reading(state, side, generation, read, total);
+            Vec::new()
+        }
+        Msg::ArchiveOpened { side, generation, format, left_out } => {
+            crate::archive::opened(state, side, generation, format, left_out);
+            Vec::new()
+        }
+        Msg::ArchiveNeedsTool { side, generation, installer } => {
+            let visible = state.panel(side).generation() == generation;
+            if visible {
+                crate::install::offer(state, crate::Tool::Bsdtar, installer);
+            }
+            listed(state, side, generation, Some(tr!(archive_no_tool).into()))
+        }
+        Msg::ComputerKeyLocked { wrong } => {
+            crate::remote::computer_key_locked(state, wrong);
+            Vec::new()
+        }
+        Msg::ArchiveLocked { side, generation, wrong } => {
+            crate::archive::locked(state, side, generation, wrong);
+            Vec::new()
+        }
         message @ (Msg::Sized { .. } | Msg::SizeProgress { .. } | Msg::SizesFinished { .. }) => {
-            crate::measure::receive(state, message)
+            crate::measure::receive(state, message, now)
+        }
+        Msg::DeleteChecked { id, found } => {
+            crate::delete_check::receive(state, id, found);
+            Vec::new()
         }
         Msg::SizeChildren { side, generation, parent, result } => {
             crate::results::size_children(state, side, generation, parent, result);
@@ -64,7 +105,7 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
             crate::results::progress(state, side, generation, progress);
             Vec::new()
         }
-        Msg::Indexed { root, entries, error } => indexed(state, root, entries, error),
+        Msg::Indexed { root, entries, error } => indexed(state, root, entries, error, now),
         Msg::Peeked(peeked) => {
             crate::aside::receive(state, peeked);
             Vec::new()
@@ -74,8 +115,13 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
             Vec::new()
         }
         Msg::GitFinished { id, result } => crate::plugins::finish(state, id, result),
-        Msg::Job { id, event } => crate::jobs::on_event(state, id, event),
+        Msg::Job { id, event } => crate::jobs::on_event(state, id, event, now),
         Msg::Backup(event) => crate::backup::receive(state, event),
+        Msg::Storage(report) => crate::storage::receive(state, report),
+        Msg::Service(check) => {
+            crate::service::checked(state, check);
+            Vec::new()
+        }
 
         Msg::Observe(view) => shell::observe(state, view, false),
         Msg::ShellOutput(view) => shell::observe(state, view, true),
@@ -89,25 +135,78 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
         }
         Msg::ParkedSignal { container, signal } => shell::parked_signal(state, container.as_deref(), &signal),
         Msg::ShellExited => vec![Effect::Quit],
+        Msg::Relaunch { version } => crate::relaunch::requested(state, version),
+        Msg::UpdateAvailable(offer) => {
+            crate::update_offer::available(state, offer);
+            Vec::new()
+        }
 
         Msg::EditorOpened(slot, result) => crate::editor::opened(state, slot, result),
-        Msg::EditorSaved(slot, result) => crate::editor::saved(state, slot, result),
+        Msg::KeptAnswers(kept) => {
+            state.kept_answers = kept;
+            Vec::new()
+        }
+        Msg::ArchiveEditorOpened { slot, packed, result } => crate::archive::editor_opened(state, slot, packed, result),
+        Msg::VaultFound { side, generation, cipher, open } => {
+            crate::vault::found(state, side, generation, cipher, open)
+        }
+        Msg::VaultShown { side, generation, vault } => {
+            crate::vault::shown(state, side, generation, vault);
+            Vec::new()
+        }
+        Msg::VaultOpened { side, vault } => crate::vault::opened(state, side, vault),
+        Msg::VaultCreated { side, cipher, key, opened } => crate::vault::created(state, side, &cipher, key, opened),
+        Msg::VaultFailed { side, cipher, error } => {
+            crate::vault::failed(state, side, cipher, error);
+            Vec::new()
+        }
+        Msg::VaultClosed { root, error } => crate::vault::closed(state, &root, error),
+        Msg::Sealed(file) => {
+            crate::sealed::locked(state, file, false);
+            Vec::new()
+        }
+        Msg::UnsealFailed { file, error } => {
+            crate::sealed::failed(state, file, error);
+            Vec::new()
+        }
+        Msg::SealedEditorOpened { slot, file, seal } => {
+            let effects = crate::editor::opened(state, slot, Ok(file));
+            crate::editor::seal(state, slot, seal);
+            effects
+        }
+        Msg::EditorSaved(slot, result) => crate::editor::saved(state, slot, result, now),
         Msg::Opened(viewer) => crate::viewer::opened(state, viewer),
         Msg::OpenFailed { path, notice } => {
             crate::viewer::failed(state, path, notice);
             Vec::new()
         }
-        Msg::FoundInViewer { id, found } => {
+        Msg::FoundInPager { id, slot: crate::PagerSlot::Viewer, found } => {
             crate::viewer::found(state, id, found);
             Vec::new()
         }
-        Msg::SearchingViewer { id, percent } => {
+        Msg::FoundInPager { id, slot: crate::PagerSlot::QuickView, found } => {
+            crate::aside::found(state, id, found);
+            Vec::new()
+        }
+        Msg::SearchingPager { id, slot: crate::PagerSlot::Viewer, percent } => {
             crate::viewer::searching(state, id, percent);
+            Vec::new()
+        }
+        Msg::SearchingPager { id, slot: crate::PagerSlot::QuickView, percent } => {
+            crate::aside::searching(state, id, percent);
+            Vec::new()
+        }
+        Msg::ViewerProfiled { id, profile } => {
+            crate::viewer::profiled(state, id, profile);
             Vec::new()
         }
 
         Msg::Activity { id, result } => {
             crate::activity::receive(state, id, result, now);
+            Vec::new()
+        }
+        Msg::EntropyScan { id, found, done } => {
+            crate::activity::receive_entropy(&mut state.activity, id, found, done);
             Vec::new()
         }
         Msg::MemorySearchProgress { id, scanned, total, hits } => {
@@ -118,8 +217,37 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
         }
         Msg::Docker { id, result } => crate::docker::receive(state, id, result, now),
         Msg::Network { id, result } => crate::network::receive(state, id, result, now),
-        Msg::CaptureProgress { id, bytes, packets } => {
-            crate::network::capture_progress(state, id, bytes, packets, now);
+        Msg::Alerts { id, result } => {
+            crate::watch::receive(state, id, result);
+            Vec::new()
+        }
+        Msg::AlertsChanged(log) => {
+            crate::watch::changed(state, *log);
+            Vec::new()
+        }
+        Msg::HostsListed(result) => {
+            crate::hosts::listed(state, result);
+            Vec::new()
+        }
+        Msg::HostAnswered { identity, answer } => {
+            crate::hosts::answered(state, &identity, answer, now);
+            Vec::new()
+        }
+        Msg::StartupItems { id, result } => {
+            crate::startup_items::receive(state, id, result);
+            Vec::new()
+        }
+        Msg::CaptureProgress { id, progress } => {
+            crate::network::capture_progress(state, id, progress, now);
+            Vec::new()
+        }
+        Msg::CaptureLimited { id, limit } => {
+            crate::network::capture_limited(state, id, limit);
+            Vec::new()
+        }
+        Msg::CaptureKeys { id, path, proxy } => crate::network::capture_keys(state, id, path, proxy),
+        Msg::CaptureProxied { id, proxied } => {
+            crate::network::capture_proxied(state, id, proxied);
             Vec::new()
         }
         Msg::CaptureDone { id, result } => crate::network::capture_done(state, id, result),
@@ -128,8 +256,14 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
             crate::network::hosts_resolved(state, names);
             Vec::new()
         }
+        Msg::Probed { id, probe, at } => crate::network::probed(state, id, probe, at, now),
+        Msg::ScanFinished { id, result } => crate::network::scan_finished(state, id, result, now),
+        Msg::ScanTargetResolved { name, result } => crate::port_scan::resolved(state, name, result),
+        Msg::ReportSaved { path, result } => crate::report::saved(state, path, result),
+        Msg::PortScan { id, event } => crate::port_scan::on_event(state, id, event, now),
+        Msg::Listen { id, event } => crate::network::listen_event(state, id, event, now),
         Msg::DockerStats(frame) => {
-            crate::docker::stats(state, frame);
+            crate::docker::stats(state, frame, now);
             Vec::new()
         }
         Msg::DockerShellOutput { container, mode } => {
@@ -142,6 +276,7 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
         }
 
         Msg::Agent(event) => crate::agent::receive(state, event),
+        Msg::HostAsks { machine, session, event } => crate::agent::receive_host(state, machine, session, event),
         Msg::MountRemote { side, machine, session, name } => crate::remote::mount(state, side, machine, session, name),
         Msg::RemoteConsoleOutput { echoed, machine, session, view, signals } => {
             shell::remote_output(state, machine, session, view, signals, echoed, now)
@@ -160,6 +295,7 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
             crate::remote::deleted(state, machine, session, result)
         }
         Msg::RemoteHostForgotten { machine, result } => crate::remote::forgotten(state, machine, result),
+        Msg::RemoteHostUpdated { machine, result } => crate::remote::updated(state, machine, result),
         Msg::RemoteCatalog { choices, complete } => {
             crate::remote::catalog(state, choices, complete);
             Vec::new()
@@ -171,18 +307,28 @@ fn receive(state: &mut AppState, msg: Msg, now: Instant) -> Vec<Effect> {
 /// monitors, the sizes and the busy marker, and the jobs' and the agent's questions show.
 fn follow(state: &mut AppState, now: Instant) -> Vec<Effect> {
     let mut effects = Vec::new();
+    crate::screens::sync_lent(state);
     effects.extend(crate::aside::sync(state));
     effects.extend(crate::plugins::sync(state, now));
     effects.extend(crate::backup::sync(state));
     effects.extend(crate::activity::sync(state, now));
     effects.extend(crate::network::sync(state, now));
+    effects.extend(crate::network::sync_shell_variables(state));
+    crate::startup_items::sync(state, now);
+    crate::watch::sync(state, now);
+    effects.extend(crate::hosts::sync(state, now));
     effects.extend(crate::activity::sync_file_preview(state));
     effects.extend(crate::docker::sync(state, now));
+    effects.extend(crate::docker::release_helpers(state));
     effects.extend(crate::docker::sync_console(state, now));
     effects.extend(crate::results::sync_sizes(state));
     crate::busy::sync(state, now);
-    crate::jobs::surface_questions(state);
+    crate::menu::remember(state);
+    crate::jobs::sync(state, now);
     crate::agent::surface(state, now);
+    crate::update_offer::surface(state, now);
+    crate::port_scan::surface(state, now);
+    effects.extend(crate::relaunch::sync(state));
     effects
 }
 
@@ -229,6 +375,7 @@ fn batch(state: &mut AppState, side: crate::Side, generation: u64, entries: Vec<
 fn listed(state: &mut AppState, side: crate::Side, generation: u64, error: Option<String>) -> Vec<Effect> {
     let visible = state.panel(side).generation() == generation;
     let failed = error.is_some();
+    let unreadable = failed && crate::archive::lists_top_from_inside(state, side, generation);
     if let Some(panel) = state.receiving_panel(side, generation) {
         let notice = panel.finish(generation, error);
         panel.settle();
@@ -243,6 +390,11 @@ fn listed(state: &mut AppState, side: crate::Side, generation: u64, error: Optio
         }
         state.notice = notice.or(state.notice.take());
     }
+    crate::archive::settle(state, side);
+    crate::screens::listed(state, side, generation);
+    if unreadable {
+        return crate::archive::unmount(state, side).into_iter().collect();
+    }
     if !visible {
         return Vec::new();
     }
@@ -251,12 +403,27 @@ fn listed(state: &mut AppState, side: crate::Side, generation: u64, error: Optio
 }
 
 /// A folder indexed for searching, which says so when Borg was asked to index it.
-fn indexed(state: &mut AppState, root: std::path::PathBuf, entries: usize, error: Option<String>) -> Vec<Effect> {
+fn indexed(
+    state: &mut AppState,
+    root: std::path::PathBuf,
+    entries: usize,
+    error: Option<String>,
+    now: Instant,
+) -> Vec<Effect> {
     let folder = root.display().to_string();
     if let Some(error) = error.filter(|_| state.settings.index_roots.contains(&root)) {
-        state.notice = Some(tr!(index_failed, folder = folder, error = error));
+        let failed = tr!(index_failed, folder = folder, error = error);
+        if !crate::jobs::end_index(state, &root, crate::How::Failed, failed.clone(), now) {
+            state.notice = Some(failed);
+        }
     } else if state.indexing.as_ref() == Some(&root) {
-        state.notice = Some(tr!(index_built, folder = folder, entries = entries));
+        crate::jobs::end_index(
+            state,
+            &root,
+            crate::How::Done,
+            tr!(index_built, folder = folder, entries = entries),
+            now,
+        );
     }
     if state.indexing.as_ref() == Some(&root) {
         state.indexing = None;

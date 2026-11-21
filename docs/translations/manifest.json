@@ -1,12 +1,12 @@
 {
   "locales": {
     "zh-CN": {
-      "source": "a29f46e1a69af6964b693d6ec6754a4f5697ce60b39d06329a82989fc09c3a64",
+      "source": "f5a9f9220d50210d22aa207f83b53891915e1dbeaff2a4ba9771f76c1dec9cb3",
       "protected": {
-        "code blocks": "57ff1e55fa720c8e8848cdeed760c0ee38ee8bdb462fb8658aba4c37bae9297d",
-        "inline code": "3efca23e236950b408fd82e44dfa84c844847b9c5609e15734ecfdd9f1c26d77",
-        "external links": "d42f59a0083f6d8ec0cbdec805712871cc872aee21b76be823994cd701a774d2",
-        "heading levels": "19e835cabcd4b9e44b014761f984fee9ae8c9bd40a8815810a754c2b18364b98"
+        "code blocks": "882d94620358b2757b8aab188e616b81a61ed5dbb818c4d0fe5b42e57f3750fe",
+        "inline code": "ab6d9196565fd3308d908af73d9a9a7ebb10f8d27d5aa8bf470754049061d913",
+        "external links": "3bd3f0312e059adc2034c6cc153045f880cb81879c22fd067139f0212b1c4920",
+        "heading levels": "7bbc05d6301bc6b44d85a57c18381e35757497cb40636dbdbd8fa591cc47c4d6"
       },
       "headings": [
         {
@@ -23,7 +23,19 @@
         },
         {
           "level": 3,
+          "title": "Names with typos"
+        },
+        {
+          "level": 3,
           "title": "Searching inside files"
+        },
+        {
+          "level": 3,
+          "title": "Scanning files with rules"
+        },
+        {
+          "level": 3,
+          "title": "Finding packed executables"
         },
         {
           "level": 3,
@@ -63,6 +75,10 @@
         },
         {
           "level": 3,
+          "title": "Context menu"
+        },
+        {
+          "level": 3,
           "title": "Jumping to folders"
         },
         {
@@ -80,6 +96,10 @@
         {
           "level": 3,
           "title": "Container shells"
+        },
+        {
+          "level": 3,
+          "title": "Disk use and cleanup"
         },
         {
           "level": 2,
@@ -102,8 +122,16 @@
           "title": "Borg cloud"
         },
         {
+          "level": 4,
+          "title": "Computer keys"
+        },
+        {
           "level": 3,
           "title": "Named sessions and the background service"
+        },
+        {
+          "level": 3,
+          "title": "Updating with sessions open"
         },
         {
           "level": 3,
@@ -112,6 +140,10 @@
         {
           "level": 3,
           "title": "Remote hosts"
+        },
+        {
+          "level": 3,
+          "title": "Hosts overview"
         },
         {
           "level": 3,
@@ -131,15 +163,39 @@
         },
         {
           "level": 3,
+          "title": "Jobs and notifications"
+        },
+        {
+          "level": 3,
+          "title": "Long jobs and drives"
+        },
+        {
+          "level": 3,
           "title": "Viewer and quick view"
+        },
+        {
+          "level": 3,
+          "title": "Archives"
         },
         {
           "level": 3,
           "title": "Editor"
         },
         {
+          "level": 3,
+          "title": "Encrypted files"
+        },
+        {
+          "level": 3,
+          "title": "Vaults"
+        },
+        {
           "level": 2,
           "title": "Configuration"
+        },
+        {
+          "level": 3,
+          "title": "Borg's files"
         },
         {
           "level": 2,
@@ -175,11 +231,63 @@
         },
         {
           "level": 3,
+          "title": "Scanning memory with rules"
+        },
+        {
+          "level": 3,
+          "title": "Entropy scan of every process"
+        },
+        {
+          "level": 3,
           "title": "Administrator access"
+        },
+        {
+          "level": 3,
+          "title": "Alerts"
+        },
+        {
+          "level": 3,
+          "title": "What the watcher looks for"
+        },
+        {
+          "level": 3,
+          "title": "Freezing a process"
+        },
+        {
+          "level": 3,
+          "title": "The watcher as root"
+        },
+        {
+          "level": 3,
+          "title": "Alerts off the machine"
+        },
+        {
+          "level": 3,
+          "title": "What the watcher cannot see"
         },
         {
           "level": 2,
           "title": "Network"
+        },
+        {
+          "level": 3,
+          "title": "Neighbors"
+        },
+        {
+          "level": 3,
+          "title": "Routed networks"
+        },
+        {
+          "level": 3,
+          "title": "Listening for neighbors"
+        },
+        {
+          "level": 3,
+          "title": "Scanning ports"
+        },
+        {
+          "level": 3,
+          "title": "Saving reports"
         },
         {
           "level": 3,
@@ -191,17 +299,37 @@
         },
         {
           "level": 3,
+          "title": "Decrypting TLS"
+        },
+        {
+          "level": 4,
+          "title": "Through Borg's proxy"
+        },
+        {
+          "level": 3,
           "title": "What the system reports"
+        },
+        {
+          "level": 2,
+          "title": "Startup items"
+        },
+        {
+          "level": 3,
+          "title": "Where Borg looks"
+        },
+        {
+          "level": 3,
+          "title": "Rules on startup items"
         }
       ]
     },
     "pt": {
-      "source": "a29f46e1a69af6964b693d6ec6754a4f5697ce60b39d06329a82989fc09c3a64",
+      "source": "f5a9f9220d50210d22aa207f83b53891915e1dbeaff2a4ba9771f76c1dec9cb3",
       "protected": {
-        "code blocks": "57ff1e55fa720c8e8848cdeed760c0ee38ee8bdb462fb8658aba4c37bae9297d",
-        "inline code": "3efca23e236950b408fd82e44dfa84c844847b9c5609e15734ecfdd9f1c26d77",
-        "external links": "d42f59a0083f6d8ec0cbdec805712871cc872aee21b76be823994cd701a774d2",
-        "heading levels": "19e835cabcd4b9e44b014761f984fee9ae8c9bd40a8815810a754c2b18364b98"
+        "code blocks": "882d94620358b2757b8aab188e616b81a61ed5dbb818c4d0fe5b42e57f3750fe",
+        "inline code": "ab6d9196565fd3308d908af73d9a9a7ebb10f8d27d5aa8bf470754049061d913",
+        "external links": "3bd3f0312e059adc2034c6cc153045f880cb81879c22fd067139f0212b1c4920",
+        "heading levels": "7bbc05d6301bc6b44d85a57c18381e35757497cb40636dbdbd8fa591cc47c4d6"
       },
       "headings": [
         {
@@ -218,7 +346,19 @@
         },
         {
           "level": 3,
+          "title": "Names with typos"
+        },
+        {
+          "level": 3,
           "title": "Searching inside files"
+        },
+        {
+          "level": 3,
+          "title": "Scanning files with rules"
+        },
+        {
+          "level": 3,
+          "title": "Finding packed executables"
         },
         {
           "level": 3,
@@ -258,6 +398,10 @@
         },
         {
           "level": 3,
+          "title": "Context menu"
+        },
+        {
+          "level": 3,
           "title": "Jumping to folders"
         },
         {
@@ -275,6 +419,10 @@
         {
           "level": 3,
           "title": "Container shells"
+        },
+        {
+          "level": 3,
+          "title": "Disk use and cleanup"
         },
         {
           "level": 2,
@@ -297,8 +445,16 @@
           "title": "Borg cloud"
         },
         {
+          "level": 4,
+          "title": "Computer keys"
+        },
+        {
           "level": 3,
           "title": "Named sessions and the background service"
+        },
+        {
+          "level": 3,
+          "title": "Updating with sessions open"
         },
         {
           "level": 3,
@@ -307,6 +463,10 @@
         {
           "level": 3,
           "title": "Remote hosts"
+        },
+        {
+          "level": 3,
+          "title": "Hosts overview"
         },
         {
           "level": 3,
@@ -326,15 +486,39 @@
         },
         {
           "level": 3,
+          "title": "Jobs and notifications"
+        },
+        {
+          "level": 3,
+          "title": "Long jobs and drives"
+        },
+        {
+          "level": 3,
           "title": "Viewer and quick view"
+        },
+        {
+          "level": 3,
+          "title": "Archives"
         },
         {
           "level": 3,
           "title": "Editor"
         },
         {
+          "level": 3,
+          "title": "Encrypted files"
+        },
+        {
+          "level": 3,
+          "title": "Vaults"
+        },
+        {
           "level": 2,
           "title": "Configuration"
+        },
+        {
+          "level": 3,
+          "title": "Borg's files"
         },
         {
           "level": 2,
@@ -370,11 +554,63 @@
         },
         {
           "level": 3,
+          "title": "Scanning memory with rules"
+        },
+        {
+          "level": 3,
+          "title": "Entropy scan of every process"
+        },
+        {
+          "level": 3,
           "title": "Administrator access"
+        },
+        {
+          "level": 3,
+          "title": "Alerts"
+        },
+        {
+          "level": 3,
+          "title": "What the watcher looks for"
+        },
+        {
+          "level": 3,
+          "title": "Freezing a process"
+        },
+        {
+          "level": 3,
+          "title": "The watcher as root"
+        },
+        {
+          "level": 3,
+          "title": "Alerts off the machine"
+        },
+        {
+          "level": 3,
+          "title": "What the watcher cannot see"
         },
         {
           "level": 2,
           "title": "Network"
+        },
+        {
+          "level": 3,
+          "title": "Neighbors"
+        },
+        {
+          "level": 3,
+          "title": "Routed networks"
+        },
+        {
+          "level": 3,
+          "title": "Listening for neighbors"
+        },
+        {
+          "level": 3,
+          "title": "Scanning ports"
+        },
+        {
+          "level": 3,
+          "title": "Saving reports"
         },
         {
           "level": 3,
@@ -386,17 +622,37 @@
         },
         {
           "level": 3,
+          "title": "Decrypting TLS"
+        },
+        {
+          "level": 4,
+          "title": "Through Borg's proxy"
+        },
+        {
+          "level": 3,
           "title": "What the system reports"
+        },
+        {
+          "level": 2,
+          "title": "Startup items"
+        },
+        {
+          "level": 3,
+          "title": "Where Borg looks"
+        },
+        {
+          "level": 3,
+          "title": "Rules on startup items"
         }
       ]
     },
     "es": {
-      "source": "a29f46e1a69af6964b693d6ec6754a4f5697ce60b39d06329a82989fc09c3a64",
+      "source": "f5a9f9220d50210d22aa207f83b53891915e1dbeaff2a4ba9771f76c1dec9cb3",
       "protected": {
-        "code blocks": "57ff1e55fa720c8e8848cdeed760c0ee38ee8bdb462fb8658aba4c37bae9297d",
-        "inline code": "3efca23e236950b408fd82e44dfa84c844847b9c5609e15734ecfdd9f1c26d77",
-        "external links": "d42f59a0083f6d8ec0cbdec805712871cc872aee21b76be823994cd701a774d2",
-        "heading levels": "19e835cabcd4b9e44b014761f984fee9ae8c9bd40a8815810a754c2b18364b98"
+        "code blocks": "882d94620358b2757b8aab188e616b81a61ed5dbb818c4d0fe5b42e57f3750fe",
+        "inline code": "ab6d9196565fd3308d908af73d9a9a7ebb10f8d27d5aa8bf470754049061d913",
+        "external links": "3bd3f0312e059adc2034c6cc153045f880cb81879c22fd067139f0212b1c4920",
+        "heading levels": "7bbc05d6301bc6b44d85a57c18381e35757497cb40636dbdbd8fa591cc47c4d6"
       },
       "headings": [
         {
@@ -413,7 +669,19 @@
         },
         {
           "level": 3,
+          "title": "Names with typos"
+        },
+        {
+          "level": 3,
           "title": "Searching inside files"
+        },
+        {
+          "level": 3,
+          "title": "Scanning files with rules"
+        },
+        {
+          "level": 3,
+          "title": "Finding packed executables"
         },
         {
           "level": 3,
@@ -453,6 +721,10 @@
         },
         {
           "level": 3,
+          "title": "Context menu"
+        },
+        {
+          "level": 3,
           "title": "Jumping to folders"
         },
         {
@@ -470,6 +742,10 @@
         {
           "level": 3,
           "title": "Container shells"
+        },
+        {
+          "level": 3,
+          "title": "Disk use and cleanup"
         },
         {
           "level": 2,
@@ -492,8 +768,16 @@
           "title": "Borg cloud"
         },
         {
+          "level": 4,
+          "title": "Computer keys"
+        },
+        {
           "level": 3,
           "title": "Named sessions and the background service"
+        },
+        {
+          "level": 3,
+          "title": "Updating with sessions open"
         },
         {
           "level": 3,
@@ -502,6 +786,10 @@
         {
           "level": 3,
           "title": "Remote hosts"
+        },
+        {
+          "level": 3,
+          "title": "Hosts overview"
         },
         {
           "level": 3,
@@ -521,15 +809,39 @@
         },
         {
           "level": 3,
+          "title": "Jobs and notifications"
+        },
+        {
+          "level": 3,
+          "title": "Long jobs and drives"
+        },
+        {
+          "level": 3,
           "title": "Viewer and quick view"
+        },
+        {
+          "level": 3,
+          "title": "Archives"
         },
         {
           "level": 3,
           "title": "Editor"
         },
         {
+          "level": 3,
+          "title": "Encrypted files"
+        },
+        {
+          "level": 3,
+          "title": "Vaults"
+        },
+        {
           "level": 2,
           "title": "Configuration"
+        },
+        {
+          "level": 3,
+          "title": "Borg's files"
         },
         {
           "level": 2,
@@ -565,11 +877,63 @@
         },
         {
           "level": 3,
+          "title": "Scanning memory with rules"
+        },
+        {
+          "level": 3,
+          "title": "Entropy scan of every process"
+        },
+        {
+          "level": 3,
           "title": "Administrator access"
+        },
+        {
+          "level": 3,
+          "title": "Alerts"
+        },
+        {
+          "level": 3,
+          "title": "What the watcher looks for"
+        },
+        {
+          "level": 3,
+          "title": "Freezing a process"
+        },
+        {
+          "level": 3,
+          "title": "The watcher as root"
+        },
+        {
+          "level": 3,
+          "title": "Alerts off the machine"
+        },
+        {
+          "level": 3,
+          "title": "What the watcher cannot see"
         },
         {
           "level": 2,
           "title": "Network"
+        },
+        {
+          "level": 3,
+          "title": "Neighbors"
+        },
+        {
+          "level": 3,
+          "title": "Routed networks"
+        },
+        {
+          "level": 3,
+          "title": "Listening for neighbors"
+        },
+        {
+          "level": 3,
+          "title": "Scanning ports"
+        },
+        {
+          "level": 3,
+          "title": "Saving reports"
         },
         {
           "level": 3,
@@ -581,17 +945,37 @@
         },
         {
           "level": 3,
+          "title": "Decrypting TLS"
+        },
+        {
+          "level": 4,
+          "title": "Through Borg's proxy"
+        },
+        {
+          "level": 3,
           "title": "What the system reports"
+        },
+        {
+          "level": 2,
+          "title": "Startup items"
+        },
+        {
+          "level": 3,
+          "title": "Where Borg looks"
+        },
+        {
+          "level": 3,
+          "title": "Rules on startup items"
         }
       ]
     },
     "ru": {
-      "source": "a29f46e1a69af6964b693d6ec6754a4f5697ce60b39d06329a82989fc09c3a64",
+      "source": "f5a9f9220d50210d22aa207f83b53891915e1dbeaff2a4ba9771f76c1dec9cb3",
       "protected": {
-        "code blocks": "57ff1e55fa720c8e8848cdeed760c0ee38ee8bdb462fb8658aba4c37bae9297d",
-        "inline code": "3efca23e236950b408fd82e44dfa84c844847b9c5609e15734ecfdd9f1c26d77",
-        "external links": "d42f59a0083f6d8ec0cbdec805712871cc872aee21b76be823994cd701a774d2",
-        "heading levels": "19e835cabcd4b9e44b014761f984fee9ae8c9bd40a8815810a754c2b18364b98"
+        "code blocks": "882d94620358b2757b8aab188e616b81a61ed5dbb818c4d0fe5b42e57f3750fe",
+        "inline code": "ab6d9196565fd3308d908af73d9a9a7ebb10f8d27d5aa8bf470754049061d913",
+        "external links": "3bd3f0312e059adc2034c6cc153045f880cb81879c22fd067139f0212b1c4920",
+        "heading levels": "7bbc05d6301bc6b44d85a57c18381e35757497cb40636dbdbd8fa591cc47c4d6"
       },
       "headings": [
         {
@@ -608,7 +992,19 @@
         },
         {
           "level": 3,
+          "title": "Names with typos"
+        },
+        {
+          "level": 3,
           "title": "Searching inside files"
+        },
+        {
+          "level": 3,
+          "title": "Scanning files with rules"
+        },
+        {
+          "level": 3,
+          "title": "Finding packed executables"
         },
         {
           "level": 3,
@@ -648,6 +1044,10 @@
         },
         {
           "level": 3,
+          "title": "Context menu"
+        },
+        {
+          "level": 3,
           "title": "Jumping to folders"
         },
         {
@@ -665,6 +1065,10 @@
         {
           "level": 3,
           "title": "Container shells"
+        },
+        {
+          "level": 3,
+          "title": "Disk use and cleanup"
         },
         {
           "level": 2,
@@ -687,8 +1091,16 @@
           "title": "Borg cloud"
         },
         {
+          "level": 4,
+          "title": "Computer keys"
+        },
+        {
           "level": 3,
           "title": "Named sessions and the background service"
+        },
+        {
+          "level": 3,
+          "title": "Updating with sessions open"
         },
         {
           "level": 3,
@@ -697,6 +1109,10 @@
         {
           "level": 3,
           "title": "Remote hosts"
+        },
+        {
+          "level": 3,
+          "title": "Hosts overview"
         },
         {
           "level": 3,
@@ -716,15 +1132,39 @@
         },
         {
           "level": 3,
+          "title": "Jobs and notifications"
+        },
+        {
+          "level": 3,
+          "title": "Long jobs and drives"
+        },
+        {
+          "level": 3,
           "title": "Viewer and quick view"
+        },
+        {
+          "level": 3,
+          "title": "Archives"
         },
         {
           "level": 3,
           "title": "Editor"
         },
         {
+          "level": 3,
+          "title": "Encrypted files"
+        },
+        {
+          "level": 3,
+          "title": "Vaults"
+        },
+        {
           "level": 2,
           "title": "Configuration"
+        },
+        {
+          "level": 3,
+          "title": "Borg's files"
         },
         {
           "level": 2,
@@ -760,11 +1200,63 @@
         },
         {
           "level": 3,
+          "title": "Scanning memory with rules"
+        },
+        {
+          "level": 3,
+          "title": "Entropy scan of every process"
+        },
+        {
+          "level": 3,
           "title": "Administrator access"
+        },
+        {
+          "level": 3,
+          "title": "Alerts"
+        },
+        {
+          "level": 3,
+          "title": "What the watcher looks for"
+        },
+        {
+          "level": 3,
+          "title": "Freezing a process"
+        },
+        {
+          "level": 3,
+          "title": "The watcher as root"
+        },
+        {
+          "level": 3,
+          "title": "Alerts off the machine"
+        },
+        {
+          "level": 3,
+          "title": "What the watcher cannot see"
         },
         {
           "level": 2,
           "title": "Network"
+        },
+        {
+          "level": 3,
+          "title": "Neighbors"
+        },
+        {
+          "level": 3,
+          "title": "Routed networks"
+        },
+        {
+          "level": 3,
+          "title": "Listening for neighbors"
+        },
+        {
+          "level": 3,
+          "title": "Scanning ports"
+        },
+        {
+          "level": 3,
+          "title": "Saving reports"
         },
         {
           "level": 3,
@@ -776,7 +1268,27 @@
         },
         {
           "level": 3,
+          "title": "Decrypting TLS"
+        },
+        {
+          "level": 4,
+          "title": "Through Borg's proxy"
+        },
+        {
+          "level": 3,
           "title": "What the system reports"
+        },
+        {
+          "level": 2,
+          "title": "Startup items"
+        },
+        {
+          "level": 3,
+          "title": "Where Borg looks"
+        },
+        {
+          "level": 3,
+          "title": "Rules on startup items"
         }
       ]
     }

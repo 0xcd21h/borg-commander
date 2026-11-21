@@ -77,7 +77,12 @@ pub(super) fn wanted_console(state: &AppState) -> Console {
     }
     let follow = state.settings.preferences.docker_plugin && state.settings.preferences.docker_console;
     match state.active_panel().mount.as_ref() {
-        Some(mount) if follow && !state.docker.is_open() && state.docker.failed_console.as_ref() != Some(&mount.id) => {
+        Some(mount)
+            if follow
+                && !state.docker.is_open()
+                && state.active_panel().volume.is_none()
+                && state.docker.failed_console.as_ref() != Some(&mount.id) =>
+        {
             Console::Container(mount.id.clone())
         }
         _ => Console::Host,
@@ -196,7 +201,6 @@ pub(crate) fn shell_closed(state: &mut AppState, container: &str, now: Instant) 
         docker.shell_tab = false;
     }
     if state.console == Console::Container(container.to_owned()) {
-        // The console returns to the host; a shell that never got going is not reopened.
         state.shell = state.parked_host.take().unwrap_or_else(|| ShellStatus::new(state.active_panel().dir().into()));
         state.console = Console::Host;
         state.view = View::Panels;

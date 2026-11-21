@@ -2,6 +2,7 @@
 
 use super::ProcessKey;
 use borg_i18n::tr;
+use borg_view::entropy::Entropy;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -288,6 +289,24 @@ impl PageClass {
     }
 }
 
+/// A page as a census finds it: what it holds, and how varied its bytes are when it was read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct CensusPage {
+    pub class: PageClass,
+    pub entropy: Option<Entropy>,
+}
+
+impl CensusPage {
+    /// A page that was not read: absent from memory, or failing to read.
+    pub fn unread(class: PageClass) -> Self {
+        Self { class, entropy: None }
+    }
+
+    pub fn high(self) -> bool {
+        self.entropy.is_some_and(Entropy::high)
+    }
+}
+
 /// A region's pages by class. A large region is sampled: each entry stands for `stride` pages
 /// and was judged by the first of them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -297,7 +316,7 @@ pub struct MemoryCensus {
     pub end: u64,
     pub page: u64,
     pub stride: u64,
-    pub pages: Vec<PageClass>,
+    pub pages: Vec<CensusPage>,
     /// Whether pages never touched or swapped out were told apart, rather than read as zeros.
     pub residency: bool,
 }
@@ -307,7 +326,18 @@ impl MemoryCensus {
         self.start.saturating_add(entry as u64 * self.stride * self.page).min(self.end.saturating_sub(1))
     }
     pub fn share(&self, class: PageClass) -> f32 {
-        self.pages.iter().filter(|page| **page == class).count() as f32 / self.pages.len().max(1) as f32
+        self.portion(|page| page.class == class)
+    }
+    /// The share of pages whose bytes look compressed, encrypted or packed.
+    pub fn high_share(&self) -> f32 {
+        self.portion(|page| page.high())
+    }
+    /// The highest entropy of the pages that were read.
+    pub fn highest(&self) -> Option<Entropy> {
+        self.pages.iter().filter_map(|page| page.entropy).max()
+    }
+    fn portion(&self, counted: impl Fn(&CensusPage) -> bool) -> f32 {
+        self.pages.iter().filter(|page| counted(page)).count() as f32 / self.pages.len().max(1) as f32
     }
 }
 
@@ -320,5 +350,9 @@ pub fn census_grid(entries: usize, width: usize, height: usize) -> (usize, usize
     (columns, entries.div_ceil(span).div_ceil(columns), span)
 }
 
+/// Rows the page map's legend of kinds takes at most.
+pub const CENSUS_KINDS: usize = 3;
+/// Rows the page map's note on entropy takes below its kinds: the high share and what it means.
+pub const CENSUS_ENTROPY: usize = 2;
 /// Rows the page map's legend takes above the grid.
-pub const CENSUS_LEGEND: usize = 3;
+pub const CENSUS_LEGEND: usize = CENSUS_KINDS + CENSUS_ENTROPY;

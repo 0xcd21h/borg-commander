@@ -10,12 +10,16 @@ use crate::{
     actions::{self, run_operation},
     input::Edit,
     jobs,
+    keyboard::YesNo,
     menu::menus,
     ops::{self, ArchiveFormat},
 };
 
 const PREVIOUS: isize = -1;
 const NEXT: isize = 1;
+/// The key in the delete dialog that opens the signals of a program using the files, as K does in
+/// the activity monitor.
+const SIGNAL_KEY: char = 'k';
 
 pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<Effect> {
     match state.overlay.clone() {
@@ -27,21 +31,32 @@ pub(crate) fn on_key(state: &mut AppState, key: &KeyEvent, now: Instant) -> Vec<
         Some(Overlay::About(about)) => crate::delight::on_about_key(state, about, key, now),
         Some(Overlay::Find(find)) => crate::find::on_key(state, find, key),
         Some(Overlay::Question(question)) => crate::jobs::on_question_key(state, question, key),
-        Some(Overlay::Jobs(list)) => crate::jobs::on_list_key(state, list, key),
+        Some(Overlay::Jobs(list)) => crate::jobs::on_list_key(state, list, key, now),
         Some(Overlay::Settings { selected } | Overlay::Plugins { selected }) => on_settings(state, selected, key, now),
         Some(Overlay::Themes(picker)) => on_themes(state, picker, key, now),
         Some(Overlay::Languages(picker)) => on_languages(state, picker, key),
         Some(Overlay::Menu(cursor)) => on_menu(state, cursor, key, now),
+        Some(Overlay::ContextMenu(menu)) => crate::context_menu::on_key(state, menu, key, now),
         Some(Overlay::Prompt(prompt)) => on_prompt(state, prompt, key, now),
         Some(Overlay::Confirm(confirm)) => on_confirm(state, confirm, key, now),
-        Some(Overlay::Approval(approval)) => crate::agent::on_approval_key(state, approval, key, now),
         Some(Overlay::AgentLog { scroll }) => crate::agent::on_log_key(state, scroll, key),
         Some(Overlay::Connect(connect)) => crate::agent::on_connect_key(state, connect, key),
         Some(Overlay::Remotes(browser)) => crate::remote::on_key(state, browser, key),
         Some(Overlay::TimeMachine) => crate::backup::on_key(state, key, now),
         Some(Overlay::ProcessControl(dialog)) => crate::activity::on_control_key(state, dialog, key),
+        Some(Overlay::EntropyScan(dialog)) => crate::activity::on_entropy_key(state, dialog, key),
         Some(Overlay::Capture(dialog)) => crate::network::on_capture_key(state, dialog, key, now),
+        Some(Overlay::Listen(form)) => crate::network::on_listen_key(state, form, key, now),
         Some(Overlay::Install(offer)) => crate::install::on_key(state, offer, key),
+        Some(Overlay::VaultKey(shown)) => crate::vault::on_key(state, *shown, key),
+        Some(Overlay::Service(offer)) => crate::service::on_key(state, offer, key),
+        Some(Overlay::Update(offer)) => crate::update_offer::on_key(state, offer, key),
+        Some(Overlay::Storage(window)) => crate::storage::on_key(state, window, key),
+        Some(Overlay::PortScan(form)) => crate::port_scan::on_form_key(state, *form, key),
+        Some(Overlay::ScanNetwork(form)) => crate::network::on_scan_form_key(state, *form, key),
+        Some(Overlay::PortScanDone(record)) => crate::port_scan::on_done_key(state, *record, key),
+        Some(Overlay::PortScanResult(view)) => crate::port_scan::on_result_key(state, *view, key),
+        Some(Overlay::SaveReport(form)) => crate::report::on_key(state, *form, key),
         None => Vec::new(),
     }
 }
@@ -63,7 +78,20 @@ pub(crate) fn on_paste(state: &mut AppState, text: &str) -> Vec<Effect> {
         },
         Some(Overlay::Prompt(prompt)) if !prompt.option_focused => &mut prompt.input,
         Some(Overlay::Folders(dialog)) => &mut dialog.filter,
+        Some(Overlay::PortScan(form)) => {
+            crate::port_scan::paste(form, line);
+            return Vec::new();
+        }
+        Some(Overlay::SaveReport(form)) => {
+            crate::report::paste(form, line);
+            return Vec::new();
+        }
+        Some(Overlay::ScanNetwork(form)) => {
+            crate::network::paste_scan_form(form, line);
+            return Vec::new();
+        }
         Some(Overlay::Find(find)) => &mut find.input,
+        Some(Overlay::VaultKey(shown)) => &mut shown.typed,
         Some(Overlay::Connect(connect)) => {
             match crate::agent::connect_field(connect, state.agent.connect.ssh.is_some()) {
                 Some(input) => input,
@@ -113,13 +141,14 @@ fn on_menu(state: &mut AppState, cursor: MenuCursor, key: &KeyEvent, now: Instan
         MenuCursor { menu: index, item: all.get(index).and_then(crate::Menu::first_enabled) }
     };
     let step = |delta: isize| MenuCursor { item: all[cursor.menu].step(cursor.item, delta), ..cursor };
-    state.last_menu = Some(cursor);
 
     let next = match key.code {
         KeyCode::Left => Some(switch(PREVIOUS)),
         KeyCode::Right => Some(switch(NEXT)),
         KeyCode::Up => Some(step(PREVIOUS)),
         KeyCode::Down => Some(step(NEXT)),
+        KeyCode::Home => Some(MenuCursor { item: all[cursor.menu].first_enabled(), ..cursor }),
+        KeyCode::End => Some(MenuCursor { item: all[cursor.menu].step(None, PREVIOUS), ..cursor }),
         KeyCode::Enter => {
             state.overlay = None;
             let action = cursor.item.and_then(|item| all[cursor.menu].item(item)).map(|item| item.action);
@@ -132,10 +161,17 @@ fn on_menu(state: &mut AppState, cursor: MenuCursor, key: &KeyEvent, now: Instan
     Vec::new()
 }
 
+pub(crate) fn close_secret(state: &mut AppState, prompt: &mut Prompt) {
+    if let Some(Overlay::Prompt(mut shown)) = state.overlay.take() {
+        shown.input.wipe();
+    }
+    prompt.input.wipe();
+}
+
 fn on_prompt(state: &mut AppState, mut prompt: Prompt, key: &KeyEvent, now: Instant) -> Vec<Effect> {
     if let PromptPurpose::RemoteName { browser, identity, session, original } = &prompt.purpose {
         if key.code == KeyCode::Esc {
-            state.overlay = Some(Overlay::Remotes(*browser.clone()));
+            state.overlay = crate::remote::back_to(*browser.clone());
             return Vec::new();
         }
         if key.code == KeyCode::Enter {
@@ -150,8 +186,59 @@ fn on_prompt(state: &mut AppState, mut prompt: Prompt, key: &KeyEvent, now: Inst
                 session: session.clone(),
                 name: if name == original { String::new() } else { name.into() },
             };
-            state.overlay = Some(Overlay::Remotes(*browser.clone()));
+            state.overlay = crate::remote::back_to(*browser.clone());
             return vec![effect];
+        }
+    }
+    if prompt.purpose == PromptPurpose::ComputerKeyPassword {
+        match key.code {
+            KeyCode::Esc => {
+                state.overlay = None;
+                return Vec::new();
+            }
+            KeyCode::Enter if prompt.input.text().is_empty() => return Vec::new(),
+            KeyCode::Enter => {
+                state.overlay = None;
+                state.notice = Some(tr!(cloud_unlock_working).into());
+                return vec![Effect::UnlockComputerKey(crate::Password::new(prompt.input.text()))];
+            }
+            _ => {}
+        }
+    }
+    if is_vault(&prompt.purpose)
+        && let Some(effects) = crate::vault::on_prompt(state, &mut prompt, key)
+    {
+        return effects;
+    }
+    if let PromptPurpose::FilePassword(file) = &prompt.purpose {
+        match key.code {
+            KeyCode::Esc => {
+                let file = (**file).clone();
+                close_secret(state, &mut prompt);
+                crate::sealed::abandon(state, &file);
+                return Vec::new();
+            }
+            KeyCode::Enter if prompt.input.text().is_empty() => return Vec::new(),
+            KeyCode::Enter => {
+                let effects = crate::sealed::unlock(state, (**file).clone(), prompt.input.text());
+                close_secret(state, &mut prompt);
+                return effects;
+            }
+            _ => {}
+        }
+    }
+    if let PromptPurpose::ArchivePassword { side } = prompt.purpose {
+        match key.code {
+            KeyCode::Esc => {
+                state.overlay = None;
+                return crate::archive::unmount(state, side).into_iter().collect();
+            }
+            KeyCode::Enter if prompt.input.text().is_empty() => return Vec::new(),
+            KeyCode::Enter => {
+                state.overlay = None;
+                return crate::archive::unlock(state, side, prompt.input.text());
+            }
+            _ => {}
         }
     }
     if prompt.purpose.option().is_some() {
@@ -170,6 +257,13 @@ fn on_prompt(state: &mut AppState, mut prompt: Prompt, key: &KeyEvent, now: Inst
             _ if prompt.option_focused => return Vec::new(),
             _ => {}
         }
+    }
+    if let (PromptPurpose::ReplaceInFiles { query, files }, KeyCode::Enter) = (&prompt.purpose, key.code) {
+        let with = prompt.input.text().into();
+        return crate::replace::confirm(
+            state,
+            crate::ReplaceRequest { query: *query.clone(), with, files: files.clone() },
+        );
     }
     if let PromptPurpose::BackupAdd { fixed } = prompt.purpose {
         match key.code {
@@ -192,6 +286,7 @@ fn on_prompt(state: &mut AppState, mut prompt: Prompt, key: &KeyEvent, now: Inst
         }
         _ => {
             if prompt.input.apply(key) == Edit::Changed {
+                prompt.typed = Some(now);
                 state.overlay = Some(Overlay::Prompt(prompt));
             }
             Vec::new()
@@ -199,15 +294,31 @@ fn on_prompt(state: &mut AppState, mut prompt: Prompt, key: &KeyEvent, now: Inst
     }
 }
 
+fn is_vault(purpose: &PromptPurpose) -> bool {
+    matches!(
+        purpose,
+        PromptPurpose::VaultPassword { .. }
+            | PromptPurpose::VaultName { .. }
+            | PromptPurpose::VaultNewPassword { .. }
+            | PromptPurpose::VaultRepeat { .. }
+    )
+}
+
 fn submit(state: &mut AppState, purpose: PromptPurpose, text: &str, now: Instant) -> Vec<Effect> {
     if text.is_empty() && purpose != PromptPurpose::ResultsFilter {
         return Vec::new();
     }
     match purpose {
-        PromptPurpose::RemoteName { .. } | PromptPurpose::BackupAdd { .. } => Vec::new(),
+        PromptPurpose::RemoteName { .. } | PromptPurpose::BackupAdd { .. } | PromptPurpose::ReplaceInFiles { .. } => {
+            Vec::new()
+        }
         PromptPurpose::Search { root } => {
-            let hidden = state.settings.preferences.show_hidden;
-            match crate::results::name_search(state, root, text, hidden, true, Default::default()) {
+            let reach = crate::results::Reach {
+                hidden: state.settings.preferences.show_hidden,
+                skip: true,
+                typos: state.settings.search.typos,
+            };
+            match crate::results::name_search(state, root, text, reach, Default::default()) {
                 Ok(request) => crate::results::start_search(state, request),
                 Err(error) => {
                     state.notice = Some(error.message());
@@ -218,7 +329,8 @@ fn submit(state: &mut AppState, purpose: PromptPurpose, text: &str, now: Instant
         PromptPurpose::Collection => crate::results::collection(state, text, state.active),
         PromptPurpose::ResultsFilter => {
             let side = state.active;
-            state.panel_mut(side).filter_results(text.to_owned());
+            let typos = state.settings.search.typos;
+            state.panel_mut(side).filter_results(text.to_owned(), typos);
             Vec::new()
         }
         PromptPurpose::Select | PromptPurpose::Unselect => {
@@ -234,16 +346,31 @@ fn submit(state: &mut AppState, purpose: PromptPurpose, text: &str, now: Instant
             Vec::new()
         }
         PromptPurpose::Mkdir if state.active_panel().mount.is_some() => crate::docker::mkdir(state, text),
+        PromptPurpose::Mkdir if state.active_panel().archive.is_some() => crate::archive::mkdir(state, text, now),
         PromptPurpose::Mkdir => {
             run_operation(state, tr!(overlays_mkdir), &ops::mkdir(text), Some(first_component(text)), now)
         }
         PromptPurpose::RemoteCopy { sources, from, to } => {
             let target = state.panel(state.active.other()).dir().join(text);
-            let (id, mut effects) = jobs::begin(state, JobKind::Copy, now);
+            let subject = jobs::subject(&sources, Some(&target));
+            let (id, mut effects) = jobs::begin(state, JobKind::Copy, subject, now);
             effects.push(Effect::StartRemoteCopy { id, from, to, sources, target });
             effects
         }
         PromptPurpose::DockerCopy { sources } => crate::docker::copy(state, sources, text, now),
+        PromptPurpose::Unpack { sources, moving: true } => crate::archive::move_out(state, &sources, text, now),
+        PromptPurpose::Unpack { sources, moving: false } => {
+            let target = state.panel(state.active.other()).dir().join(text);
+            crate::archive::unpack(state, &sources, target, now)
+        }
+        PromptPurpose::Pack { sources, moving } => crate::archive::pack(state, sources, text, moving, now),
+        PromptPurpose::ArchivePassword { .. }
+        | PromptPurpose::ComputerKeyPassword
+        | PromptPurpose::FilePassword(_)
+        | PromptPurpose::VaultPassword { .. }
+        | PromptPurpose::VaultName { .. }
+        | PromptPurpose::VaultNewPassword { .. }
+        | PromptPurpose::VaultRepeat { .. } => Vec::new(),
         PromptPurpose::Compress { sources } => match ArchiveFormat::detect(text) {
             Some(format) => {
                 let command = ops::compress(text, format, sources.iter().map(String::as_str));
@@ -264,15 +391,16 @@ fn submit(state: &mut AppState, purpose: PromptPurpose, text: &str, now: Instant
 }
 
 fn on_confirm(state: &mut AppState, confirm: Confirm, key: &KeyEvent, now: Instant) -> Vec<Effect> {
-    let decided = match key.code {
-        KeyCode::Char(_) => crate::keyboard::answer(key),
-        KeyCode::Esc => Some(false),
-        KeyCode::Enter => Some(confirm.accept),
-        KeyCode::Left | KeyCode::Right | KeyCode::Tab => {
+    if let Some(pid) = holder_to_signal(&confirm, key) {
+        return crate::delete_check::signal(state, pid);
+    }
+    let decided = match crate::keyboard::yes_no(confirm.accept, key) {
+        YesNo::Close(decided) => decided,
+        YesNo::Switch => {
             state.overlay = Some(Overlay::Confirm(Confirm { accept: !confirm.accept, ..confirm }));
             return Vec::new();
         }
-        _ => return Vec::new(),
+        YesNo::Ignore => return Vec::new(),
     };
 
     state.overlay = None;
@@ -288,6 +416,17 @@ fn on_confirm(state: &mut AppState, confirm: Confirm, key: &KeyEvent, now: Insta
                 vec![Effect::OpenRemotes]
             }
         }
+        (answer, ConfirmPurpose::RemoteHostUpdate { machine, mut browser }) => {
+            browser.error = None;
+            if answer == Some(true) {
+                browser.updating = Some(machine.clone());
+                state.overlay = Some(Overlay::Remotes(*browser));
+                vec![Effect::UpdateRemoteHost { machine }]
+            } else {
+                state.overlay = crate::remote::back_to(*browser);
+                Vec::new()
+            }
+        }
         (answer, ConfirmPurpose::RemoteSessionDelete { machine, session, mut browser }) => {
             browser.error = None;
             if answer == Some(true) {
@@ -299,22 +438,40 @@ fn on_confirm(state: &mut AppState, confirm: Confirm, key: &KeyEvent, now: Insta
                 vec![Effect::OpenRemotes]
             }
         }
-        (Some(true), ConfirmPurpose::Delete { sources }) if state.active_panel().mount.is_some() => {
+        (answer, ConfirmPurpose::CleanStorage { paths, window }) => {
+            crate::storage::answer(state, answer == Some(true), paths, *window)
+        }
+        (Some(true), ConfirmPurpose::Delete { sources, .. }) if state.active_panel().mount.is_some() => {
             crate::docker::delete(state, sources)
         }
-        (Some(true), ConfirmPurpose::Delete { sources }) => {
+        (Some(true), ConfirmPurpose::Delete { sources, .. }) if state.active_panel().archive.is_some() => {
+            crate::archive::remove(state, &sources, now)
+        }
+        (Some(true), ConfirmPurpose::Delete { sources, .. }) => {
             jobs::start(state, JobKind::Delete, Spec::Delete { sources }, now)
         }
         (Some(true), ConfirmPurpose::Docker { action, ids }) => crate::docker::start(state, action, ids),
+        (Some(true), ConfirmPurpose::VolumeHelper { volume }) => crate::docker::open_volume(state, volume, true),
+        (Some(true), ConfirmPurpose::AlertKill { alert, process }) => crate::watch::kill(state, alert, process),
+        (Some(true), ConfirmPurpose::ReplaceInFiles(request)) => crate::replace::start(state, *request, now),
         (Some(true), ConfirmPurpose::Capture { request, view_filter }) => {
             crate::network::capture_as_administrator(state, *request, view_filter, now)
         }
+        (Some(true), ConfirmPurpose::Listen(request)) => crate::network::listen_as_administrator(state, *request, now),
+        (Some(true), ConfirmPurpose::Scan(scan)) => crate::network::start_scan(state, *scan),
+        (Some(true), ConfirmPurpose::ForgetNeighbor(address)) => crate::network::forget_host(state, address, now),
+        (Some(true), ConfirmPurpose::Discover(discovery)) => crate::network::start_discovery(state, *discovery),
+        (Some(true), ConfirmPurpose::ForgetRoute(network, prefix)) => {
+            crate::network::forget_route(state, network, prefix, now)
+        }
+        (Some(true), ConfirmPurpose::ScanPorts(request)) => crate::port_scan::start(state, *request, now),
+        (answer, ConfirmPurpose::ReplaceReport(form)) => crate::report::replace(state, *form, answer == Some(true)),
         (Some(true), ConfirmPurpose::Quit | ConfirmPurpose::ShellExit { .. }) => {
-            let mut effects = jobs::cancel_all(state);
+            let mut effects = jobs::cancel_all(state, now);
             effects.push(Effect::Quit);
             effects
         }
-        (Some(false), ConfirmPurpose::ShellExit { token }) => vec![Effect::CancelShellExit { token }],
+        (Some(false) | None, ConfirmPurpose::ShellExit { token }) => vec![Effect::CancelShellExit { token }],
         (answer, ConfirmPurpose::RemoteShellExit { token }) => {
             let close = answer == Some(true);
             if let (true, crate::Console::Remote { machine, session }) = (close, &state.console) {
@@ -325,6 +482,13 @@ fn on_confirm(state: &mut AppState, confirm: Confirm, key: &KeyEvent, now: Insta
         }
         _ => Vec::new(),
     }
+}
+
+/// The program K signals from a delete dialog that found programs using the files.
+fn holder_to_signal(confirm: &Confirm, key: &KeyEvent) -> Option<u32> {
+    let ConfirmPurpose::Delete { check: Some(check), .. } = &confirm.purpose else { return None };
+    let signal = crate::keyboard::latin(key).code == KeyCode::Char(SIGNAL_KEY);
+    signal.then(|| check.first_holder().map(|holder| holder.pid)).flatten()
 }
 
 fn resolve(state: &AppState, text: &str) -> PathBuf {

@@ -1,23 +1,39 @@
 //! The two file formats captures come in: pcap, as `tcpdump -w` writes it, and pcapng, as
 //! Wireshark saves it and macOS's tcpdump does on its `pktap` interface, with the process
-//! behind each packet.
+//! behind each packet, and with the TLS secrets that decrypt its connections.
 
-use super::CaptureError;
-use std::{collections::HashMap, time::Duration};
+use super::{CaptureError, decode};
+use std::{collections::HashMap, net::SocketAddr, time::Duration};
 
 const PCAP_MICROS: u32 = 0xa1b2_c3d4;
 const PCAP_NANOS: u32 = 0xa1b2_3c4d;
 const PCAP_HEADER: usize = 24;
 /// The magic number that opens either format.
 const PCAP_MAGIC: usize = 4;
+const PCAP_SNAP_AT: usize = 16;
 const PCAP_LINK_AT: usize = 20;
+/// The bits of a pcap header's link field that give the link type.
+const PCAP_LINK_TYPE: u32 = 0xffff;
 const RECORD_HEADER: usize = 16;
 const RECORD_CAPTURED_AT: usize = 8;
+const RECORD_LENGTH_AT: usize = 12;
 const PCAPNG_SECTION: u32 = 0x0a0d_0d0a;
 const PCAPNG_BYTE_ORDER: u32 = 0x1a2b_3c4d;
 const PCAPNG_INTERFACE: u32 = 1;
 const PCAPNG_SIMPLE: u32 = 3;
 const PCAPNG_ENHANCED: u32 = 6;
+const PCAPNG_VERSION: [u16; 2] = [1, 0];
+/// Where an enhanced packet block's captured length and packet data start.
+const ENHANCED_CAPTURED_AT: usize = BLOCK_HEADER + 12;
+const ENHANCED_LENGTH_AT: usize = ENHANCED_CAPTURED_AT + 4;
+const ENHANCED_DATA_AT: usize = 28;
+/// What a section header says when it does not tell its length.
+const UNKNOWN_SECTION_LENGTH: i64 = -1;
+/// A decryption secrets block, and the type of secrets in a TLS key log.
+const PCAPNG_SECRETS: u32 = 0x0000_000a;
+const TLS_KEY_LOG: u32 = 0x544c_534b;
+/// Where a secrets block's type, length and secrets start.
+const SECRETS_AT: usize = BLOCK_HEADER + 8;
 /// The process information block macOS adds: a process's PID and name, which the packets that
 /// follow point at by its place among the section's process blocks.
 const PCAPNG_PROCESS: u32 = 0x8000_0001;
@@ -38,6 +54,8 @@ const POWER_OF_TWO: u8 = 0x80;
 const MICROS_PER_SECOND: u64 = 1_000_000;
 const NANOS_PER_SECOND: u64 = 1_000_000_000;
 const DEFAULT_RESOLUTION: u8 = 6;
+/// The `if_tsresol` of an interface whose timestamps count nanoseconds.
+const NANO_RESOLUTION: u8 = 9;
 /// Records no packet comes near, which only a damaged file claims.
 const LARGEST_RECORD: usize = 1 << 24;
 
@@ -58,6 +76,8 @@ pub(super) struct Frames {
     pub frames: Vec<Frame>,
     /// The names of the processes the file records, by PID.
     pub processes: HashMap<u32, String>,
+    /// The TLS key logs the file holds.
+    pub secrets: Vec<String>,
     /// Packets past the limit, left out.
     pub skipped: usize,
     /// The file ends inside a packet.
@@ -82,6 +102,19 @@ impl Order {
 
     fn size(self, bytes: &[u8], at: usize) -> Option<usize> {
         self.u32(bytes, at).and_then(|value| usize::try_from(value).ok())
+    }
+
+    fn put_u16(self, out: &mut Vec<u8>, value: u16) {
+        out.extend(if self.big { value.to_be_bytes() } else { value.to_le_bytes() });
+    }
+
+    fn put_u32(self, out: &mut Vec<u8>, value: u32) {
+        out.extend(if self.big { value.to_be_bytes() } else { value.to_le_bytes() });
+    }
+
+    fn put_size(self, out: &mut Vec<u8>, value: usize) -> Option<()> {
+        self.put_u32(out, u32::try_from(value).ok()?);
+        Some(())
     }
 }
 
@@ -127,7 +160,7 @@ fn pcap_record(bytes: &[u8], at: usize, order: Order, units: u64, link: u32) -> 
     let seconds = u64::from(order.u32(bytes, at)?);
     let fraction = u64::from(order.u32(bytes, at + 4)?);
     let captured = order.size(bytes, at + RECORD_CAPTURED_AT)?;
-    let length = order.u32(bytes, at + 12)?;
+    let length = order.u32(bytes, at + RECORD_LENGTH_AT)?;
     let start = at + RECORD_HEADER;
     let data = bytes.get(start..start.checked_add(captured.min(LARGEST_RECORD))?)?;
     let stamp = Duration::from_secs(seconds) + Duration::from_nanos(fraction * (NANOS_PER_SECOND / units));
@@ -193,6 +226,7 @@ fn pcapng(bytes: &[u8], limit: usize) -> Result<Frames, CaptureError> {
                     keep(&mut frames, frame, limit);
                 }
             }
+            PCAPNG_SECRETS => frames.secrets.extend(key_log(block, order)),
             _ => {}
         }
         at += total;
@@ -266,12 +300,12 @@ fn process(block: &[u8], order: Order) -> (Option<u32>, Option<String>) {
 }
 
 fn enhanced(block: &[u8], order: Order, interfaces: &[Interface], processes: &[Option<u32>]) -> Option<Frame> {
-    const DATA_AT: usize = 28;
+    const DATA_AT: usize = ENHANCED_DATA_AT;
     let interface = interfaces.get(order.size(block, BLOCK_HEADER)?)?;
     let high = u64::from(order.u32(block, BLOCK_HEADER + 4)?);
     let low = u64::from(order.u32(block, BLOCK_HEADER + 8)?);
-    let captured = order.size(block, BLOCK_HEADER + 12)?;
-    let length = order.u32(block, BLOCK_HEADER + 16)?;
+    let captured = order.size(block, ENHANCED_CAPTURED_AT)?;
+    let length = order.u32(block, ENHANCED_LENGTH_AT)?;
     let data = block.get(DATA_AT..DATA_AT + captured)?;
     let ticks = (high << 32) | low;
     let stamp = Duration::from_secs(ticks / interface.units)
@@ -297,6 +331,91 @@ fn simple(block: &[u8], order: Order, interfaces: &[Interface]) -> Option<Frame>
         interface: interface.name.clone(),
         pid: None,
     })
+}
+
+/// The TLS key log a decryption secrets block holds.
+fn key_log(block: &[u8], order: Order) -> Option<String> {
+    let length = order.size(block, BLOCK_HEADER + 4)?;
+    let text = block.get(SECRETS_AT..SECRETS_AT.checked_add(length)?)?;
+    (order.u32(block, BLOCK_HEADER)? == TLS_KEY_LOG).then(|| String::from_utf8_lossy(text).into_owned())
+}
+
+/// The capture in `bytes` as pcapng, with the TLS key log `key_log` in a decryption secrets
+/// block after its section header, where Wireshark finds it before the packets. A pcap file is
+/// written out as pcapng first. `None` when `bytes` are neither.
+pub fn with_secrets(bytes: &[u8], key_log: &str) -> Option<Vec<u8>> {
+    let little = Order { big: false };
+    if little.u32(bytes, 0)? == PCAPNG_SECTION {
+        let order = section_order(bytes, 0)?;
+        let header = order.size(bytes, 4).filter(|length| *length <= bytes.len())?;
+        return Some([&bytes[..header], &secrets_block(order, key_log)?, &bytes[header..]].concat());
+    }
+    let (order, _) = pcap_header(bytes).ok()?;
+    let found = pcap(bytes, usize::MAX).ok()?;
+    let mut out = section_block(little)?;
+    let link = u16::try_from(order.u32(bytes, PCAP_LINK_AT)? & PCAP_LINK_TYPE).ok()?;
+    out.extend(nano_interface_block(little, link, order.u32(bytes, PCAP_SNAP_AT)?)?);
+    out.extend(secrets_block(little, key_log)?);
+    for frame in &found.frames {
+        out.extend(packet_block(little, frame)?);
+    }
+    Some(out)
+}
+
+/// A pcapng block of type `kind` around `body`, padded to whole words.
+fn block(order: Order, kind: u32, body: &[u8]) -> Option<Vec<u8>> {
+    let total = BLOCK_HEADER + padded(body.len()) + BLOCK_TRAILER;
+    let mut out = Vec::with_capacity(total);
+    order.put_u32(&mut out, kind);
+    order.put_size(&mut out, total)?;
+    out.extend(body);
+    out.resize(total - BLOCK_TRAILER, 0);
+    order.put_size(&mut out, total)?;
+    Some(out)
+}
+
+fn section_block(order: Order) -> Option<Vec<u8>> {
+    let mut body = Vec::new();
+    order.put_u32(&mut body, PCAPNG_BYTE_ORDER);
+    PCAPNG_VERSION.into_iter().for_each(|part| order.put_u16(&mut body, part));
+    body.extend(if order.big { UNKNOWN_SECTION_LENGTH.to_be_bytes() } else { UNKNOWN_SECTION_LENGTH.to_le_bytes() });
+    block(order, PCAPNG_SECTION, &body)
+}
+
+/// An interface whose packets have link type `link`, at most `snap` bytes of each kept, and
+/// timestamps in nanoseconds.
+fn nano_interface_block(order: Order, link: u16, snap: u32) -> Option<Vec<u8>> {
+    let mut body = Vec::new();
+    order.put_u16(&mut body, link);
+    order.put_u16(&mut body, 0);
+    order.put_u32(&mut body, snap);
+    order.put_u16(&mut body, OPTION_RESOLUTION);
+    order.put_u16(&mut body, 1);
+    body.extend([NANO_RESOLUTION, 0, 0, 0]);
+    order.put_u16(&mut body, OPTION_END);
+    order.put_u16(&mut body, 0);
+    block(order, PCAPNG_INTERFACE, &body)
+}
+
+fn secrets_block(order: Order, key_log: &str) -> Option<Vec<u8>> {
+    let mut body = Vec::new();
+    order.put_u32(&mut body, TLS_KEY_LOG);
+    order.put_size(&mut body, key_log.len())?;
+    body.extend(key_log.as_bytes());
+    block(order, PCAPNG_SECRETS, &body)
+}
+
+/// An enhanced packet block on the first interface, its timestamp in nanoseconds.
+fn packet_block(order: Order, frame: &Frame) -> Option<Vec<u8>> {
+    let nanos = u64::try_from(frame.stamp.as_nanos()).ok()?;
+    let mut body = Vec::new();
+    order.put_u32(&mut body, 0);
+    order.put_u32(&mut body, (nanos >> u32::BITS) as u32);
+    order.put_u32(&mut body, nanos as u32);
+    order.put_size(&mut body, frame.data.len())?;
+    order.put_u32(&mut body, frame.length);
+    body.extend(&frame.data);
+    block(order, PCAPNG_ENHANCED, &body)
 }
 
 /// The format a stream turned out to be, once its first bytes came.
@@ -383,5 +502,257 @@ impl PcapCounter {
         self.stream = Some(Stream::Pcapng(order));
         let total = order.size(&self.header, 4).filter(|total| *total >= BLOCK_START)?;
         Some((total - BLOCK_START, matches!(kind, PCAPNG_ENHANCED | PCAPNG_SIMPLE)))
+    }
+}
+
+/// A conversation as the budget counts it: its protocol and both ends, the lower one first.
+type Conversation = (u8, SocketAddr, SocketAddr);
+
+/// What a whole unit of a stream is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Part {
+    /// Bytes of a stream Borg cannot read, which pass as they are.
+    Pass,
+    /// A pcap stream's header, with the link type of its packets.
+    Header(u32),
+    Record(Order),
+    Block(Order),
+}
+
+/// Splits a pcap or pcapng stream into its whole units: the stream's header, each pcap record
+/// and each pcapng block.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct Units {
+    stream: Option<Stream>,
+}
+
+impl Units {
+    /// How long the next unit is once all of it came, and what it is. Bytes of a stream that is
+    /// neither format pass as they are.
+    fn next(&mut self, bytes: &[u8]) -> Option<(usize, Part)> {
+        let little = Order { big: false };
+        let whole = |length: usize, part| (length > 0 && bytes.len() >= length).then_some((length, part));
+        match self.stream {
+            None => {
+                if little.u32(bytes, 0)? == PCAPNG_SECTION {
+                    self.stream = Some(Stream::Pcapng(little));
+                    return self.next(bytes);
+                }
+                let header = bytes.get(..PCAP_HEADER)?;
+                match pcap_header(header) {
+                    Ok((order, _)) => {
+                        self.stream = Some(Stream::Pcap(order));
+                        Some((PCAP_HEADER, Part::Header(order.u32(header, PCAP_LINK_AT)? & PCAP_LINK_TYPE)))
+                    }
+                    Err(_) => {
+                        self.stream = Some(Stream::Unknown);
+                        Some((PCAP_HEADER, Part::Pass))
+                    }
+                }
+            }
+            Some(Stream::Pcap(order)) => match order.size(bytes, RECORD_CAPTURED_AT)? {
+                captured if captured <= LARGEST_RECORD => whole(RECORD_HEADER + captured, Part::Record(order)),
+                _ => self.damaged(bytes),
+            },
+            Some(Stream::Pcapng(order)) => {
+                let kind = order.u32(bytes, 0)?;
+                let order = if kind == PCAPNG_SECTION { section_order(bytes, 0)? } else { order };
+                match order.size(bytes, 4)? {
+                    total if (BLOCK_START..=LARGEST_RECORD).contains(&total) => {
+                        let found = whole(total, Part::Block(order))?;
+                        self.stream = Some(Stream::Pcapng(order));
+                        Some(found)
+                    }
+                    _ => self.damaged(bytes),
+                }
+            }
+            Some(Stream::Unknown) => whole(bytes.len(), Part::Pass),
+        }
+    }
+
+    /// Passes the rest of a stream whose record lengths make no sense as it is.
+    fn damaged(&mut self, bytes: &[u8]) -> Option<(usize, Part)> {
+        self.stream = Some(Stream::Unknown);
+        self.next(bytes)
+    }
+}
+
+/// A packet of a stream that is still growing: the link type it was captured on, and its bytes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LiveFrame {
+    pub link: u32,
+    pub data: Vec<u8>,
+}
+
+/// Reads the packets of a pcap or pcapng stream as it grows, for a capture that is still
+/// running.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LiveFrames {
+    units: Units,
+    /// What came after the last whole record or block.
+    pending: Vec<u8>,
+    /// The link type of a pcap stream, or of each interface of the pcapng section.
+    links: Vec<u32>,
+}
+
+impl LiveFrames {
+    /// The packets whole so far in `chunk`, the next bytes the stream sent, and before it.
+    pub fn feed(&mut self, chunk: &[u8]) -> Vec<LiveFrame> {
+        self.pending.extend_from_slice(chunk);
+        let pending = std::mem::take(&mut self.pending);
+        let mut frames = Vec::new();
+        let mut at = 0;
+        while let Some((length, part)) = self.units.next(&pending[at..]) {
+            let unit = &pending[at..at + length];
+            frames.extend(self.frame(unit, part));
+            at += length;
+        }
+        self.pending = pending[at..].to_vec();
+        frames
+    }
+
+    fn frame(&mut self, unit: &[u8], part: Part) -> Option<LiveFrame> {
+        match part {
+            Part::Pass => None,
+            Part::Header(link) => {
+                self.links = vec![link];
+                None
+            }
+            Part::Record(_) => {
+                Some(LiveFrame { link: *self.links.first()?, data: unit.get(RECORD_HEADER..)?.to_vec() })
+            }
+            Part::Block(order) => match order.u32(unit, 0)? {
+                PCAPNG_SECTION => {
+                    self.links.clear();
+                    None
+                }
+                PCAPNG_INTERFACE => {
+                    self.links.extend(order.u16(unit, BLOCK_HEADER).map(u32::from));
+                    None
+                }
+                PCAPNG_ENHANCED => {
+                    let link = *self.links.get(order.size(unit, BLOCK_HEADER)?)?;
+                    let captured = order.size(unit, ENHANCED_CAPTURED_AT)?;
+                    Some(LiveFrame { link, data: unit.get(ENHANCED_DATA_AT..ENHANCED_DATA_AT + captured)?.to_vec() })
+                }
+                PCAPNG_SIMPLE => {
+                    const DATA_AT: usize = 12;
+                    let link = *self.links.first()?;
+                    let length = order.size(unit, BLOCK_HEADER)?;
+                    let room = unit.len().saturating_sub(DATA_AT + BLOCK_TRAILER);
+                    Some(LiveFrame { link, data: unit.get(DATA_AT..DATA_AT + room.min(length))?.to_vec() })
+                }
+                _ => None,
+            },
+        }
+    }
+}
+
+/// Keeps the start of every conversation in a pcap or pcapng stream as it grows: a
+/// conversation's packets stay whole until they carried `budget` bytes of payload, and the
+/// later ones keep their headers, up to where their payload starts. Each trimmed packet still
+/// says how long it was, so readers know what the capture left out.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ConnectionBudget {
+    budget: u64,
+    units: Units,
+    /// What came after the last whole record or block.
+    pending: Vec<u8>,
+    /// The link type of a pcap stream, or of each interface of the pcapng section.
+    links: Vec<u32>,
+    carried: HashMap<Conversation, u64>,
+}
+
+impl ConnectionBudget {
+    pub fn new(budget: u64) -> Self {
+        Self { budget, ..Self::default() }
+    }
+
+    /// What to write for `chunk`, the next bytes the stream sent: every whole record or block
+    /// so far, trimmed where its conversation used up its budget.
+    pub fn feed(&mut self, chunk: &[u8]) -> Vec<u8> {
+        self.pending.extend_from_slice(chunk);
+        let pending = std::mem::take(&mut self.pending);
+        let mut out = Vec::with_capacity(pending.len());
+        let mut at = 0;
+        while let Some((length, part)) = self.units.next(&pending[at..]) {
+            let unit = &pending[at..at + length];
+            let trimmed = match part {
+                Part::Record(order) => self.trim_record(unit, order),
+                Part::Block(order) => self.trim_block(unit, order),
+                Part::Header(link) => {
+                    self.links = vec![link];
+                    None
+                }
+                Part::Pass => None,
+            };
+            out.extend_from_slice(trimmed.as_deref().unwrap_or(unit));
+            at += length;
+        }
+        self.pending = pending[at..].to_vec();
+        out
+    }
+
+    /// The bytes held back when the stream ends: a record it did not finish.
+    pub fn rest(&mut self) -> Vec<u8> {
+        std::mem::take(&mut self.pending)
+    }
+
+    /// A pcap record trimmed to its headers, or `None` to keep it whole.
+    fn trim_record(&mut self, record: &[u8], order: Order) -> Option<Vec<u8>> {
+        let data = record.get(RECORD_HEADER..)?;
+        let keep = self.kept(*self.links.first()?, data)?;
+        let mut out = record[..RECORD_CAPTURED_AT].to_vec();
+        order.put_size(&mut out, keep)?;
+        out.extend_from_slice(&record[RECORD_LENGTH_AT..RECORD_HEADER]);
+        out.extend_from_slice(&data[..keep]);
+        Some(out)
+    }
+
+    /// A pcapng block with its packet trimmed to its headers, or `None` to keep it whole. A
+    /// section header starts over with no interfaces, and an interface block adds one.
+    fn trim_block(&mut self, block: &[u8], order: Order) -> Option<Vec<u8>> {
+        match order.u32(block, 0)? {
+            PCAPNG_SECTION => {
+                self.links.clear();
+                None
+            }
+            PCAPNG_INTERFACE => {
+                self.links.extend(order.u16(block, BLOCK_HEADER).map(u32::from));
+                None
+            }
+            PCAPNG_ENHANCED => {
+                let link = *self.links.get(order.size(block, BLOCK_HEADER)?)?;
+                let captured = order.size(block, ENHANCED_CAPTURED_AT)?;
+                let length = order.u32(block, ENHANCED_LENGTH_AT)?;
+                let data = block.get(ENHANCED_DATA_AT..ENHANCED_DATA_AT + captured)?;
+                let keep = self.kept(link, data)?;
+                let options = block.get(ENHANCED_DATA_AT + padded(captured)..block.len() - BLOCK_TRAILER)?;
+                let mut body = block[BLOCK_HEADER..ENHANCED_CAPTURED_AT].to_vec();
+                order.put_size(&mut body, keep)?;
+                order.put_u32(&mut body, length);
+                body.extend_from_slice(&data[..keep]);
+                body.resize(body.len() + padded(keep) - keep, 0);
+                body.extend_from_slice(options);
+                self::block(order, PCAPNG_ENHANCED, &body)
+            }
+            _ => None,
+        }
+    }
+
+    /// How much of a packet to keep, when less than all of it: none of its payload once its
+    /// conversation's packets carried the budget in payload.
+    fn kept(&mut self, link: u32, data: &[u8]) -> Option<usize> {
+        let layers = decode::layers(link, data);
+        let ip = layers.ip?;
+        let (source, destination) = layers.datagram?.ports().unwrap_or_default();
+        let ends = (SocketAddr::new(ip.source, source), SocketAddr::new(ip.destination, destination));
+        let carried = self.carried.entry((ip.protocol, ends.0.min(ends.1), ends.0.max(ends.1))).or_default();
+        if *carried < self.budget {
+            *carried += layers.carried as u64;
+            return None;
+        }
+        let keep = layers.payload.start;
+        (keep < data.len()).then_some(keep)
     }
 }

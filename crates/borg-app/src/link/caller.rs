@@ -3,29 +3,57 @@
 
 use std::{
     collections::{HashMap, HashSet},
+    path::Path,
     time::Duration,
 };
 
 use anyhow::{Context, Result};
-use borg_link::Channel;
+use borg_link::{Channel, KEY_LEN, PROOF_LEN, unhex};
+use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::sync::oneshot;
 
-use super::{Computer, served::Served};
+use super::{Computer, MONITOR_CALLS, ROTATE_CALL, VIEWER_CALLS, served::Served};
 use crate::{
     agent::{Call, Reply, Session},
     native_mirror, remote_copy,
+    service::{Lease, Members, Place, START_CALL},
 };
+
+/// How long a session the service starts for a call has to register.
+const START_WAIT: Duration = Duration::from_secs(15);
+
+/// What a connection of a paired computer is for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Role {
+    /// An agent's calls, a mirror's or a panel's.
+    Session,
+    /// The computer's borg, watching for the asks of a session its panels show. It makes only
+    /// the viewer calls, and only it may make them.
+    Viewer,
+    /// The computer's borg or an agent reading how the host is doing. It makes only the monitor
+    /// calls, which never reach a session.
+    Monitor,
+}
+
+#[derive(Deserialize)]
+struct Rotation {
+    key: String,
+    proof: String,
+}
 
 /// A paired computer while it is connected.
 pub(super) struct Caller<'a> {
     served: &'a Served,
+    role: Role,
     key: String,
     /// Who the calls come from. The name is only a label; approval and mirror leases bind to
     /// the paired key.
     origin: String,
     /// The other sessions on this machine that calls reached, by ID.
     sessions: HashMap<String, Session>,
+    /// The sessions registered with the background service that calls reached, by ID.
+    leases: HashMap<String, Lease>,
     transfer: remote_copy::Server,
     /// The session the file transfer belongs to, once one began.
     transfer_session: Option<String>,
@@ -36,12 +64,14 @@ pub(super) struct Caller<'a> {
 }
 
 impl<'a> Caller<'a> {
-    pub(super) fn new(served: &'a Served, computer: &Computer) -> Self {
+    pub(super) fn new(served: &'a Served, computer: &Computer, role: Role) -> Self {
         Self {
             served,
+            role,
             key: computer.key.clone(),
             origin: format!("{} [{}]", computer.name, computer.key.get(..32).unwrap_or(&computer.key)),
             sessions: HashMap::new(),
+            leases: HashMap::new(),
             transfer: remote_copy::Server::default(),
             transfer_session: None,
             mirrors: HashMap::new(),
@@ -64,15 +94,36 @@ impl<'a> Caller<'a> {
                     None => break,
                 },
             };
-            // A computer forgotten while connected is cut off.
             if !self.served.shared.lock().expect("link lock").computers.iter().any(|c| c.key == self.key) {
                 break;
             }
-            let (reply, next) = self.answer(&message, continuation).await?;
+            let (reply, next) = match self.rotation(&message) {
+                Some(rotation) => (self.rotate(channel, rotation), None),
+                None => self.answer(&message, continuation).await?,
+            };
             next_message = next;
             channel.send(&serde_json::to_vec(&reply)?).await?;
         }
         Ok(())
+    }
+
+    fn rotation(&self, message: &[u8]) -> Option<Rotation> {
+        let call = serde_json::from_slice::<Call>(message).ok()?;
+        let rotates = matches!(self.role, Role::Session | Role::Monitor);
+        (rotates && call.tool == ROTATE_CALL).then(|| serde_json::from_value(call.args).ok())?
+    }
+
+    fn rotate(&self, channel: &Channel, rotation: Rotation) -> Reply {
+        let Some(new) = unhex::<KEY_LEN>(&rotation.key) else { return Reply::error("unreadable key") };
+        let proven = unhex::<PROOF_LEN>(&rotation.proof)
+            .is_some_and(|proof| channel.proves_rotation(&self.served.identity, &new, &proof));
+        if !proven {
+            return Reply::error("the proof for the new key does not hold");
+        }
+        match self.served.change_key(&self.key, &new) {
+            Ok(_) => Reply::ok(""),
+            Err(error) => Reply::error(format!("{error:#}")),
+        }
     }
 
     /// The reply to one call, and the server's own call for the next page of a pushed listing.
@@ -83,6 +134,16 @@ impl<'a> Caller<'a> {
             Err(error) => return Ok((Reply::error(format!("unreadable call: {error}")), None)),
         };
         call.origin = Some(self.origin.clone());
+        let viewing = VIEWER_CALLS.contains(&call.tool.as_str());
+        let allowed = match self.role {
+            Role::Session => !viewing,
+            Role::Viewer => viewing,
+            Role::Monitor => MONITOR_CALLS.contains(&call.tool.as_str()),
+        };
+        if !allowed {
+            return Ok((Reply::error(format!("unknown tool {}", call.tool)), None));
+        }
+        call.viewer = viewing;
         // Only a server-created continuation inherits the first chunk's read approval.
         // External callers still cannot claim approval.
         if continuation {
@@ -111,9 +172,9 @@ impl<'a> Caller<'a> {
     async fn dispatch(&mut self, call: Call) -> Result<Reply> {
         let tool = call.tool.clone();
         match tool.as_str() {
-            "session_delete" => self.served.ask(call).await,
+            "session_delete" | super::HOST_UPDATE_CALL => self.served.ask(call).await,
             "file_transfer" => Ok(self.file_transfer(call).await),
-            "host_info" => Ok(self.served.host_info()),
+            "host_info" => Ok(self.served.host_info(&call.args).await),
             "list_sessions" => Ok(self.served.list_sessions()),
             tool if tool.starts_with("mirror_") => self.mirror(call).await,
             tool if tool.starts_with("console_") => self.console(call).await,
@@ -122,15 +183,19 @@ impl<'a> Caller<'a> {
     }
 
     /// The session an `approval_mode` call turns on or off: the one it names, else the one
-    /// opened last, else this borg's own. The call is made to name it.
+    /// the user worked in last, else this borg's own. The call is made to name it.
     fn approval_target(&self, call: &mut Call) -> Option<(String, bool)> {
         let requested = call.args["session"].as_str();
+        let used = self.served.members.as_ref().and_then(Members::last_used);
         let target = self
             .served
             .named_sessions()
             .and_then(|entries| match requested {
                 Some(name) => entries.into_iter().find(|entry| entry.id == name || entry.name == name),
-                None => entries.into_iter().filter(|entry| !entry.archived).max_by_key(|entry| entry.last_opened),
+                None => entries
+                    .into_iter()
+                    .filter(|entry| !entry.archived)
+                    .max_by_key(|entry| (used.as_ref() == Some(&entry.id), entry.last_opened)),
             })
             .map(|entry| entry.id)
             .or_else(|| if requested.is_none() { self.served.session_id.clone() } else { None })?;
@@ -152,23 +217,33 @@ impl<'a> Caller<'a> {
         reply
     }
 
-    /// A mirror call. The background service answers it itself; otherwise it goes to the named
-    /// session's mirror, opened on first use. A mirror the computer takes is its lease.
+    /// A mirror call. The background service answers it itself for the sessions it keeps
+    /// running, starting one that runs nowhere; otherwise it goes to the named session's
+    /// mirror, opened on first use. A mirror the computer takes is its lease.
     async fn mirror(&mut self, call: Call) -> Result<Reply> {
         let action = call.tool.clone();
         let target = call.args["session"].as_str().map(str::to_owned);
-        let reply = if self.served.background_service {
-            self.served.ask(call).await?
-        } else if let Some(target) = target.as_deref() {
-            match self.mirror_call(target, &call).await {
+        let socket = match (&self.served.members, target.as_deref()) {
+            (_, None) => return Ok(Reply::error("Mirror needs a session ID")),
+            (Some(members), Some(target)) => match members.place(target) {
+                Some((Place::Terminal, socket)) => Some(socket),
+                Some((Place::Background, _)) => None,
+                None => match self.start(members, target).await? {
+                    Some(refused) => return Ok(refused),
+                    None => None,
+                },
+            },
+            (None, Some(target)) => Some(native_mirror::socket(&self.served.runtime_dir, target)?),
+        };
+        let reply = match (socket, target.as_deref()) {
+            (Some(socket), Some(target)) => match self.mirror_call(target, &socket, &call).await {
                 Ok(reply) => reply,
                 Err(error) => {
                     self.mirrors.remove(target);
                     Reply::error(format!("{error:#}"))
                 }
-            }
-        } else {
-            Reply::error("Mirror needs a session ID")
+            },
+            _ => self.served.ask(call).await?,
         };
         if reply.ok
             && let Some(target) = target
@@ -186,10 +261,10 @@ impl<'a> Caller<'a> {
         Ok(reply)
     }
 
-    async fn mirror_call(&mut self, target: &str, call: &Call) -> Result<Reply> {
+    async fn mirror_call(&mut self, target: &str, socket: &Path, call: &Call) -> Result<Reply> {
         anyhow::ensure!(self.served.is_active(Some(target)), "No active named session for this mirror");
         if !self.mirrors.contains_key(target) {
-            let peer = native_mirror::Peer::open(&self.served.runtime_dir, target).await?;
+            let peer = native_mirror::Peer::at(socket).await?;
             self.mirrors.insert(target.into(), peer);
         }
         self.mirrors.get_mut(target).context("Mirror session disconnected")?.call(call).await
@@ -222,18 +297,26 @@ impl<'a> Caller<'a> {
         Ok(reply)
     }
 
-    /// Any other call: to the named session it names on this machine, or to this borg.
+    /// Any other call: to the named session it names on this machine, or to this borg. In the
+    /// background service, a call that names no session goes to the one the user worked in last.
     async fn in_session(&mut self, mut call: Call) -> Result<Reply> {
         let target = call.args["session"].as_str().map(str::to_owned);
         if let Value::Object(args) = &mut call.args {
             args.remove("session");
         }
-        let Some(target) = target else { return self.served.ask(call).await };
+        let target = match (target, &self.served.members) {
+            (Some(target), _) => target,
+            (None, Some(members)) => members.last_used().unwrap_or_else(|| borg_core::DEFAULT_SESSION.to_owned()),
+            (None, None) => return self.served.ask(call).await,
+        };
         let found = self
             .served
             .named_sessions()
             .and_then(|entries| entries.into_iter().find(|entry| entry.id == target || entry.name == target));
         let Some(entry) = found else { return Ok(Reply::error(format!("no session named {target}"))) };
+        if let Some(members) = self.served.members.clone() {
+            return self.through_service(&members, &entry.id, call).await;
+        }
         if self.served.session_id.as_deref() == Some(entry.id.as_str()) {
             return self.served.ask(call).await;
         }
@@ -242,6 +325,7 @@ impl<'a> Caller<'a> {
         {
             self.sessions.insert(entry.id.clone(), open);
         }
+        call.forwarded_from = call.origin.clone();
         let reply = match self.sessions.get_mut(&entry.id) {
             Some(open) => open.call(&call).await,
             None => None,
@@ -250,6 +334,31 @@ impl<'a> Caller<'a> {
             self.sessions.remove(&entry.id);
         }
         Ok(reply.unwrap_or_else(|| Reply::error(format!("session {} is offline or disconnected", entry.name))))
+    }
+
+    /// A call for a session registered with the background service, which the service starts
+    /// in the background when it runs nowhere. The computer's connection counts as reaching
+    /// the session from its first call there.
+    async fn through_service(&mut self, members: &Members, id: &str, call: Call) -> Result<Reply> {
+        if members.place(id).is_none()
+            && let Some(refused) = self.start(members, id).await?
+        {
+            return Ok(refused);
+        }
+        if !self.leases.contains_key(id) {
+            self.leases.insert(id.to_owned(), members.lease(id));
+        }
+        Ok(members.ask(id, call).await)
+    }
+
+    /// Has the service keep a session running in the background and waits for its Borg, or
+    /// says why it cannot.
+    async fn start(&self, members: &Members, id: &str) -> Result<Option<Reply>> {
+        let reply = self.served.ask(Call::new(START_CALL, json!({ "session": id }))).await?;
+        if !reply.ok {
+            return Ok(Some(reply));
+        }
+        Ok((!members.joined(id, START_WAIT).await).then(|| Reply::error(format!("session {id} did not start in time"))))
     }
 
     /// Gives back what the computer held: closes its consoles, releases its mirrors and turns
@@ -262,10 +371,10 @@ impl<'a> Caller<'a> {
         }
         for id in std::mem::take(&mut self.mirror_leases) {
             let release = self.own_call("mirror_release", json!({ "session": id }));
-            if self.served.background_service {
-                let _ = self.served.ask(release).await;
-            } else if let Some(peer) = self.mirrors.get_mut(&id) {
+            if let Some(peer) = self.mirrors.get_mut(&id) {
                 let _ = tokio::time::timeout(Duration::from_secs(1), peer.call(&release)).await;
+            } else if self.served.members.is_some() {
+                let _ = self.served.ask(release).await;
             }
         }
         for id in std::mem::take(&mut self.approval_leases) {
@@ -274,7 +383,9 @@ impl<'a> Caller<'a> {
                 args["session"] = json!(id);
             }
             let release = self.own_call("approval_mode", args);
-            if id.is_empty() || self.served.session_id.as_deref() == Some(id.as_str()) {
+            if let Some(members) = &self.served.members {
+                let _ = members.ask(&id, release).await;
+            } else if id.is_empty() || self.served.session_id.as_deref() == Some(id.as_str()) {
                 let _ = self.served.ask(release).await;
             } else if let Some(mut session) = Session::open(&self.served.runtime_dir, Some(&id)).await {
                 let _ = session.call(&release).await;

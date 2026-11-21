@@ -3,11 +3,16 @@
 
 use super::{App, Flow, Plain, TERMINAL_CLIPBOARD_LIMIT};
 use anyhow::Result;
-use borg_core::{Aside, EditorSlot, Effect, FileStamp, FirstMatch, Msg, Side, viewer_size};
+use borg_core::{Aside, EditorSlot, Effect, FileStamp, FirstMatch, Msg, Password, SealedFile, Side, Then, viewer_size};
+use borg_crypt::sealed::Seal;
 use borg_i18n::tr;
 use borg_term::Scroll;
 use futures::StreamExt;
-use std::path::PathBuf;
+use std::{
+    path::PathBuf,
+    sync::{Arc, atomic::AtomicBool},
+};
+use zeroize::Zeroizing;
 
 impl App {
     pub(super) fn apply(&mut self, effects: Vec<Effect>) -> Result<Flow> {
@@ -22,18 +27,43 @@ impl App {
     fn carry_out(&mut self, effect: Effect) -> Result<Flow> {
         match effect {
             Effect::CancelShellExit { token } => self.pty.write(format!("{token}:no\n").as_bytes())?,
+            Effect::CheckDelete { id, sources } => crate::delete_check::check(id, sources, self.messages.clone()),
             Effect::MeasureSizes { id, root } => self.search.measure(id, root),
             Effect::CancelMeasure => self.search.cancel_measure(),
             Effect::CancelMemorySearch => self.monitor.cancel_search(),
+            Effect::EntropyScan { id, scope, processes, admin } => {
+                self.monitor.scan_entropy(id, scope, processes, admin)
+            }
+            Effect::StopEntropyScan => self.monitor.stop_entropy(),
             Effect::SizeChildren { side, generation, root, hidden, parent } => {
                 self.size_children(side, generation, root, hidden, parent)
             }
             Effect::Activity { id, request } => self.monitor.request(id, request, self.state.activity.selected),
             Effect::Backup(request) => self.backup.request(request),
+            Effect::ScanStorage => self.storage.scan(),
+            Effect::CleanStorage(paths) => self.storage.clean(paths),
+            Effect::CheckService => self.check_service(),
+            Effect::SkipUpdate(version) => self.skip_update(&version),
+            Effect::StopUpdateChecks => self.stop_update_checks(),
             Effect::Docker { id, request } => self.docker.request(id, request),
             Effect::DockerWatch(on) => self.docker.watch(on),
-            Effect::Network { id } => self.network.request(id),
+            Effect::WatchHosts(on) => self.hosts.watch(on),
+            Effect::RefreshHosts => self.hosts.refresh(),
+            Effect::Network { id, neighbors } => self.network.request(id, neighbors),
+            Effect::StartupItems { id } => self.startup_items.request(id),
+            Effect::Alerts { id, request } => self.alerts.request(id, request),
             Effect::ResolveHosts(addresses) => self.network.resolve(addresses),
+            Effect::ScanSubnet { id, addresses, nudge } => {
+                self.network.scan(id, addresses, crate::network::Plan::Subnet { nudge });
+            }
+            Effect::Discover { id, addresses } => self.network.scan(id, addresses, crate::network::Plan::Discovery),
+            Effect::StopScan { id } => self.network.stop_scan(id),
+            Effect::SaveNeighbors => self.save_neighbors(),
+            Effect::ResolveScanTarget(name) => self.resolve_scan_target(name),
+            Effect::ScanPorts { id, request } => self.scan_ports(id, *request),
+            Effect::Listen { id, request } => self.listen(id, request),
+            Effect::SavePortScans => self.save_port_scans(),
+            Effect::SaveReport { path, text, replace } => self.save_report(path, text, replace),
             Effect::Capture { id, request } => self.network.capture(id, request),
             Effect::StopCapture { id } => self.network.stop_capture(id),
             Effect::OpenCapture(path) => self.network.open_capture(path),
@@ -45,6 +75,8 @@ impl App {
             Effect::CancelSearch(side) => self.search.cancel(side),
             Effect::SetIndexRoots(roots) => self.set_index_roots(roots),
             Effect::SaveSearchHistory => self.save_search_history(),
+            Effect::SaveAgentNote(entry) => self.save_agent_note(&entry),
+            Effect::ForgetAgentLog => self.forget_agent_log(),
             Effect::SaveFolders => self.save_recent_folders(),
             Effect::SetHotlist(hotlist) => {
                 self.config.set_hotlist(&hotlist);
@@ -57,9 +89,13 @@ impl App {
             Effect::GitTool { id, tool, dir, paths } => self.run_git_tool(id, tool, dir, paths),
             Effect::Write(bytes) => self.write_console(bytes)?,
             Effect::OpenEditor { path, slot } => self.read_for_editor(path, slot),
-            Effect::SaveFile { path, bytes, expected, force, slot } => {
-                self.save_file(path, bytes, expected, force, slot)
+            Effect::SaveFile { path, bytes, expected, force, slot, seal } => {
+                self.save_file(path, bytes, expected, force, slot, seal)
             }
+            Effect::Unseal { file, password } => self.unseal(file, password),
+            Effect::OpenVault { side, cipher, password } => self.open_vault(side, cipher, password),
+            Effect::CreateVault { side, cipher, password } => self.create_vault(side, cipher, password),
+            Effect::CloseVault { root } => self.close_vault(root),
             Effect::WriteConcealed(bytes) => {
                 self.console_emulator().conceal();
                 self.write_console(bytes)?;
@@ -70,6 +106,7 @@ impl App {
             Effect::MirrorRemote { machine, session } => self.mirror_remote(machine, session),
             Effect::CancelRemoteConnection => self.mirror_connect = None,
             Effect::ForgetRemoteHost { machine } => self.forget_remote_host(machine),
+            Effect::UpdateRemoteHost { machine } => self.update_remote_host(machine),
             Effect::DeleteRemoteSession { machine, session } => self.delete_remote_session(machine, session),
             Effect::CloseRemoteConsole { machine, session } => self.remote_consoles.close(&(machine, session)),
             Effect::SaveRemoteName { identity, session, name } => self.save_remote_name(identity, session, name),
@@ -77,18 +114,23 @@ impl App {
             Effect::MountRemote { side, machine, session, name } => {
                 return self.mount_remote(side, machine, session, name);
             }
-            Effect::ApprovalModeOff => self.approval_mode_off(),
+            Effect::ApprovalModeOff => self.approval_mode_off(None),
+            Effect::AnswerHost { machine, session, answer } => self.host_asks.answer(machine, session, answer),
+            Effect::StopHostApproveAll { machine, session } => self.host_asks.stop(machine, session),
             Effect::Copy(text) => self.copy(text),
             Effect::ShowPlain(text) => self.plain = Some(Plain::Waiting(text)),
             Effect::StartPairing => self.start_pairing(),
+            Effect::UnlockComputerKey(password) => self.unlock_computer_key(password),
             Effect::SetRelay(text) => self.set_relay(&text),
             Effect::ForgetComputers => self.forget_computers(),
             Effect::AgentAnswer { id, approved } => return self.agent_answer(id, approved),
             Effect::View { path, at } => self.open_viewer(path, at),
-            Effect::FindInViewer { id, query, from, direction, count } => {
-                self.find_in_viewer(id, query, from, direction, count)
+            Effect::FindInPager { id, slot, query, from, direction, count } => {
+                self.find_in_pager(id, slot, query, from, direction, count)
             }
-            Effect::StopFindInViewer => self.stop_viewer_search(),
+            Effect::StopFindInPager(slot) => self.stop_pager_search(slot),
+            Effect::ProfileViewer { id } => self.profile_viewer(id),
+            Effect::StopProfileViewer => self.stop_viewer_profile(),
             Effect::RemoteView { machine, session, path } => self.open_remote_viewer(machine, session, path),
             Effect::SetLanguage(locale) => borg_i18n::set_locale(locale),
             Effect::SaveConfig => self.save_config(),
@@ -96,11 +138,19 @@ impl App {
             Effect::StartRemoteCopy { id, from, to, sources, target } => {
                 self.start_remote_copy(id, crate::remote_copy::CopyJob { from, to, sources, target })
             }
+            Effect::StartUnpack { id, request } => self.start_unpack(id, request),
+            Effect::StartRewrite { id, request } => self.start_rewrite(id, request),
+            Effect::StartReplace { id, request } => self.start_replace(id, request),
+            Effect::AskAgain => self.drives.ask_again(),
             Effect::StartDockerCopy { id, container, inbound, sources, target } => {
                 self.start_docker_copy(id, crate::docker::CopyJob { container, inbound, sources, target })
             }
             Effect::JobControl { id, command } => self.control_job(id, command),
             Effect::Peek { aside, path, at, size } => self.peek(aside, path, at, size),
+            Effect::Relaunch => {
+                self.relaunching = true;
+                return Ok(Flow::Quit);
+            }
             Effect::Quit => return Ok(Flow::Quit),
         }
         Ok(Flow::Continue)
@@ -135,6 +185,40 @@ impl App {
         }
     }
 
+    fn save_neighbors(&mut self) {
+        if let Some(dir) = &self.state_dir
+            && let Err(error) = dir.save_neighbors(&self.state.network.memory.saved())
+        {
+            self.state.notice = Some(tr!(network_memory_save_error, error = error));
+        }
+    }
+
+    fn save_port_scans(&mut self) {
+        if let Some(dir) = &self.state_dir
+            && let Err(error) = dir.save_port_scans(&self.state.port_scans.memory.saved())
+        {
+            self.state.notice = Some(tr!(port_scan_memory_save_error, error = error));
+        }
+    }
+
+    /// Writes a report off the main loop, and says where it went.
+    fn save_report(&self, path: PathBuf, text: String, replace: bool) {
+        let messages = self.messages.clone();
+        tokio::task::spawn_blocking(move || {
+            let result = crate::report::save(&path, &text, replace, crate::report::home().as_deref());
+            drop(messages.send(Msg::ReportSaved { path, result }));
+        });
+    }
+
+    /// Looks up the address of a host the port scan form names.
+    fn resolve_scan_target(&self, name: String) {
+        let messages = self.messages.clone();
+        tokio::spawn(async move {
+            let result = crate::port_scan::resolve(&name).await;
+            drop(messages.send(Msg::ScanTargetResolved { name, result }));
+        });
+    }
+
     /// Indexes the folders that are new among `roots`, and remembers them all in the config.
     fn set_index_roots(&mut self, roots: Vec<PathBuf>) {
         let added: Vec<_> = roots.iter().filter(|root| !self.search.indexes.roots().contains(root)).cloned().collect();
@@ -151,6 +235,22 @@ impl App {
             && let Err(error) = dir.save_search_history(&self.state.search_history)
         {
             self.state.notice = Some(tr!(search_history_save_error, error = error));
+        }
+    }
+
+    fn save_agent_note(&mut self, entry: &str) {
+        if let Some(dir) = &self.state_dir
+            && let Err(error) = dir.save_agent_note(entry)
+        {
+            self.state.notice = Some(tr!(agent_log_save_error, error = error));
+        }
+    }
+
+    fn forget_agent_log(&mut self) {
+        if let Some(dir) = &self.state_dir
+            && let Err(error) = dir.forget_agent_log()
+        {
+            self.state.notice = Some(tr!(agent_log_forget_error, error = error));
         }
     }
 
@@ -196,6 +296,26 @@ impl App {
         });
     }
 
+    fn skip_update(&mut self, version: &str) {
+        if let Some(dir) = &self.state_dir
+            && let Err(error) = crate::update::skip(dir, version)
+        {
+            self.state.notice = Some(tr!(update_skip_error, error = error));
+        }
+    }
+
+    fn stop_update_checks(&mut self) {
+        self.config.update_check = Some(false);
+        self.save_config();
+    }
+
+    fn check_service(&self) {
+        let messages = self.messages.clone();
+        tokio::spawn(async move {
+            let _ = messages.send(Msg::Service(crate::service_install::check().await));
+        });
+    }
+
     fn read_subfolders(&self, dir: PathBuf) {
         let messages = self.messages.clone();
         tokio::task::spawn_blocking(move || {
@@ -207,15 +327,70 @@ impl App {
     fn read_for_editor(&self, path: PathBuf, slot: EditorSlot) {
         let messages = self.messages.clone();
         tokio::task::spawn_blocking(move || {
-            let _ = messages.send(Msg::EditorOpened(slot, crate::edit_file::read(&path)));
+            let read = match crate::encrypted::detect(&path) {
+                Some(format) => Msg::Sealed(SealedFile { path, format, then: Then::Edit(slot) }),
+                None => Msg::EditorOpened(slot, crate::edit_file::read(&path)),
+            };
+            let _ = messages.send(read);
         });
     }
 
-    fn save_file(&self, path: PathBuf, bytes: Vec<u8>, expected: FileStamp, force: bool, slot: EditorSlot) {
+    fn save_file(
+        &self,
+        path: PathBuf,
+        bytes: Vec<u8>,
+        expected: FileStamp,
+        force: bool,
+        slot: EditorSlot,
+        seal: Option<Seal>,
+    ) {
         let messages = self.messages.clone();
         tokio::task::spawn_blocking(move || {
-            let saved = crate::edit_file::write(&path, &bytes, expected, force);
+            let text = Zeroizing::new(bytes);
+            let saved = match seal {
+                Some(seal) => crate::encrypted::seal(&seal, &text, &path)
+                    .and_then(|sealed| crate::edit_file::write(&path, &sealed, expected, force)),
+                None => crate::edit_file::write(&path, &text, expected, force),
+            };
             let _ = messages.send(Msg::EditorSaved(slot, saved));
+        });
+    }
+
+    fn open_vault(&self, side: Side, cipher: PathBuf, password: Password) {
+        let (vaults, messages) = (self.vaults.clone(), self.messages.clone());
+        tokio::task::spawn_blocking(move || {
+            let message = match vaults.open(&cipher, &password) {
+                Ok(vault) => Msg::VaultOpened { side, vault },
+                Err(error) => Msg::VaultFailed { side, cipher, error },
+            };
+            let _ = messages.send(message);
+        });
+    }
+
+    fn create_vault(&self, side: Side, cipher: PathBuf, password: Password) {
+        let (vaults, messages) = (self.vaults.clone(), self.messages.clone());
+        tokio::task::spawn_blocking(move || {
+            let message = match vaults.create(&cipher, &password) {
+                Ok((key, opened)) => Msg::VaultCreated { side, cipher, key, opened },
+                Err(error) => Msg::VaultFailed { side, cipher, error },
+            };
+            let _ = messages.send(message);
+        });
+    }
+
+    fn close_vault(&self, root: PathBuf) {
+        let (vaults, messages) = (self.vaults.clone(), self.messages.clone());
+        tokio::task::spawn_blocking(move || {
+            let error = vaults.close(&root).err();
+            let _ = messages.send(Msg::VaultClosed { root, error });
+        });
+    }
+
+    fn unseal(&self, file: SealedFile, password: Password) {
+        let (width, height) = viewer_size(self.state.cols, self.state.rows);
+        let messages = self.messages.clone();
+        tokio::task::spawn_blocking(move || {
+            let _ = messages.send(crate::encrypted::open(file, &password, (width, height)));
         });
     }
 
@@ -249,6 +424,9 @@ impl App {
     /// in place of any listing or search that panel had going.
     pub(super) fn list(&mut self, side: Side, generation: u64, dir: PathBuf) {
         self.search.cancel(side);
+        if let Some(mount) = self.state.panel(side).archive.clone().filter(|mount| mount.holds(&dir)) {
+            return self.list_archive(side, generation, dir, mount);
+        }
         let mount = self.state.panel(side).mount.clone();
         let remote = self.state.panel(side).remote_mount.clone();
         let mut batches = match (&mount, &remote) {
@@ -259,7 +437,20 @@ impl App {
         let messages = self.messages.clone();
         // Measured folder sizes belong to this machine, not to a container.
         let cache = (mount.is_none() && remote.is_none()).then(|| self.search.cache.clone());
+        let vaults =
+            (mount.is_none() && remote.is_none()).then(|| (self.vaults.clone(), self.state.panel(side).vault.clone()));
         let task = tokio::spawn(async move {
+            if let Some((vaults, known)) = vaults {
+                let checked = dir.clone();
+                let found = tokio::task::spawn_blocking(move || vaults.check(&checked, known.as_ref())).await;
+                if let Ok(Some(found)) = found {
+                    let replaces = found.replaces_listing();
+                    let _ = messages.send(found.message(side, generation, dir.clone()));
+                    if replaces {
+                        return;
+                    }
+                }
+            }
             let observed_dir = dir.clone();
             let totals = match cache {
                 Some(cache) => {
@@ -290,6 +481,28 @@ impl App {
             let _ = messages.send(Msg::Listed { side, generation, error: None });
         });
 
+        if let Some(previous) = self.listings[side.index()].replace(task) {
+            previous.abort();
+        }
+    }
+
+    /// Lists the folder `dir` of the archive the panel on `side` shows, on a thread of its own,
+    /// which stops once the panel lists something else.
+    fn list_archive(&mut self, side: Side, generation: u64, dir: PathBuf, mount: borg_core::ArchiveMount) {
+        let stopped = Arc::new(AtomicBool::new(false));
+        let listing = crate::archive::Listing {
+            side,
+            generation,
+            dir,
+            mount,
+            messages: self.messages.clone(),
+            stopped: Arc::clone(&stopped),
+        };
+        let indexes = self.archives.clone();
+        let task = tokio::spawn(async move {
+            let _stop = crate::archive::StopOnDrop(stopped);
+            let _ = tokio::task::spawn_blocking(move || listing.run(&indexes)).await;
+        });
         if let Some(previous) = self.listings[side.index()].replace(task) {
             previous.abort();
         }
