@@ -86,12 +86,15 @@ Los temas usan colores fijos, de modo que una paleta personalizada en el termina
 aspecto. En los terminales sin color verdadero (true color) se usan los colores más parecidos de
 la paleta de 256 colores.
 
-Cada archivo tiene un icono. En Ghostty, Borg usa automáticamente los iconos más detallados de
-Nerd Font; en los demás terminales se usan por defecto símbolos portables: `/` para carpetas, `@`
-para enlaces y `*` para ejecutables. Define `icon-style = "nerd"` para usar los iconos detallados
-en otro terminal con una fuente adecuada, o `icon-style = "portable"` para usar siempre los
-símbolos portables. El valor predeterminado, `"auto"`, se adapta al terminal y no guarda lo que
-detecta como tu preferencia de fuente.
+Cada archivo tiene un icono. Borg usa automáticamente los iconos más detallados de Nerd Font en
+los terminales que los traen incorporados (Ghostty, kitty y WezTerm). Cuando Borg se ejecuta en
+local en Linux, también los usa en los terminales que toman los glifos que faltan de otras fuentes
+instaladas (Konsole, Alacritty, foot, y GNOME Terminal y otros terminales VTE) si hay una Nerd Font
+instalada, como Borg Mono. En los demás terminales se usan por defecto símbolos portables: `/`
+para carpetas, `@` para enlaces y `*` para ejecutables. Define `icon-style = "nerd"` para usar los
+iconos detallados en otro terminal con una fuente adecuada, o `icon-style = "portable"` para usar
+siempre los símbolos portables. El valor predeterminado, `"auto"`, se adapta al terminal y no
+guarda lo que detecta como tu preferencia de fuente.
 
 Los archivos de cada versión incluyen **Borg Mono**, una fuente monoespaciada con los iconos de
 Nerd Font. Instala sus estilos normal y negrita desde `fonts/`, selecciona Borg Mono en la
@@ -1975,7 +1978,7 @@ valores por defecto, y el primer ajuste que guardes después conserva ese archiv
 
 ```toml
 theme = "neon"              # midnight, aurora, neon, classic, paper, ember, or your own
-icon-style = "auto"         # auto, nerd, or portable; Ghostty gets rich icons automatically
+icon-style = "auto"         # auto, nerd, or portable; auto finds rich icons where it can
 icon-spacing = 1            # spaces after an icon, 1 to 3
 status-line = true
 menu-bar = false            # keep the menu bar visible

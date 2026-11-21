@@ -123,7 +123,7 @@ impl Readings {
 fn watcher_on() -> bool {
     crate::config::ConfigDir::locate()
         .and_then(|dir| dir.load().ok())
-        .is_some_and(|config| config.preferences_for_terminal(None, None).process_watch)
+        .is_some_and(|config| config.preferences_for_terminal(|| false).process_watch)
 }
 
 /// The fullest filesystem that holds files, leaving out network filesystems, which can hang.

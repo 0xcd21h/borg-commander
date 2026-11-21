@@ -55,6 +55,7 @@ mod startup_items;
 mod storage;
 mod store;
 mod subfolders;
+mod terminal_icons;
 mod tools;
 mod update;
 mod vaults;

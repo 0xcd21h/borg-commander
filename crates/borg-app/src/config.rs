@@ -35,14 +35,11 @@ pub enum IconStyle {
 }
 
 impl IconStyle {
-    fn nerd_font(self, program: Option<&str>, term: Option<&str>) -> bool {
+    fn nerd_font(self, terminal_draws_icons: impl FnOnce() -> bool) -> bool {
         match self {
             Self::Nerd => true,
             Self::Portable => false,
-            Self::Auto => match program {
-                Some(program) => program.eq_ignore_ascii_case("ghostty"),
-                None => term == Some("xterm-ghostty"),
-            },
+            Self::Auto => terminal_draws_icons(),
         }
     }
 }
@@ -327,10 +324,10 @@ impl Default for Plugins {
 impl Config {
     #[cfg(test)]
     pub fn preferences(&self) -> Preferences {
-        self.preferences_for_terminal(None, None)
+        self.preferences_for_terminal(|| false)
     }
 
-    pub fn preferences_for_terminal(&self, program: Option<&str>, term: Option<&str>) -> Preferences {
+    pub fn preferences_for_terminal(&self, terminal_draws_icons: impl FnOnce() -> bool) -> Preferences {
         let base = Preferences::default();
         let after_command = match self.return_to_panels {
             Some(true) => AfterCommand::ReturnToPanels,
@@ -355,7 +352,7 @@ impl Config {
             restore_terminal: self.restore_terminal.unwrap_or(base.restore_terminal),
             screensaver: self.screensaver.unwrap_or(base.screensaver),
             job_notifications: self.job_notifications.unwrap_or(base.job_notifications),
-            nerd_font: self.icon_style.unwrap_or_default().nerd_font(program, term),
+            nerd_font: self.icon_style.unwrap_or_default().nerd_font(terminal_draws_icons),
             icon_spacing: self
                 .icon_spacing
                 .map_or(base.icon_spacing, |gap| gap.clamp(*ICON_SPACING.start(), *ICON_SPACING.end())),
