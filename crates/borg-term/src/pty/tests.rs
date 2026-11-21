@@ -131,6 +131,15 @@ async fn the_launcher_gives_the_command_the_terminal_as_its_own() {
     child.wait().unwrap();
 }
 
+#[test]
+fn only_a_program_that_turns_off_line_editing_and_echo_reads_keys_itself() {
+    assert!(reads_keys_itself(LocalModes::empty()));
+    assert!(reads_keys_itself(LocalModes::ISIG | LocalModes::IEXTEN));
+    assert!(!reads_keys_itself(LocalModes::ECHO), "a shell still starting echoes what you type");
+    assert!(!reads_keys_itself(LocalModes::ICANON), "a password prompt edits a line without echo");
+    assert!(!reads_keys_itself(LocalModes::ICANON | LocalModes::ECHO));
+}
+
 fn waiting(events: &mut UnboundedReceiver<PtyEvent>) -> Vec<PtyEvent> {
     std::iter::from_fn(|| events.try_recv().ok()).collect()
 }

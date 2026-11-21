@@ -234,7 +234,7 @@ impl Pty {
 
     pub fn raw_input(&self) -> bool {
         self.foreground() == Foreground::Program
-            && tcgetattr(&self.master).is_ok_and(|termios| !termios.local_modes.contains(LocalModes::ICANON))
+            && tcgetattr(&self.master).is_ok_and(|termios| reads_keys_itself(termios.local_modes))
     }
 
     pub fn foreground(&self) -> Foreground {
@@ -306,6 +306,13 @@ fn pid(raw: u32) -> io::Result<Pid> {
 
 fn winsize(size: GridSize) -> Winsize {
     Winsize { ws_row: size.rows, ws_col: size.cols, ws_xpixel: 0, ws_ypixel: 0 }
+}
+
+/// A program reads keys itself once it has turned off both line editing and echo, as full-screen
+/// programs, `top` and `ssh` do. A shell's startup scripts may turn off line editing alone while
+/// the terminal still echoes what you type.
+fn reads_keys_itself(modes: LocalModes) -> bool {
+    !modes.intersects(LocalModes::ICANON | LocalModes::ECHO)
 }
 
 /// Whether the pipe from [`Pty`] has closed or been written to, without waiting for it.

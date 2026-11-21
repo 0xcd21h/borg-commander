@@ -595,6 +595,11 @@ consola tú mismo, sigue abierta después de los comandos y de Ctrl-C. "Volver a
 después del comando" solo se aplica a los comandos ejecutados desde los paneles. En el prompt del
 shell, Option-Left y Option-Right (Alt en Linux) mueven el cursor por palabras.
 
+Los programas a pantalla completa y los que leen cada tecla por su cuenta, como `vim`, `top` y
+`ssh`, reciben todas las teclas mientras se ejecutan, Ctrl-O incluida. Ctrl-O sigue funcionando
+mientras el shell arranca, incluso cuando un script de inicio como el prompt instantáneo de
+Powerlevel10k cambia la forma en que el terminal lee las teclas.
+
 En la consola, la rueda del ratón desplaza hacia atrás la salida sin tocar el comando que estás
 escribiendo. Shift-PgUp y Shift-PgDn desplazan una página, Shift-Home salta a la salida más
 antigua y Shift-End vuelve al prompt activo, igual que si empiezas a escribir. Para copiar la

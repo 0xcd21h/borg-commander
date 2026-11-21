@@ -544,6 +544,11 @@ yourself, it stays open after commands and Ctrl-C. "Return to panels after comma
 to commands run from the panels. At the shell prompt, Option-Left and Option-Right (Alt on Linux)
 move by word.
 
+Full-screen programs and programs that read each key themselves, such as `vim`, `top`, and `ssh`,
+receive every key while they run, Ctrl-O included. Ctrl-O keeps working while your shell starts,
+even when a startup script such as the Powerlevel10k instant prompt changes how the terminal reads
+keys.
+
 In the console, the mouse wheel scrolls back through the output without touching the command
 you are typing. Shift-PgUp and Shift-PgDn scroll by a page, Shift-Home jumps to the oldest
 output, and Shift-End returns to the live prompt, as does typing. To copy visible output, select
