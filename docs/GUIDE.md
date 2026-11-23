@@ -462,7 +462,7 @@ click both rows. Notices replace the second row for a moment.
 | Alt-O | Open this panel's folder in the other panel; in search results or a collection, the folder of the file under the cursor |
 | Alt-J | Jobs: the copies, moves, searches and scans that run or ended, to fold, pause, cancel or open |
 | Alt-G | Open what the newest finished job made: its folder, its results, its hits or its open ports |
-| Alt-X | Close the job notes on screen, leaving their jobs in Alt-J |
+| Alt-X | Close the notes on screen, leaving their jobs in Alt-J |
 | Alt-M | Activity monitor: processes and memory |
 | Alt-C | Docker: Compose projects and containers |
 | Alt-N | Network: ports, connections and traffic |
@@ -1470,7 +1470,8 @@ finished job made, and Alt-X closes every note on screen. Over the full-screen c
 and the viewer, the notes name no key, because those keys belong to them there. Click **[×]** at the
 right end of a note to close that note alone, wherever it shows. Closing a note leaves its job in
 Alt-J. On a terminal narrower than 60 columns each note takes one line with **[×]** at its end, and
-below 40 columns or 14 rows there are none.
+below 40 columns or 14 rows there are none. A note also shows when a panel enters the folder of a
+[vault](#vaults).
 
 A job's question opens as a dialog at once, unless you typed in the console, on the command line or
 in an editor during the last 2 seconds. Then the question waits behind its note until your keys rest
@@ -1755,15 +1756,26 @@ twice, in fields that hide what you type. Borg makes the vault in the active pan
 it, and shows its **Recovery key**: eight groups of hex digits that open the vault if you forget the
 password. Before it shows the key, Borg opens the new vault with it once to make sure the key works.
 Borg shows the key only this once: write it down, then type its last group and press Enter to close
-it. While the key shows, agents that look at Borg's screen get a note instead. Borg creates vaults
-only in this computer's folders.
+it. While the key shows, agents that look at Borg's screen get a note instead.
 
-Enter on a vault, a folder with `gocryptfs.conf` in it, opens the **Vault** dialog, which asks for
-the password and hides what you type. A wrong password asks again, and Esc leaves the vault closed.
+A vault is a folder with `gocryptfs.conf` in it, and Enter on it works as on any folder. The panel
+shows what lies on disk: `gocryptfs.conf`, `gocryptfs.diriv` and one file with a scrambled name for
+each file inside. A note in the corner says the folder looks like a vault and how to open it. It
+stays 8 seconds, goes when the panel leaves the folder, and shows again only the next time you
+enter. With **Job notifications** off, a notice says the same.
+
+**Open vault…** in the Encryption menu opens the vault under the cursor, or else the vault the active
+panel shows. In search results and collections it looks only at the folder under the cursor. The
+**Vault** dialog asks for the password and hides what you type. A wrong password asks again, and Esc
+leaves the vault closed. When neither folder holds `gocryptfs.conf`, Borg says so. Borg opens and
+creates vaults only in this computer's folders.
+
 An open vault shows its files from its top, and the panel's title names the vault with ▦. Every
 program can use those files while the vault is open: open a spreadsheet in its app, copy a picture
 out, or run commands on them in the shell. `..` at the top of the vault returns to the folder that
-holds it and leaves the vault open, so Enter on it goes straight back in.
+holds it and leaves the vault open, so **Open vault…** there goes straight back in without asking
+for the password. Enter on the folder of an open vault still shows its encrypted files, and the note
+says the vault is open.
 
 **Close vault** in the Encryption menu closes the vault the active panel shows, and every panel
 inside it returns to the folder that holds it. While a program still has a file open in the vault,
@@ -1779,7 +1791,7 @@ in, and type the key.
 
 Vaults need gocryptfs and FUSE. Creating a vault needs gocryptfs 2.5 or newer, the first version
 that keeps the recovery key Borg gives it; older versions, such as the one in Debian 12, still open
-vaults. When gocryptfs is missing on Linux, Enter on a vault offers to install it, and the
+vaults. When gocryptfs is missing on Linux, **Open vault…** offers to install it, and the
 **Install gocryptfs** dialog works like the one for tcpdump in [Capturing traffic](#capturing-traffic).
 Inside a container, a vault also needs `/dev/fuse` from the host. On a Mac, vaults need
 [macFUSE](https://github.com/macfuse/macfuse) and gocryptfs, which you install as their pages

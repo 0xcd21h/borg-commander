@@ -68,15 +68,45 @@ fn the_last_line_of_an_error_is_what_borg_shows() {
     assert_eq!(last_line(b""), "");
 }
 
+fn vault_folder(home: &Path, name: &str) -> PathBuf {
+    let cipher = home.join(name);
+    fs::create_dir(&cipher).unwrap();
+    fs::write(cipher.join(VAULT_CONFIG), "{}").unwrap();
+    cipher
+}
+
 #[test]
 fn a_folder_with_a_gocryptfs_config_is_a_locked_vault_until_it_is_mounted() {
     let home = tempfile::tempdir().unwrap();
-    let cipher = home.path().join("Papers");
-    fs::create_dir(&cipher).unwrap();
-    fs::write(cipher.join(VAULT_CONFIG), "{}").unwrap();
+    let cipher = vault_folder(home.path(), "Papers");
     let vaults = Vaults::new(home.path(), None);
-    assert_eq!(vaults.check(&cipher, None), Some(Found::Locked));
+    let locked = VaultFolder { cipher: cipher.clone(), open: None };
+    assert_eq!(vaults.check(&cipher, None), Some(Found::Vault(locked)));
     assert_eq!(vaults.check(home.path(), None), None);
+}
+
+#[test]
+fn a_listed_vault_folder_lists_its_encrypted_files() {
+    let home = tempfile::tempdir().unwrap();
+    let cipher = vault_folder(home.path(), "Papers");
+    let found = Vaults::new(home.path(), None).check(&cipher, None).expect("a vault");
+    assert!(!found.replaces_listing());
+}
+
+#[test]
+fn open_vault_takes_the_first_folder_that_is_a_vault() {
+    let home = tempfile::tempdir().unwrap();
+    let vaults = Vaults::new(home.path(), None);
+    let cursor = vault_folder(home.path(), "Papers");
+    let shown = vault_folder(&cursor, "Inner");
+    let plain = home.path().join("plain");
+    fs::create_dir(&plain).unwrap();
+    let picked = |folders: &[PathBuf]| vaults.pick(folders).map(|folder| folder.cipher);
+    assert_eq!(picked(&[cursor.clone(), shown.clone()]), Some(cursor.clone()), "the cursor's folder first");
+    assert_eq!(picked(&[plain.clone(), shown.clone()]), Some(shown), "then the panel's own folder");
+    assert_eq!(picked(&[plain.clone(), home.path().to_path_buf()]), None);
+    fs::create_dir(plain.join(VAULT_CONFIG)).unwrap();
+    assert_eq!(picked(&[plain]), None, "a folder named gocryptfs.conf makes no vault");
 }
 
 #[test]
@@ -116,11 +146,12 @@ fn a_new_mount_point_reuses_an_empty_folder_and_skips_one_with_files() {
 #[test]
 fn messages_say_what_the_listing_found() {
     let dir = PathBuf::from("/home/ana/Papers");
-    let locked = Found::Locked.message(Side::Left, 3, dir.clone());
-    assert!(matches!(locked, Msg::VaultFound { side: Side::Left, generation: 3, cipher, open: None } if cipher == dir));
-    assert!(Found::Locked.replaces_listing());
+    let locked = VaultFolder { cipher: dir.clone(), open: None };
+    let message = Found::Vault(locked.clone()).message(Side::Left, 3);
+    assert!(matches!(message, Msg::VaultFound { side: Side::Left, generation: 3, folder } if folder == locked));
     let vault = VaultMount { cipher: dir, root: PathBuf::from("/run/vaults/Papers") };
     assert!(!Found::Inside(vault).replaces_listing());
+    assert!(Found::Gone(PathBuf::from("/run/vaults/Papers")).replaces_listing());
 }
 
 #[test]
@@ -178,7 +209,8 @@ fn a_real_vault_keeps_its_files_encrypted_and_opens_only_with_its_password() {
     assert_eq!(fs::read_dir(&vaults.folder).unwrap().count(), 1, "and no other mount folder");
     assert_eq!(key.as_str().split(VAULT_KEY_SEPARATOR).count(), KEY_BYTES / (KEY_GROUP / 2));
     fs::write(vault.root.join(PLAIN_NAME), SECRET_TEXT).unwrap();
-    assert!(matches!(vaults.check(&cipher, None), Some(Found::Open(root)) if root == vault.root));
+    let open = Some(Found::Vault(VaultFolder { cipher: cipher.clone(), open: Some(vault.root.clone()) }));
+    assert_eq!(vaults.check(&cipher, None), open);
     let Some(Found::Inside(inside)) = vaults.check(&vault.root, None) else { panic!("a listing inside the vault") };
     assert_eq!(fs::canonicalize(&inside.cipher).unwrap(), fs::canonicalize(&cipher).unwrap());
 
@@ -189,7 +221,7 @@ fn a_real_vault_keeps_its_files_encrypted_and_opens_only_with_its_password() {
     assert!(!vault.root.exists());
     assert!(!encrypted_tree_mentions(&cipher, SECRET_TEXT));
     assert!(!encrypted_tree_mentions(&cipher, PLAIN_NAME));
-    assert!(matches!(vaults.check(&cipher, None), Some(Found::Locked)));
+    assert_eq!(vaults.check(&cipher, None), Some(Found::Vault(VaultFolder { cipher: cipher.clone(), open: None })));
 
     assert_eq!(vaults.open(&cipher, &Password::new("wrong")), Err(VaultError::WrongPassword));
     assert!(fs::read_dir(&vaults.folder).unwrap().next().is_none(), "a failed open leaves no folder behind");

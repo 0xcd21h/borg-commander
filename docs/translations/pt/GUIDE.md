@@ -514,7 +514,7 @@ instantes.
 | Alt-O | Abrir a pasta deste painel no outro painel; nos resultados de pesquisa ou numa coleção, a pasta do ficheiro sob o cursor |
 | Alt-J | Tarefas: as cópias, movimentações, pesquisas e análises em curso ou terminadas, para recolher, pausar, cancelar ou abrir |
 | Alt-G | Abrir o que a tarefa terminada mais recente produziu: a sua pasta, os seus resultados, as deteções da análise ou as portas abertas |
-| Alt-X | Fechar as notas de tarefas no ecrã, deixando as tarefas em Alt-J |
+| Alt-X | Fechar as notas no ecrã, deixando as suas tarefas em Alt-J |
 | Alt-M | Monitor de atividade: processos e memória |
 | Alt-C | Docker: projetos Compose e contentores |
 | Alt-N | Rede: portas, ligações e tráfego |
@@ -1598,7 +1598,8 @@ produziu, e Alt-X fecha todas as notas no ecrã. Por cima da consola em ecrã in
 visualizador, as notas não indicam tecla, porque aí essas teclas lhes pertencem. Clique em **[×]**
 na ponta direita de uma nota para fechar só essa nota, onde quer que apareça. Fechar uma nota deixa
 a sua tarefa em Alt-J. Num terminal com menos de 60 colunas, cada nota ocupa uma linha, com **[×]**
-no fim, e abaixo de 40 colunas ou 14 linhas não há notas.
+no fim, e abaixo de 40 colunas ou 14 linhas não há notas. Também aparece uma nota quando um painel
+entra na pasta de um [cofre](#vaults).
 
 A pergunta de uma tarefa abre logo como caixa de diálogo, a não ser que tenha escrito na consola, na
 linha de comandos ou num editor nos últimos 2 segundos. Nesse caso a pergunta espera atrás da sua
@@ -1913,15 +1914,26 @@ campos que escondem o que escreve. O Borg cria o cofre na pasta do painel ativo,
 palavra-passe. Antes de mostrar a chave, o Borg abre o novo cofre com ela uma vez para confirmar que
 funciona. O Borg mostra a chave só esta vez: aponte-a, depois escreva o último grupo e prima Enter
 para a fechar. Enquanto a chave está no ecrã, os agentes que olham para o ecrã do Borg recebem um
-aviso em vez dela. O Borg cria cofres apenas nas pastas deste computador.
+aviso em vez dela.
 
-Enter num cofre, uma pasta com `gocryptfs.conf` lá dentro, abre a caixa de diálogo **Cofre**, que
-pede a palavra-passe e esconde o que escreve. Uma palavra-passe errada volta a perguntar, e Esc deixa
-o cofre fechado. Um cofre aberto mostra os ficheiros a partir do topo, e o título do painel indica o
-nome do cofre com ▦. Qualquer programa pode usar esses ficheiros enquanto o cofre está aberto: abrir
-uma folha de cálculo na respetiva aplicação, copiar uma imagem para fora ou executar comandos sobre
-eles na shell. `..` no topo do cofre volta à pasta que o contém e deixa o cofre aberto, por isso
-Enter nele volta a entrar diretamente.
+Um cofre é uma pasta com `gocryptfs.conf` lá dentro, e Enter num cofre funciona como em qualquer
+pasta. O painel mostra o que está no disco: `gocryptfs.conf`, `gocryptfs.diriv` e um ficheiro com um
+nome baralhado por cada ficheiro lá dentro. Uma nota no canto diz que a pasta parece um cofre e como
+o abrir. Fica 8 segundos, desaparece quando o painel sai da pasta e só volta a aparecer da próxima
+vez que entrar. Com **Notificações de tarefas** desligadas, um aviso diz o mesmo.
+
+**Abrir cofre…** no menu Cifragem abre o cofre que está sob o cursor ou, se não for um cofre, o cofre
+que o painel ativo mostra. Nos resultados de pesquisa e nas coleções só considera a pasta sob o
+cursor. A caixa de diálogo **Cofre** pede a palavra-passe e esconde o que escreve. Uma palavra-passe
+errada volta a perguntar, e Esc deixa o cofre fechado. Quando nenhuma das pastas contém
+`gocryptfs.conf`, o Borg indica-o. O Borg só abre e cria cofres nas pastas deste computador.
+
+Um cofre aberto mostra os ficheiros a partir do topo, e o título do painel indica o nome do cofre com
+▦. Qualquer programa pode usar esses ficheiros enquanto o cofre está aberto: abrir uma folha de
+cálculo na respetiva aplicação, copiar uma imagem para fora ou executar comandos sobre eles na shell.
+`..` no topo do cofre volta à pasta que o contém e deixa o cofre aberto, por isso **Abrir cofre…**
+aí volta a entrar diretamente sem pedir a palavra-passe. Enter na pasta de um cofre aberto continua a
+mostrar os ficheiros cifrados, e a nota diz que o cofre está aberto.
 
 **Fechar cofre** no menu Cifragem fecha o cofre que o painel ativo mostra, e cada painel que está lá
 dentro volta à pasta que o contém. Enquanto um programa tiver um ficheiro aberto no cofre, o cofre
@@ -1938,7 +1950,7 @@ chave.
 
 Os cofres precisam do gocryptfs e do FUSE. Criar um cofre requer o gocryptfs 2.5 ou mais recente, a
 primeira versão que mantém a chave de recuperação que o Borg lhe dá; as versões anteriores, como a do
-Debian 12, continuam a abrir cofres. Quando o gocryptfs falta no Linux, Enter num cofre propõe
+Debian 12, continuam a abrir cofres. Quando o gocryptfs falta no Linux, **Abrir cofre…** propõe
 instalá-lo, e a caixa de diálogo **Instalar gocryptfs** funciona como a do tcpdump em
 [Capturar tráfego](#capturing-traffic). Dentro de um contentor, um cofre precisa também de
 `/dev/fuse` do host. Num Mac, os cofres precisam do [macFUSE](https://github.com/macfuse/macfuse) e

@@ -104,6 +104,7 @@ pub enum Action {
     ExtractHere,
     ExtractToOther,
     CreateVault,
+    OpenVault,
     CloseVault,
     SwapPanels,
     /// Opens the active panel's folder in the other panel.

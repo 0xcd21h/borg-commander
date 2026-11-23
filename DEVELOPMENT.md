@@ -113,7 +113,9 @@ draw every kind the same way. File jobs (`jobs/files.rs`) follow `Msg::Job` even
 (`jobs/watched.rs`) stand for work other state runs, such as a search filling a results panel,
 background sizes, the entropy scan and the first index build: `jobs::sync`, called from
 `update::follow` after every update, starts, advances and ends them. `jobs/toasts.rs` queues a toast
-per start, end or question with its own timing and closes them for Alt-X and `Pointer::CloseToast`,
+per start, end or question with its own timing, plus one `ToastTopic::Vault` when a panel enters a
+vault's folder, which goes once that panel shows another folder. It closes them for Alt-X and
+`Pointer::CloseToast`,
 which the app asks `borg_ui::toast_mouse` for before any other mouse handling. A closed question
 sets `Job::put_off`, so it waits for Alt-J. `jobs/sheet.rs` handles the sheet's keys.
 

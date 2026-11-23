@@ -299,8 +299,12 @@ pub enum Msg {
     VaultFound {
         side: crate::Side,
         generation: u64,
-        cipher: PathBuf,
-        open: Option<PathBuf>,
+        folder: crate::VaultFolder,
+    },
+    VaultPicked {
+        side: crate::Side,
+        folders: Vec<PathBuf>,
+        found: Option<crate::VaultFolder>,
     },
     VaultShown {
         side: crate::Side,
@@ -664,6 +668,10 @@ pub enum Effect {
     Unseal {
         file: crate::SealedFile,
         password: crate::Password,
+    },
+    PickVault {
+        side: crate::Side,
+        folders: Vec<PathBuf>,
     },
     OpenVault {
         side: crate::Side,

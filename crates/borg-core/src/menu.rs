@@ -177,6 +177,7 @@ fn encryption_menu(state: &AppState) -> Menu {
         title: tr!(encryption_menu_title).into(),
         entries: vec![
             when(item(tr!(vault_create), Action::CreateVault), listed && !panel.is_results() && !panel.foreign()),
+            when(item(tr!(vault_open), Action::OpenVault), listed && !panel.foreign()),
             when(item(tr!(vault_close), Action::CloseVault), panel.vault.is_some()),
         ],
     }

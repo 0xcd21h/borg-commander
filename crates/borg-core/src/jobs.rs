@@ -24,7 +24,7 @@ pub(crate) use files::{
 };
 pub(crate) use ports::{Scanning, begin_port_scan, end_port_scan, port_scan_progress};
 pub(crate) use sheet::{on_list_key, on_row, open_list, open_newest_result};
-pub use toasts::{MOST as MOST_TOASTS, Toast, ToastEvent};
+pub use toasts::{MOST as MOST_TOASTS, Toast, ToastEvent, ToastId, ToastTopic};
 pub(crate) use watched::{begin_index, begin_sizes, end_index, end_sizes, reveal_results, sizes_progress};
 
 /// Finished jobs the panel keeps before the oldest of them go.
@@ -425,7 +425,7 @@ fn keep_newest(state: &mut AppState) {
     ended.sort_by_key(|(at, _)| std::cmp::Reverse(*at));
     let gone: Vec<u64> = ended.split_off(KEPT).into_iter().map(|(_, id)| id).collect();
     state.jobs.retain(|job| !gone.contains(&job.id));
-    state.toasts.retain(|toast| !gone.contains(&toast.job));
+    state.toasts.retain(|toast| toast.job().is_none_or(|job| !gone.contains(&job)));
 }
 
 fn close_empty_list(state: &mut AppState) {
@@ -495,9 +495,14 @@ pub fn visible_toasts(state: &AppState, now: Instant) -> Vec<&Toast> {
     toasts::visible(state, now)
 }
 
-/// Closes the toast of job `id`. The job stays in the panel, and a question it asks waits there.
-pub(crate) fn close_toast(state: &mut AppState, id: u64) {
+/// Closes the toast `id`. A job stays in the panel, and a question it asks waits there.
+pub(crate) fn close_toast(state: &mut AppState, id: ToastId) {
     toasts::close(state, id);
+}
+
+/// Toasts that the panel on `side` entered the vault folder `cipher`, unless the toasts are off.
+pub(crate) fn toast_vault(state: &mut AppState, side: Side, cipher: PathBuf, open: bool, now: Instant) -> bool {
+    toasts::vault(state, side, cipher, open, now)
 }
 
 /// Alt-X: closes every toast that shows.

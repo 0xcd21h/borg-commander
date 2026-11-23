@@ -124,7 +124,8 @@ pub use input::LineInput;
 pub use install::{Elevation, InstallOffer, Installer, PackageManager, Platform, Tool};
 pub use jobs::{
     Detail, Gauge, How, Job, JobCommand, JobEnding, JobKind, JobList, MOST_TOASTS, Phase, Question, Reveal, Toast,
-    ToastEvent, Unit, Value, running as running_jobs, shown as shown_jobs, toast_keys_work, visible_toasts,
+    ToastEvent, ToastId, ToastTopic, Unit, Value, running as running_jobs, shown as shown_jobs, toast_keys_work,
+    visible_toasts,
 };
 pub use keymap::{Action, Binding, KEYMAP, PathOf, Scope};
 pub use layout::{Chrome, EVEN_SPLIT, Layout};
@@ -165,7 +166,7 @@ pub use storage::{
 };
 pub use update::update;
 pub use update_offer::UpdateOffer;
-pub use vault::{VAULT_CONFIG, VAULT_KEY_SEPARATOR, VaultError, VaultKey, VaultMount};
+pub use vault::{VAULT_CONFIG, VAULT_KEY_SEPARATOR, VaultError, VaultFolder, VaultKey, VaultMount, vault_name};
 pub use viewer::{Content, ENTROPY_STRIP, Image, Profiling, Shown, Viewer, viewer_size};
 pub use watch::{
     ALERTS_KEPT, ALERTS_PER_MINUTE, Alert, AlertDelivery, AlertLog, AlertState, Alerts, AlertsReply, AlertsRequest,

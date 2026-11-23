@@ -509,7 +509,7 @@ momento.
 | Alt-O | Abrir la carpeta de este panel en el otro panel; en resultados de búsqueda o en una colección, la carpeta del archivo bajo el cursor |
 | Alt-J | Tareas: las copias, movimientos, búsquedas y análisis en curso o terminados, para plegar, pausar, cancelar o abrir |
 | Alt-G | Abrir lo que produjo la última tarea terminada: su carpeta, sus resultados, sus hallazgos o sus puertos abiertos |
-| Alt-X | Cerrar las notas de tareas en pantalla, y las tareas siguen en Alt-J |
+| Alt-X | Cerrar las notas en pantalla, y sus tareas siguen en Alt-J |
 | Alt-M | Monitor de actividad: procesos y memoria |
 | Alt-C | Docker: proyectos de Compose y contenedores |
 | Alt-N | Red: puertos, conexiones y tráfico |
@@ -1603,7 +1603,8 @@ completa, el editor y el visor, las notas no indican ninguna tecla, porque allí
 suyas. Haz clic en **[×]**, en el extremo derecho de una nota, para cerrar solo esa nota,
 dondequiera que aparezca. Cerrar una nota deja su tarea en Alt-J. En un terminal de menos de 60
 columnas cada nota ocupa una línea, con **[×]** al final, y por debajo de 40 columnas o 14 filas no
-hay notas.
+hay notas. Una nota también aparece cuando un panel entra en la carpeta de una
+[bóveda](#vaults).
 
 La pregunta de una tarea se abre enseguida como diálogo, salvo que hayas escrito en la consola, en
 la línea de comandos o en un editor durante los últimos 2 segundos. En ese caso la pregunta espera
@@ -1918,16 +1919,28 @@ abre y muestra su **Clave de recuperación**: ocho grupos de dígitos hexadecima
 bóveda si olvidas la contraseña. Antes de mostrar la clave, Borg abre la nueva bóveda con ella una
 vez para comprobar que funciona. Borg muestra la clave solo esta vez: anótala, luego escribe su
 último grupo y pulsa Enter para cerrarla. Mientras se muestra la clave, los agentes que miran la
-pantalla de Borg reciben un aviso en su lugar. Borg crea bóvedas solo en las carpetas de esta
-computadora.
+pantalla de Borg reciben un aviso en su lugar.
 
-Enter sobre una bóveda, una carpeta que contiene `gocryptfs.conf`, abre el diálogo **Bóveda**, que
-pide la contraseña y oculta lo que escribes. Una contraseña incorrecta vuelve a preguntar, y Esc deja
-la bóveda cerrada. Una bóveda abierta muestra sus archivos desde su raíz, y el título del panel nombra
-la bóveda con ▦. Cualquier programa puede usar esos archivos mientras la bóveda está abierta: abrir
-una hoja de cálculo en su aplicación, copiar una imagen fuera o ejecutar comandos sobre ellos en el
-shell. `..` en la raíz de la bóveda vuelve a la carpeta que la contiene y deja la bóveda abierta, así
-que Enter sobre ella vuelve a entrar directamente.
+Una bóveda es una carpeta que contiene `gocryptfs.conf`, y Enter sobre ella funciona como en
+cualquier carpeta. El panel muestra lo que hay en el disco: `gocryptfs.conf`, `gocryptfs.diriv` y un
+archivo con un nombre revuelto por cada archivo de dentro. Una nota en la esquina dice que la carpeta
+parece una bóveda y cómo abrirla. Dura 8 segundos, se va cuando el panel sale de la carpeta y solo
+vuelve a aparecer la próxima vez que entres. Con **Notificaciones de tareas** desactivadas, un aviso
+dice lo mismo.
+
+**Abrir bóveda…** en el menú Cifrado abre la bóveda que está bajo el cursor o, si no, la bóveda que
+muestra el panel activo. En los resultados de búsqueda y en las colecciones solo mira la carpeta bajo
+el cursor. El diálogo **Bóveda** pide la contraseña y oculta lo que escribes. Una contraseña
+incorrecta vuelve a preguntar, y Esc deja la bóveda cerrada. Si ninguna de las dos carpetas contiene
+`gocryptfs.conf`, Borg lo indica. Borg solo abre y crea bóvedas en las carpetas de este equipo.
+
+Una bóveda abierta muestra sus archivos desde su raíz, y el título del panel nombra la bóveda con ▦.
+Cualquier programa puede usar esos archivos mientras la bóveda está abierta: abrir una hoja de
+cálculo en su aplicación, copiar una imagen fuera o ejecutar comandos sobre ellos en el shell. `..`
+en la raíz de la bóveda vuelve a la carpeta que la contiene y deja la bóveda abierta, así que
+**Abrir bóveda…** allí vuelve a entrar directamente sin pedir la contraseña. Enter sobre la carpeta
+de una bóveda abierta sigue mostrando sus archivos cifrados, y la nota dice que la bóveda está
+abierta.
 
 **Cerrar bóveda** en el menú Cifrado cierra la bóveda que muestra el panel activo, y cada panel que
 está dentro vuelve a la carpeta que la contiene. Mientras un programa tenga un archivo abierto en la
@@ -1944,7 +1957,7 @@ escribe la clave.
 
 Las bóvedas necesitan gocryptfs y FUSE. Crear una bóveda necesita gocryptfs 2.5 o posterior, la
 primera versión que conserva la clave de recuperación que Borg le da; las versiones anteriores, como
-la de Debian 12, siguen abriendo bóvedas. Si falta gocryptfs en Linux, Enter sobre una bóveda ofrece
+la de Debian 12, siguen abriendo bóvedas. Si falta gocryptfs en Linux, **Abrir bóveda…** ofrece
 instalarlo, y el diálogo **Instalar gocryptfs** funciona como el de tcpdump en
 [Capturar tráfico](#capturing-traffic). Dentro de un contenedor, una bóveda también necesita
 `/dev/fuse` del host. En un Mac, las bóvedas necesitan [macFUSE](https://github.com/macfuse/macfuse)

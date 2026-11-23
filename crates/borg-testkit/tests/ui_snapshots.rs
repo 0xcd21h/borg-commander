@@ -269,6 +269,7 @@ fn the_menu_bar_moves_to_show_a_menu_past_its_end_and_takes_clicks_where_its_tit
     let buffer = stage.render(stage.started)?;
     ensure_text(&buffer, "Encryption")?;
     ensure_text(&buffer, "Create vault…")?;
+    ensure_text(&buffer, "Open vault…")?;
     check("encryption_menu", &stage, buffer.clone())?;
     let (row, column) = place_of(&buffer, "Search")?;
     let msg = borg_ui::mouse_input(&stage.state, click(column, row), false, stage.started);
@@ -1440,12 +1441,12 @@ fn ensure_closes_by_its_mark(stage: &mut Stage, buffer: &Buffer, now: Instant) -
     let (column, row) = shot.find("[×]").context("the toast's close mark")?;
     let beside = borg_ui::toast_mouse(&stage.state, left_click(column - 1, row), now);
     anyhow::ensure!(beside.is_none(), "a click beside the mark is left to what lies under it: {beside:?}");
-    let job = stage.state.toasts.first().context("the toast")?.job;
+    let toast = stage.state.toasts.first().context("the toast")?.id();
     let closed = borg_ui::toast_mouse(&stage.state, left_click(column + 1, row), now);
     let Some(close @ Msg::Pointer(borg_core::Pointer::CloseToast(closes))) = closed else {
         anyhow::bail!("the mark closes its toast: {closed:?}")
     };
-    anyhow::ensure!(closes == job, "the mark closes its own toast");
+    anyhow::ensure!(closes == toast, "the mark closes its own toast");
     borg_core::update(&mut stage.state, close, now);
     anyhow::ensure!(stage.state.toasts.is_empty(), "the toast is gone");
     Ok(())
@@ -5729,15 +5730,56 @@ fn an_encrypted_file_asks_for_its_password_without_showing_it() -> Result<()> {
 const VAULT: &str = "/home/me/projects/borg/Papers";
 const VAULT_ROOT: &str = "/run/user/1000/borg-commander/vaults/Papers";
 
-fn vault_found(stage: &mut Stage) {
-    let generation = stage.state.panel(borg_core::Side::Left).generation();
-    stage.send(Msg::VaultFound { side: borg_core::Side::Left, generation, cipher: VAULT.into(), open: None });
+const VAULT_CIPHER_FILES: [&str; 4] =
+    ["gocryptfs.conf", "gocryptfs.diriv", "3mQ8kU2vXcP-yhN0Rk2fLA", "Zl1t9bVqHs2aWm4oEj7cRg"];
+
+fn locked_vault() -> borg_core::VaultFolder {
+    borg_core::VaultFolder { cipher: VAULT.into(), open: None }
+}
+
+fn vault_picked(stage: &mut Stage) {
+    let folders = vec![PathBuf::from(VAULT)];
+    stage.send(Msg::VaultPicked { side: borg_core::Side::Left, folders, found: Some(locked_vault()) });
+}
+
+fn vault_folder_entered() -> Result<Stage> {
+    let left = vec![
+        entry("Papers", EntryKind::Dir, 4096, RECENT, false),
+        entry("notes.txt", EntryKind::File, 1200, RECENT, false),
+    ];
+    let mut stage = staged(Motion::STILL, QUIET, left, CLOCK)?;
+    stage.send(key(KeyCode::Down));
+    let effects = borg_core::update(&mut stage.state, key(KeyCode::Enter), stage.started);
+    let Some(borg_core::Effect::List { side, generation, dir }) =
+        effects.into_iter().find(|effect| matches!(effect, borg_core::Effect::List { .. }))
+    else {
+        anyhow::bail!("Enter must list the vault's folder");
+    };
+    anyhow::ensure!(dir == std::path::Path::new(VAULT), "Enter lists {}", dir.display());
+    stage.send(Msg::VaultFound { side, generation, folder: locked_vault() });
+    let files = VAULT_CIPHER_FILES.iter().map(|name| entry(name, EntryKind::File, 384, RECENT, false)).collect();
+    stage.send(Msg::Batch { side, generation, entries: files });
+    stage.send(Msg::Listed { side, generation, error: None });
+    Ok(stage)
+}
+
+#[test]
+fn enter_on_a_vault_shows_its_encrypted_files_and_a_toast_on_how_to_open_it() -> Result<()> {
+    let mut stage = vault_folder_entered()?;
+    let buffer = stage.render(stage.started + Duration::from_secs(1))?;
+    ensure_text(&buffer, "gocryptfs.conf")?;
+    ensure_text(&buffer, "▦ Papers looks like a vault")?;
+    ensure_text(&buffer, "F9 → Encryption → Open vault…")?;
+    ensure_no_text(&buffer, "Password for the vault")?;
+    check("vault_folder_toast", &stage, buffer)?;
+    let gone = stage.render(stage.started + Duration::from_secs(9))?;
+    ensure_no_text(&gone, "looks like a vault")
 }
 
 #[test]
 fn a_locked_vault_asks_for_its_password_without_showing_it() -> Result<()> {
     let mut stage = stage(SIZE, Motion::STILL)?;
-    vault_found(&mut stage);
+    vault_picked(&mut stage);
     for msg in chars("rain cobalt") {
         stage.send(msg);
     }

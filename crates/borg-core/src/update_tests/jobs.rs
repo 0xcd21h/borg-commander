@@ -15,7 +15,13 @@ fn finish_copy(state: &mut AppState, id: u64, now: Instant) -> Vec<Effect> {
 }
 
 fn toasts(state: &AppState, now: Instant) -> Vec<(u64, ToastEvent)> {
-    crate::visible_toasts(state, now).iter().map(|toast| (toast.job, toast.event)).collect()
+    crate::visible_toasts(state, now)
+        .iter()
+        .filter_map(|toast| match toast.topic {
+            crate::ToastTopic::Job { id, event } => Some((id, event)),
+            crate::ToastTopic::Vault { .. } => None,
+        })
+        .collect()
 }
 
 fn job(state: &AppState, id: u64) -> &crate::Job {
@@ -305,7 +311,7 @@ fn a_click_on_a_close_mark_closes_that_toast_over_the_console_too() {
         crate::jobs::end(&mut state, *id, How::Done, "Deleted 1 file".into(), now);
     }
     state.view = crate::View::Shell;
-    update(&mut state, Msg::Pointer(crate::Pointer::CloseToast(ids[0])), now);
+    update(&mut state, Msg::Pointer(crate::Pointer::CloseToast(crate::ToastId::Job(ids[0]))), now);
     assert_eq!(toasts(&state, now), vec![(ids[1], ToastEvent::Ended(How::Done))]);
     assert_eq!(state.jobs.len(), 2);
 }

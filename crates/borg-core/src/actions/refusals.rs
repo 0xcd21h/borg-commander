@@ -92,6 +92,7 @@ fn on_files(action: Action) -> bool {
             | Action::EditExternal
             | Action::Mkdir
             | Action::CreateVault
+            | Action::OpenVault
             | Action::Compress
             | Action::ExtractHere
             | Action::ExtractToOther
@@ -128,7 +129,13 @@ fn writes_to_other(action: Action) -> bool {
 fn stays_in_this_panel(action: Action) -> bool {
     matches!(
         action,
-        Action::Delete | Action::DeleteOriginals | Action::Edit | Action::EditExternal | Action::Mkdir | Action::Git(_)
+        Action::Delete
+            | Action::DeleteOriginals
+            | Action::Edit
+            | Action::EditExternal
+            | Action::Mkdir
+            | Action::OpenVault
+            | Action::Git(_)
     )
 }
 
@@ -145,6 +152,7 @@ fn needs_local_files(action: Action) -> bool {
             | Action::EditExternal
             | Action::Mkdir
             | Action::CreateVault
+            | Action::OpenVault
             | Action::Compress
             | Action::ExtractHere
             | Action::ExtractToOther
@@ -175,6 +183,7 @@ fn needs_this_machine(action: Action) -> bool {
             | Action::EditInPanel
             | Action::EditExternal
             | Action::CreateVault
+            | Action::OpenVault
             | Action::QuickView
             | Action::Info
             | Action::Compress

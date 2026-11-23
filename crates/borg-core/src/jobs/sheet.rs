@@ -25,7 +25,7 @@ pub(crate) fn open_list(state: &mut AppState, now: Instant) -> Vec<Effect> {
     if super::files::open_question(state) {
         return Vec::new();
     }
-    let toasted = super::toasts::visible(state, now).last().map(|toast| toast.job);
+    let toasted = super::toasts::visible(state, now).iter().rev().find_map(|toast| toast.job());
     let selected = toasted.and_then(|id| shown(&state.jobs).iter().position(|job| job.id == id));
     if let Some(id) = toasted.filter(|_| selected.is_some())
         && let Some(job) = find_mut(state, id)
