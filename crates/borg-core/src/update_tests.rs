@@ -848,7 +848,8 @@ fn job_progress_conflicts_and_completion() {
     let effects = update(&mut state, Msg::Job { id, event: Event::Finished(done) }, now);
     assert!(!runs(&state, JobKind::Copy));
     assert_eq!(ended_with(&state, JobKind::Copy), Some("Copied 1 file"), "the finished job stays in the jobs panel");
-    assert!(state.toasts.iter().any(|toast| toast.job == id && toast.event == ToastEvent::Ended(How::Done)));
+    let done = crate::ToastTopic::Job { id, event: ToastEvent::Ended(How::Done) };
+    assert!(state.toasts.iter().any(|toast| toast.topic == done));
     assert!(state.notice.is_none(), "the toast says it, so no notice does");
     assert_eq!(effects.iter().filter(|e| matches!(e, Effect::List { .. })).count(), 2);
 }

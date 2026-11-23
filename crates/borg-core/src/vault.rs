@@ -1,4 +1,7 @@
-use std::path::{Component, Path, PathBuf};
+use std::{
+    path::{Component, Path, PathBuf},
+    time::Instant,
+};
 
 use borg_i18n::tr;
 use crossterm::event::{KeyCode, KeyEvent};
@@ -29,12 +32,18 @@ impl VaultMount {
     }
 
     pub fn name(&self) -> String {
-        display_name(&self.cipher)
+        vault_name(&self.cipher)
     }
 
     fn host(&self) -> PathBuf {
         self.cipher.parent().map_or_else(|| self.root.clone(), Path::to_path_buf)
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VaultFolder {
+    pub cipher: PathBuf,
+    pub open: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -82,23 +91,62 @@ impl VaultKey {
     }
 }
 
-pub(crate) fn found(
-    state: &mut AppState,
-    side: Side,
-    generation: u64,
-    cipher: PathBuf,
-    open: Option<PathBuf>,
-) -> Vec<Effect> {
-    if state.panel(side).generation() != generation {
+pub(crate) fn found(state: &mut AppState, side: Side, generation: u64, folder: VaultFolder, now: Instant) {
+    let panel = state.panel(side);
+    if panel.generation() != generation || panel.refreshing() {
+        return;
+    }
+    let (name, open) = (vault_name(&folder.cipher), folder.open.is_some());
+    if !crate::jobs::toast_vault(state, side, folder.cipher, open, now) {
+        state.notice = Some(cue_notice(&name, open));
+    }
+}
+
+fn cue_notice(name: &str, open: bool) -> String {
+    let (menu, entry) = (tr!(encryption_menu_title), tr!(vault_open));
+    if open {
+        tr!(vault_cue_open_notice, name = name, menu = menu, entry = entry)
+    } else {
+        tr!(vault_cue_locked_notice, name = name, menu = menu, entry = entry)
+    }
+}
+
+pub(crate) fn pick(state: &mut AppState) -> Vec<Effect> {
+    let side = state.active;
+    let panel = state.panel(side);
+    if panel.foreign() || panel.volume.is_some() {
+        state.notice = Some(tr!(vault_here_only).to_owned());
         return Vec::new();
     }
-    state.panel_mut(side).abandon(generation);
-    match open {
-        Some(root) => opened(state, side, VaultMount { cipher, root }),
-        None => {
+    let hovered = panel.hovered_entry().filter(|entry| entry.is_dir()).map(|entry| entry.path(panel.dir()));
+    let shown = (!panel.is_results()).then(|| panel.dir().to_path_buf());
+    let folders: Vec<PathBuf> = hovered.into_iter().chain(shown).collect();
+    if folders.is_empty() {
+        state.notice = Some(tr!(vault_pick_folder).to_owned());
+        return Vec::new();
+    }
+    vec![Effect::PickVault { side, folders }]
+}
+
+pub(crate) fn picked(state: &mut AppState, side: Side, folders: &[PathBuf], found: Option<VaultFolder>) -> Vec<Effect> {
+    match found {
+        Some(VaultFolder { cipher, open: Some(root) }) => opened(state, side, VaultMount { cipher, root }),
+        Some(VaultFolder { cipher, open: None }) => {
             ask(state, side, cipher, false);
             Vec::new()
         }
+        None => {
+            state.notice = Some(not_vaults(folders));
+            Vec::new()
+        }
+    }
+}
+
+fn not_vaults(folders: &[PathBuf]) -> String {
+    match folders {
+        [first, second, ..] => tr!(vault_not_either, first = vault_name(first), second = vault_name(second)),
+        [only] => tr!(vault_not_one, name = vault_name(only)),
+        [] => tr!(vault_pick_folder).to_owned(),
     }
 }
 
@@ -124,7 +172,7 @@ pub(crate) fn created(
     opened: Result<VaultMount, VaultError>,
 ) -> Vec<Effect> {
     state.creating_vaults.retain(|creating| creating != cipher);
-    let name = display_name(cipher);
+    let name = vault_name(cipher);
     let effects = match opened {
         Ok(vault) => self::opened(state, side, vault),
         Err(error) => {
@@ -144,12 +192,12 @@ pub(crate) fn failed(state: &mut AppState, side: Side, cipher: PathBuf, error: V
     match error {
         VaultError::WrongPassword => ask(state, side, cipher, true),
         VaultError::NoTool(installer) => crate::install::offer(state, Tool::Gocryptfs, installer),
-        error => state.notice = Some(describe(error, &display_name(&cipher))),
+        error => state.notice = Some(describe(error, &vault_name(&cipher))),
     }
 }
 
 pub(crate) fn closed(state: &mut AppState, root: &Path, error: Option<VaultError>) -> Vec<Effect> {
-    let name = display_name(root);
+    let name = vault_name(root);
     if let Some(error) = error {
         state.notice = Some(describe(error, &name));
         return Vec::new();
@@ -235,7 +283,7 @@ pub(crate) fn on_prompt(state: &mut AppState, prompt: &mut Prompt, key: &KeyEven
     }
     Some(match purpose {
         PromptPurpose::VaultPassword { side, cipher } => {
-            state.notice = Some(tr!(vault_opening, name = display_name(&cipher)));
+            state.notice = Some(tr!(vault_opening, name = vault_name(&cipher)));
             vec![Effect::OpenVault { side, cipher, password: Password::new(&text) }]
         }
         PromptPurpose::VaultName { side } => named(state, side, text.trim()),
@@ -246,12 +294,12 @@ pub(crate) fn on_prompt(state: &mut AppState, prompt: &mut Prompt, key: &KeyEven
             Vec::new()
         }
         PromptPurpose::VaultRepeat { side, cipher, first } if first.as_str() == text => {
-            state.notice = Some(tr!(vault_creating, name = display_name(&cipher)));
+            state.notice = Some(tr!(vault_creating, name = vault_name(&cipher)));
             state.creating_vaults.push(cipher.clone());
             vec![Effect::CreateVault { side, cipher, password: first }]
         }
         PromptPurpose::VaultRepeat { side, cipher, .. } => {
-            let label = tr!(vault_passwords_differ, name = display_name(&cipher));
+            let label = tr!(vault_passwords_differ, name = vault_name(&cipher));
             show_prompt(state, tr!(vault_create_title), label, PromptPurpose::VaultNewPassword { side, cipher });
             Vec::new()
         }
@@ -300,9 +348,10 @@ fn plain_name(name: &str) -> bool {
 }
 
 fn ask(state: &mut AppState, side: Side, cipher: PathBuf, wrong: bool) {
-    let name = display_name(&cipher);
+    let name = vault_name(&cipher);
     if state.overlay.is_some() {
-        state.notice = Some(tr!(vault_needs_password, name = name));
+        let (menu, entry) = (tr!(encryption_menu_title), tr!(vault_open));
+        state.notice = Some(tr!(vault_needs_password, name = name, menu = menu, entry = entry));
         return;
     }
     let label = if wrong { tr!(vault_password_wrong, name = name) } else { tr!(vault_password_for, name = name) };
@@ -321,6 +370,6 @@ fn show_prompt(state: &mut AppState, title: &'static str, label: String, purpose
     }));
 }
 
-fn display_name(path: &Path) -> String {
+pub fn vault_name(path: &Path) -> String {
     path.file_name().unwrap_or(path.as_os_str()).to_string_lossy().into_owned()
 }

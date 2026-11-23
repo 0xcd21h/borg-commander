@@ -93,6 +93,7 @@ impl App {
                 self.save_file(path, bytes, expected, force, slot, seal)
             }
             Effect::Unseal { file, password } => self.unseal(file, password),
+            Effect::PickVault { side, folders } => self.pick_vault(side, folders),
             Effect::OpenVault { side, cipher, password } => self.open_vault(side, cipher, password),
             Effect::CreateVault { side, cipher, password } => self.create_vault(side, cipher, password),
             Effect::CloseVault { root } => self.close_vault(root),
@@ -356,6 +357,14 @@ impl App {
         });
     }
 
+    fn pick_vault(&self, side: Side, folders: Vec<PathBuf>) {
+        let (vaults, messages) = (self.vaults.clone(), self.messages.clone());
+        tokio::task::spawn_blocking(move || {
+            let found = vaults.pick(&folders);
+            let _ = messages.send(Msg::VaultPicked { side, folders, found });
+        });
+    }
+
     fn open_vault(&self, side: Side, cipher: PathBuf, password: Password) {
         let (vaults, messages) = (self.vaults.clone(), self.messages.clone());
         tokio::task::spawn_blocking(move || {
@@ -445,7 +454,7 @@ impl App {
                 let found = tokio::task::spawn_blocking(move || vaults.check(&checked, known.as_ref())).await;
                 if let Ok(Some(found)) = found {
                     let replaces = found.replaces_listing();
-                    let _ = messages.send(found.message(side, generation, dir.clone()));
+                    let _ = messages.send(found.message(side, generation));
                     if replaces {
                         return;
                     }

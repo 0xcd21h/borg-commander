@@ -5666,11 +5666,17 @@ fn vault_fixture() -> Result<Fixture> {
 
 #[test]
 #[ignore = "needs gocryptfs and FUSE; runs in a Linux container"]
-fn a_vault_opens_with_its_password_stays_open_outside_and_closes_from_the_encryption_menu() -> Result<()> {
+fn a_vault_folder_lists_encrypted_and_opens_from_the_encryption_menu_then_closes_there() -> Result<()> {
     let fixture = vault_fixture()?;
     let mut app = Session::builder(BORG, &fixture).label("vault").spawn()?;
     app.wait_text("1 item")?;
     app.send(keys::down())?.send(keys::enter())?;
+    let encrypted = app.wait_text("gocryptfs.conf")?;
+    ensure!(encrypted.contains("Papers looks like a vault"), "a toast says how to open it\n{}", encrypted.text());
+    ensure!(!encrypted.contains(VAULT_ASKS), "Enter browses the folder\n{}", encrypted.text());
+    ensure!(gocryptfs_mounts()? == 0, "nothing is mounted yet");
+
+    choose(&mut app, ENCRYPTION_MENU, "Open vault…")?;
     app.wait_text(VAULT_ASKS)?;
     app.send("not it")?.send(keys::enter())?;
     app.wait_text("That password does not open the vault Papers")?;
@@ -5685,9 +5691,9 @@ fn a_vault_opens_with_its_password_stays_open_outside_and_closes_from_the_encryp
     app.send(keys::enter())?;
     app.wait_gone(VAULT_FILE)?;
     ensure!(gocryptfs_mounts()? == 1, "leaving the vault keeps it open");
-    app.send(keys::enter())?;
+    choose(&mut app, ENCRYPTION_MENU, "Open vault…")?;
     let again = app.wait_text(VAULT_FILE)?;
-    ensure!(!again.contains(VAULT_ASKS), "an open vault needs no password");
+    ensure!(!again.contains(VAULT_ASKS), "an open vault under the cursor needs no password");
 
     choose(&mut app, ENCRYPTION_MENU, "Close vault")?;
     app.wait_text("The vault Papers is closed.")?;

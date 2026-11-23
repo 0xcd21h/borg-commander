@@ -430,7 +430,8 @@ fn a_long_job_question_for_a_save_waits_for_the_keys_to_rest_then_takes_the_edit
     };
     update(&mut state, Msg::Job { id, event: Event::Asking(ask) }, now);
     assert!(!state.question_shows(), "the question waits while keys come in");
-    assert!(state.toasts.iter().any(|toast| toast.job == id && toast.event == crate::ToastEvent::Asking));
+    let asking = crate::ToastTopic::Job { id, event: crate::ToastEvent::Asking };
+    assert!(state.toasts.iter().any(|toast| toast.topic == asking));
     update(&mut state, Msg::Tick, now + crate::update_offer::QUIET);
     assert!(state.editor.is_some(), "the editor stays open under the question");
     assert!(state.question_shows(), "it opens once the keys rest");

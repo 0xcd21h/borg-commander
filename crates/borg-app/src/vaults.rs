@@ -12,7 +12,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-use borg_core::{Msg, Password, Platform, Side, VAULT_CONFIG, VAULT_KEY_SEPARATOR, VaultError, VaultMount};
+use borg_core::{
+    Msg, Password, Platform, Side, VAULT_CONFIG, VAULT_KEY_SEPARATOR, VaultError, VaultFolder, VaultMount,
+};
 use zeroize::Zeroizing;
 
 #[cfg(test)]
@@ -76,24 +78,22 @@ pub(crate) type Created = (Password, Result<VaultMount, VaultError>);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Found {
-    Locked,
-    Open(PathBuf),
+    Vault(VaultFolder),
     Inside(VaultMount),
     Gone(PathBuf),
 }
 
 impl Found {
-    pub(crate) fn message(self, side: Side, generation: u64, dir: PathBuf) -> Msg {
+    pub(crate) fn message(self, side: Side, generation: u64) -> Msg {
         match self {
-            Self::Locked => Msg::VaultFound { side, generation, cipher: dir, open: None },
-            Self::Open(root) => Msg::VaultFound { side, generation, cipher: dir, open: Some(root) },
+            Self::Vault(folder) => Msg::VaultFound { side, generation, folder },
             Self::Inside(vault) => Msg::VaultShown { side, generation, vault },
             Self::Gone(root) => Msg::VaultClosed { root, error: None },
         }
     }
 
     pub(crate) fn replaces_listing(&self) -> bool {
-        !matches!(self, Self::Inside(_))
+        matches!(self, Self::Gone(_))
     }
 }
 
@@ -104,8 +104,8 @@ impl Vaults {
     }
 
     pub(crate) fn check(&self, dir: &Path, known: Option<&VaultMount>) -> Option<Found> {
-        if dir.join(VAULT_CONFIG).is_file() {
-            return Some(self.mounted_at(dir).map_or(Found::Locked, Found::Open));
+        if let Some(folder) = self.folder(dir) {
+            return Some(Found::Vault(folder));
         }
         if let Some(vault) = known.filter(|vault| vault.holds(dir)) {
             return (!is_mount(&vault.root)).then(|| self.gone(&vault.root));
@@ -115,6 +115,14 @@ impl Vaults {
             return Some(self.gone(&root));
         }
         self.source_of(&root).map(|cipher| Found::Inside(VaultMount { cipher, root }))
+    }
+
+    pub(crate) fn pick(&self, folders: &[PathBuf]) -> Option<VaultFolder> {
+        folders.iter().find_map(|dir| self.folder(dir))
+    }
+
+    fn folder(&self, dir: &Path) -> Option<VaultFolder> {
+        dir.join(VAULT_CONFIG).is_file().then(|| VaultFolder { cipher: dir.to_path_buf(), open: self.mounted_at(dir) })
     }
 
     pub(crate) fn open(&self, cipher: &Path, password: &Password) -> Result<VaultMount, VaultError> {

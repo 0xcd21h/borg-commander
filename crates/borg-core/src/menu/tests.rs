@@ -196,15 +196,27 @@ fn the_encryption_menu_holds_the_vault_commands() {
             })
             .collect()
     };
-    assert_eq!(labels(&state, "Encryption"), [("Create vault…", true), ("Close vault", false)]);
+    assert_eq!(labels(&state, "Encryption"), [("Create vault…", true), ("Open vault…", true), ("Close vault", false)]);
     assert!(labels(&state, "File").iter().all(|(label, _)| !label.contains("vault")));
 
     state.panel_mut(Side::Left).vault = Some(VaultMount { cipher: CIPHER.into(), root: ROOT.into() });
-    assert_eq!(labels(&state, "Encryption"), [("Create vault…", true), ("Close vault", true)]);
+    assert_eq!(labels(&state, "Encryption"), [("Create vault…", true), ("Open vault…", true), ("Close vault", true)]);
 
     press(&mut state, now, KeyCode::F(9));
     press(&mut state, now, KeyCode::Left);
     assert_eq!(shown(&state), ("Encryption".into(), Some("Create vault…")));
     press(&mut state, now, KeyCode::Enter);
     assert!(matches!(state.overlay, Some(Overlay::Prompt(_))), "Create vault asks for the name");
+    press(&mut state, now, KeyCode::Esc);
+
+    press(&mut state, now, KeyCode::F(9));
+    press(&mut state, now, KeyCode::Down);
+    assert_eq!(shown(&state), ("Encryption".into(), Some("Open vault…")));
+    let effects = press(&mut state, now, KeyCode::Enter);
+    assert!(effects.iter().any(|effect| matches!(effect, Effect::PickVault { side: Side::Left, .. })), "{effects:?}");
+
+    let remote =
+        crate::RemoteMount { machine: "web1".into(), session: "1".into(), name: "web1".into(), host: "/".into() };
+    state.panel_mut(Side::Left).remote_mount = Some(remote);
+    assert!(labels(&state, "Encryption").contains(&("Open vault…", false)), "a remote panel holds no vault Borg opens");
 }

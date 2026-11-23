@@ -155,6 +155,7 @@ pub(crate) fn perform(state: &mut AppState, action: Action, now: Instant) -> Vec
         Action::ExtractHere => crate::archive::extract(state, side, now),
         Action::ExtractToOther => crate::archive::extract(state, side.other(), now),
         Action::CreateVault => crate::vault::create(state),
+        Action::OpenVault => crate::vault::pick(state),
         Action::CloseVault => crate::vault::close(state),
         Action::SwapPanels => panels::swap(state),
         Action::SameFolder => panels::same_folder(state),

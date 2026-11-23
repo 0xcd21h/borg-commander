@@ -1,11 +1,14 @@
-//! Toasts: small notes in a corner that a job started, ended or waits for an answer. They
-//! stack, slide in and fade out, and never take keys. Alt-X or a click on a toast's close mark
-//! closes it early.
+//! Toasts: small notes in a corner that a job started, ended or waits for an answer, or that a
+//! panel entered a vault's folder. They stack, slide in and fade out, and never take keys. Alt-X
+//! or a click on a toast's close mark closes it early.
 
-use std::time::{Duration, Instant};
+use std::{
+    path::PathBuf,
+    time::{Duration, Instant},
+};
 
 use super::How;
-use crate::{AppState, Motion, Overlay};
+use crate::{AppState, Motion, Overlay, Side};
 
 /// A job that ends sooner than this gets no started toast.
 const START_DELAY: Duration = Duration::from_secs(1);
@@ -13,6 +16,7 @@ const STARTED_STAYS: Duration = Duration::from_secs(3);
 const DONE_STAYS: Duration = Duration::from_secs(6);
 const CANCELLED_STAYS: Duration = Duration::from_secs(4);
 const FAILED_STAYS: Duration = Duration::from_secs(10);
+const VAULT_STAYS: Duration = Duration::from_secs(8);
 /// Toasts shown at once; a newer one pushes the oldest out.
 pub const MOST: usize = 3;
 /// How many of the motion's fades a toast takes to fade out.
@@ -26,22 +30,55 @@ pub enum ToastEvent {
     Ended(How),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ToastTopic {
+    Job { id: u64, event: ToastEvent },
+    Vault { side: Side, cipher: PathBuf, open: bool },
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToastId {
+    Job(u64),
+    Vault,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Toast {
-    pub job: u64,
-    pub event: ToastEvent,
+    pub topic: ToastTopic,
     /// When it shows.
     pub at: Instant,
 }
 
 impl Toast {
+    pub fn id(&self) -> ToastId {
+        match self.topic {
+            ToastTopic::Job { id, .. } => ToastId::Job(id),
+            ToastTopic::Vault { .. } => ToastId::Vault,
+        }
+    }
+
+    pub fn job(&self) -> Option<u64> {
+        match self.topic {
+            ToastTopic::Job { id, .. } => Some(id),
+            ToastTopic::Vault { .. } => None,
+        }
+    }
+
+    fn event(&self) -> Option<ToastEvent> {
+        match self.topic {
+            ToastTopic::Job { event, .. } => Some(event),
+            ToastTopic::Vault { .. } => None,
+        }
+    }
+
     fn stays(&self) -> Option<Duration> {
-        match self.event {
-            ToastEvent::Started => Some(STARTED_STAYS),
-            ToastEvent::Asking => None,
-            ToastEvent::Ended(How::Done) => Some(DONE_STAYS),
-            ToastEvent::Ended(How::Cancelled) => Some(CANCELLED_STAYS),
-            ToastEvent::Ended(How::Failed) => Some(FAILED_STAYS),
+        match self.event() {
+            Some(ToastEvent::Started) => Some(STARTED_STAYS),
+            Some(ToastEvent::Asking) => None,
+            Some(ToastEvent::Ended(How::Done)) => Some(DONE_STAYS),
+            Some(ToastEvent::Ended(How::Cancelled)) => Some(CANCELLED_STAYS),
+            Some(ToastEvent::Ended(How::Failed)) => Some(FAILED_STAYS),
+            None => Some(VAULT_STAYS),
         }
     }
 
@@ -74,36 +111,54 @@ fn on(state: &AppState) -> bool {
     state.settings.preferences.job_notifications
 }
 
+fn job_toast(id: u64, event: ToastEvent, at: Instant) -> Toast {
+    Toast { topic: ToastTopic::Job { id, event }, at }
+}
+
 pub(super) fn started(state: &mut AppState, job: u64, now: Instant) {
     if on(state) {
-        state.toasts.push(Toast { job, event: ToastEvent::Started, at: now + START_DELAY });
+        state.toasts.push(job_toast(job, ToastEvent::Started, now + START_DELAY));
     }
 }
 
 pub(super) fn ended(state: &mut AppState, job: u64, how: How, now: Instant) {
     forget(state, job);
     if on(state) {
-        state.toasts.push(Toast { job, event: ToastEvent::Ended(how), at: now });
+        state.toasts.push(job_toast(job, ToastEvent::Ended(how), now));
         keep_most(state, now);
     }
 }
 
-pub(super) fn forget(state: &mut AppState, job: u64) {
-    state.toasts.retain(|toast| toast.job != job);
+/// Shows that the panel on `side` entered the vault folder `cipher`, in place of an earlier
+/// such toast, unless the toasts are off.
+pub(super) fn vault(state: &mut AppState, side: Side, cipher: PathBuf, open: bool, now: Instant) -> bool {
+    if !on(state) {
+        return false;
+    }
+    close(state, ToastId::Vault);
+    state.toasts.push(Toast { topic: ToastTopic::Vault { side, cipher, open }, at: now });
+    keep_most(state, now);
+    true
 }
 
-/// Closes the toast of `job`. A question it asked waits in the jobs panel.
-pub(super) fn close(state: &mut AppState, job: u64) {
-    forget(state, job);
-    if let Some(asking) = super::find_mut(state, job).filter(|found| found.asking()) {
+pub(super) fn forget(state: &mut AppState, job: u64) {
+    state.toasts.retain(|toast| toast.job() != Some(job));
+}
+
+/// Closes the toast `id`. A question its job asked waits in the jobs panel.
+pub(super) fn close(state: &mut AppState, id: ToastId) {
+    state.toasts.retain(|toast| toast.id() != id);
+    if let ToastId::Job(job) = id
+        && let Some(asking) = super::find_mut(state, job).filter(|found| found.asking())
+    {
         asking.put_off = true;
     }
 }
 
 /// Closes every toast that shows now. One still to come shows when its time comes.
 pub(super) fn close_all(state: &mut AppState, now: Instant) {
-    let shown: Vec<u64> = visible(state, now).iter().map(|toast| toast.job).collect();
-    shown.into_iter().for_each(|job| close(state, job));
+    let shown: Vec<ToastId> = visible(state, now).iter().map(|toast| toast.id()).collect();
+    shown.into_iter().for_each(|id| close(state, id));
 }
 
 /// Whether job `id`'s question shows or may open at once, so no toast needs to ask.
@@ -123,14 +178,22 @@ pub(super) fn sync(state: &mut AppState, now: Instant) {
         .map(|job| job.id)
         .collect();
     let jobs: Vec<u64> = state.jobs.iter().map(|job| job.id).collect();
+    let shown: Vec<PathBuf> = Side::ALL.into_iter().map(|side| state.panel(side).destination().to_path_buf()).collect();
     state.toasts.retain(|toast| {
-        let alive = jobs.contains(&toast.job) && toast.ends().is_none_or(|ends| now < ends);
-        alive && (toast.event != ToastEvent::Asking || asking.contains(&toast.job))
+        let current = toast.ends().is_none_or(|ends| now < ends);
+        current
+            && match &toast.topic {
+                ToastTopic::Job { id, event } => {
+                    jobs.contains(id) && (*event != ToastEvent::Asking || asking.contains(id))
+                }
+                ToastTopic::Vault { side, cipher, .. } => shown[side.index()] == *cipher,
+            }
     });
     for job in asking {
-        if !state.toasts.iter().any(|toast| toast.job == job && toast.event == ToastEvent::Asking) {
+        let waits = ToastTopic::Job { id: job, event: ToastEvent::Asking };
+        if !state.toasts.iter().any(|toast| toast.topic == waits) {
             forget(state, job);
-            state.toasts.push(Toast { job, event: ToastEvent::Asking, at: now });
+            state.toasts.push(Toast { topic: waits, at: now });
         }
     }
     keep_most(state, now);

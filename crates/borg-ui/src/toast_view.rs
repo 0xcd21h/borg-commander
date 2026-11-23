@@ -1,10 +1,10 @@
 //! Toasts: small notes in the bottom-right corner that a job started, ended or waits for an
-//! answer. They slide in from the right, stack with the newest at the bottom, and fade out. A
-//! click on a toast's close mark closes it.
+//! answer, or that a panel entered a vault's folder. They slide in from the right, stack with the
+//! newest at the bottom, and fade out. A click on a toast's close mark closes it.
 
-use std::time::Instant;
+use std::{path::Path, time::Instant};
 
-use borg_core::{AppState, How, Job, Msg, Pointer, Toast, ToastEvent, View};
+use borg_core::{AppState, How, Job, Msg, Pointer, Toast, ToastEvent, ToastTopic, View};
 use borg_i18n::tr;
 use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use ratatui::{
@@ -16,7 +16,7 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 
-use crate::{blend::crossfade, format, job_view, jobs_sheet, look::Look};
+use crate::{blend::crossfade, format, job_view, jobs_sheet, look::Look, panel_view::VAULT_MARK};
 
 const BOX_WIDTH: u16 = 40;
 const BOX_ROWS: u16 = 3;
@@ -83,8 +83,25 @@ fn opened_by_key(state: &AppState) -> Option<u64> {
     borg_core::shown_jobs(&state.jobs).into_iter().find(|job| !job.running() && job.reveal.is_some()).map(|job| job.id)
 }
 
-fn content(toast: &Toast, job: &Job, keys: bool, opens: Option<u64>, now: Instant) -> Option<Content> {
-    let (icon, title, tone) = match toast.event {
+fn content(state: &AppState, toast: &Toast, keys: bool, opens: Option<u64>, now: Instant) -> Option<Content> {
+    match &toast.topic {
+        ToastTopic::Job { id, event } => {
+            state.jobs.iter().find(|job| job.id == *id).and_then(|job| job_content(*event, job, keys, opens, now))
+        }
+        ToastTopic::Vault { cipher, open, .. } => Some(vault_content(cipher, *open, keys)),
+    }
+}
+
+fn vault_content(cipher: &Path, open: bool, keys: bool) -> Content {
+    let name = borg_core::vault_name(cipher);
+    let title = if open { tr!(vault_cue_open, name = name) } else { tr!(vault_cue_locked, name = name) };
+    let body = tr!(vault_cue_how, menu = tr!(encryption_menu_title), entry = tr!(vault_open));
+    let keys = if keys { vec![tr!(job_toast_close)] } else { Vec::new() };
+    Content { title: format!("{VAULT_MARK} {title}"), body, keys, tone: Tone::Accent }
+}
+
+fn job_content(event: ToastEvent, job: &Job, keys: bool, opens: Option<u64>, now: Instant) -> Option<Content> {
+    let (icon, title, tone) = match event {
         ToastEvent::Started => (STARTED, job.kind.title().to_owned(), Tone::Accent),
         ToastEvent::Asking => (ASKING, tr!(job_waits, job = job.kind.title()), Tone::Warn),
         ToastEvent::Ended(how) => {
@@ -96,11 +113,11 @@ fn content(toast: &Toast, job: &Job, keys: bool, opens: Option<u64>, now: Instan
             }
         }
     };
-    let body = match toast.event {
+    let body = match event {
         ToastEvent::Ended(_) => format!("{}{SEPARATOR}{}", job.subject, job_view::took(job, now)),
         ToastEvent::Started | ToastEvent::Asking => job.subject.clone(),
     };
-    let key = match toast.event {
+    let key = match event {
         ToastEvent::Asking => tr!(job_toast_answer),
         ToastEvent::Ended(_) if opens == Some(job.id) => tr!(job_toast_open),
         ToastEvent::Started | ToastEvent::Ended(_) => tr!(job_toast_jobs),
@@ -220,9 +237,7 @@ fn placed(state: &AppState, now: Instant) -> (Rect, Vec<Placed<'_>>) {
     let mut bottom = area.bottom();
     let mut placed = Vec::new();
     for toast in borg_core::visible_toasts(state, now).into_iter().rev().take(most) {
-        let Some(content) =
-            state.jobs.iter().find(|job| job.id == toast.job).and_then(|job| content(toast, job, keys, opens, now))
-        else {
+        let Some(content) = content(state, toast, keys, opens, now) else {
             continue;
         };
         if bottom < area.y + rows {
@@ -272,6 +287,6 @@ pub fn toast_mouse(state: &AppState, event: MouseEvent, now: Instant) -> Option<
     borg_i18n::with_locale(state.settings.preferences.language, || {
         let (area, placed) = placed(state, now);
         let hit = placed.iter().find(|one| area.contains(point) && one.mark().contains(point))?;
-        Some(Msg::Pointer(Pointer::CloseToast(hit.toast.job)))
+        Some(Msg::Pointer(Pointer::CloseToast(hit.toast.id())))
     })
 }

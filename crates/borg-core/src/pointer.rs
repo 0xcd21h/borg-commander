@@ -158,8 +158,8 @@ pub enum Pointer {
     },
     /// A folder in the picker above the command line, counted from the bottom.
     CdChoice(usize),
-    /// The close mark of a job's toast, which shows over the console and the editors too.
-    CloseToast(u64),
+    /// The close mark of a toast, which shows over the console and the editors too.
+    CloseToast(crate::ToastId),
 }
 
 pub(crate) fn on_pointer(state: &mut AppState, pointer: Pointer, now: Instant) -> Vec<Effect> {
@@ -171,8 +171,8 @@ pub(crate) fn on_pointer(state: &mut AppState, pointer: Pointer, now: Instant) -
     if let Some(approval) = state.approval.take() {
         return crate::agent::on_approval_pointer(state, approval, pointer, now);
     }
-    if let Pointer::CloseToast(job) = pointer {
-        crate::jobs::close_toast(state, job);
+    if let Pointer::CloseToast(toast) = pointer {
+        crate::jobs::close_toast(state, toast);
         return Vec::new();
     }
     if let Pointer::ScrollDocument(delta) = pointer {

@@ -31,8 +31,8 @@ impl Panel {
         self.incoming = Some(Incoming { dir, generation, focus: focus.map(Anchor::Name), refresh, row });
     }
 
-    pub fn abandon(&mut self, generation: u64) {
-        self.incoming.take_if(|incoming| incoming.generation == generation);
+    pub fn refreshing(&self) -> bool {
+        self.incoming.as_ref().is_some_and(|incoming| incoming.refresh)
     }
 
     pub fn reload(&mut self, generation: u64) {

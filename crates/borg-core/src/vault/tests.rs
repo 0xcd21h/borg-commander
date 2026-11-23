@@ -1,10 +1,12 @@
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
+use borg_vfs::{Entry, EntryKind};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::*;
 use crate::{
-    Action, Appearance, Elevation, Installer, MenuCursor, Msg, PackageManager, Settings, Startup, ThemeChoice, update,
+    Action, Appearance, Elevation, Installer, MenuCursor, Msg, PackageManager, Settings, Startup, ThemeChoice,
+    ToastTopic, update,
 };
 
 const HOME: &str = "/work";
@@ -15,12 +17,96 @@ const SECRET: &str = "hunter two";
 const KEY: &str = "0a1b2c3d-4e5f6a7b-8c9d0e1f-2a3b4c5d-6e7f8a9b-0c1d2e3f-4a5b6c7d-8e9f0a1b";
 const LAST_GROUP: &str = "8e9f0a1b";
 
+const NOTES: &str = "notes.txt";
+const PLAIN: &str = "/work/plain";
+const CIPHER_FILES: [&str; 3] = [VAULT_CONFIG, "gocryptfs.diriv", "Qm9yZyBDb21tYW5kZXI"];
+
 fn state() -> (AppState, Instant) {
+    let (state, _, now) = started(Settings::default());
+    (state, now)
+}
+
+fn started(settings: Settings) -> (AppState, Vec<Effect>, Instant) {
     let now = Instant::now();
     let themes = vec![ThemeChoice { id: "midnight".into(), name: "Midnight".into() }];
-    let (state, _) =
-        AppState::new(Startup::at(HOME.into()), 80, 12, Settings::default(), Appearance::new(themes, 0), now);
+    let (state, effects) = AppState::new(Startup::at(HOME.into()), 80, 12, settings, Appearance::new(themes, 0), now);
+    (state, effects, now)
+}
+
+fn at_home() -> (AppState, Instant) {
+    at_home_with(Settings::default())
+}
+
+fn at_home_with(settings: Settings) -> (AppState, Instant) {
+    let (mut state, effects, now) = started(settings);
+    let home = [entry(NAME, EntryKind::Dir), entry("plain", EntryKind::Dir), entry(NOTES, EntryKind::File)];
+    fill(&mut state, now, &effects, &home);
     (state, now)
+}
+
+fn entry(name: &str, kind: EntryKind) -> Entry {
+    Entry {
+        source: None,
+        missing: false,
+        usage: None,
+        name: name.into(),
+        kind,
+        size: 0,
+        modified: None,
+        executable: false,
+        permissions: 0o644,
+    }
+}
+
+fn fill(state: &mut AppState, now: Instant, effects: &[Effect], entries: &[Entry]) {
+    for effect in effects {
+        let Effect::List { side, generation, .. } = effect else { continue };
+        update(state, Msg::Batch { side: *side, generation: *generation, entries: entries.to_vec() }, now);
+        update(state, Msg::Listed { side: *side, generation: *generation, error: None }, now);
+    }
+}
+
+fn hover(state: &mut AppState, name: &str) {
+    while state.panel(Side::Left).hovered_entry().is_none_or(|entry| entry.name != name) {
+        state.panel_mut(Side::Left).move_by(1);
+    }
+}
+
+fn locked() -> VaultFolder {
+    VaultFolder { cipher: CIPHER.into(), open: None }
+}
+
+fn picked(state: &mut AppState, now: Instant, found: Option<VaultFolder>) -> Vec<Effect> {
+    let folders = vec![PathBuf::from(CIPHER), PathBuf::from(HOME)];
+    update(state, Msg::VaultPicked { side: Side::Left, folders, found }, now)
+}
+
+fn vault_toasts(state: &AppState) -> Vec<(Side, PathBuf, bool)> {
+    let topics = state.toasts.iter().map(|toast| &toast.topic);
+    topics
+        .filter_map(|topic| match topic {
+            ToastTopic::Vault { side, cipher, open } => Some((*side, cipher.clone(), *open)),
+            ToastTopic::Job { .. } => None,
+        })
+        .collect()
+}
+
+fn enter_vault_folder(state: &mut AppState, now: Instant, folder: VaultFolder) -> Vec<Effect> {
+    hover(state, NAME);
+    let effects = press(state, now, KeyCode::Enter);
+    let Some(Effect::List { side: Side::Left, generation, dir }) = effects.first() else { panic!("{effects:?}") };
+    assert_eq!(dir, Path::new(CIPHER), "Enter lists the vault's folder");
+    let generation = *generation;
+    let mut effects = update(state, Msg::VaultFound { side: Side::Left, generation, folder }, now);
+    let cipher_files: Vec<Entry> = CIPHER_FILES.iter().map(|name| entry(name, EntryKind::File)).collect();
+    let listing = [Effect::List { side: Side::Left, generation, dir: CIPHER.into() }];
+    fill(state, now, &listing, &cipher_files);
+    effects.extend(update(state, Msg::Tick, now));
+    effects
+}
+
+fn shown_names(state: &AppState) -> Vec<String> {
+    state.panel(Side::Left).entries().iter().map(|entry| entry.name.clone()).collect()
 }
 
 fn vault() -> VaultMount {
@@ -49,20 +135,129 @@ fn listed(state: &mut AppState, now: Instant, effects: &[Effect]) -> PathBuf {
     dir.clone()
 }
 
-fn found(state: &mut AppState, now: Instant, open: Option<PathBuf>) -> Vec<Effect> {
-    let Effect::List { generation, .. } = state.navigate(Side::Left, CIPHER.into(), None) else { panic!("a listing") };
-    update(state, Msg::VaultFound { side: Side::Left, generation, cipher: CIPHER.into(), open }, now)
-}
-
 fn inside(state: &mut AppState, now: Instant) {
     let effects = update(state, Msg::VaultOpened { side: Side::Left, vault: vault() }, now);
     listed(state, now, &effects);
 }
 
 #[test]
-fn a_locked_vault_asks_for_its_password_in_a_hidden_field_and_the_panel_stays() {
+fn enter_on_a_vault_shows_its_encrypted_files_and_a_toast_says_how_to_open_it() {
+    let (mut state, now) = at_home();
+    let effects = enter_vault_folder(&mut state, now, locked());
+    assert!(!effects.iter().any(|effect| matches!(effect, Effect::OpenVault { .. })), "{effects:?}");
+    assert!(state.overlay.is_none(), "no password dialog");
+    assert_eq!(state.panel(Side::Left).dir(), Path::new(CIPHER));
+    assert_eq!(shown_names(&state), CIPHER_FILES.map(String::from));
+    assert_eq!(vault_toasts(&state), vec![(Side::Left, CIPHER.into(), false)]);
+    assert_eq!(state.notice, None);
+}
+
+#[test]
+fn an_open_vault_entered_as_a_folder_toasts_that_it_is_open() {
+    let (mut state, now) = at_home();
+    enter_vault_folder(&mut state, now, VaultFolder { cipher: CIPHER.into(), open: Some(ROOT.into()) });
+    assert_eq!(state.panel(Side::Left).dir(), Path::new(CIPHER), "Enter stays in the encrypted folder");
+    assert_eq!(state.panel(Side::Left).vault, None);
+    assert_eq!(vault_toasts(&state), vec![(Side::Left, CIPHER.into(), true)]);
+}
+
+#[test]
+fn the_vault_toast_shows_once_and_goes_with_the_folder() {
+    let (mut state, now) = at_home();
+    enter_vault_folder(&mut state, now, locked());
+    let reload = state.reload(Side::Left);
+    let Effect::List { generation, .. } = reload else { panic!("a listing") };
+    update(&mut state, Msg::VaultFound { side: Side::Left, generation, folder: locked() }, now);
+    assert_eq!(vault_toasts(&state).len(), 1, "a reload of the folder toasts no more");
+    for code in [KeyCode::Down, KeyCode::Up, KeyCode::Down] {
+        press(&mut state, now, code);
+    }
+    assert_eq!(vault_toasts(&state).len(), 1, "keys leave it alone");
+    update(&mut state, Msg::Tick, now + Duration::from_secs(9));
+    assert!(vault_toasts(&state).is_empty(), "it goes by itself");
+
+    let (mut state, now) = at_home();
+    enter_vault_folder(&mut state, now, locked());
+    state.navigate(Side::Left, HOME.into(), None);
+    update(&mut state, Msg::Tick, now);
+    assert!(vault_toasts(&state).is_empty(), "leaving the folder takes it away");
+}
+
+#[test]
+fn with_toasts_off_a_vault_folder_leaves_a_notice() {
+    let mut settings = Settings::default();
+    settings.preferences.job_notifications = false;
+    let (mut state, now) = at_home_with(settings);
+    enter_vault_folder(&mut state, now, locked());
+    assert!(vault_toasts(&state).is_empty());
+    let menu = tr!(encryption_menu_title);
+    let notice = tr!(vault_cue_locked_notice, name = NAME, menu = menu, entry = tr!(vault_open));
+    assert_eq!(state.notice, Some(notice));
+}
+
+#[test]
+fn alt_x_closes_the_vault_toast() {
+    let (mut state, now) = at_home();
+    enter_vault_folder(&mut state, now, locked());
+    crate::actions::perform(&mut state, Action::CloseToasts, now);
+    assert!(vault_toasts(&state).is_empty());
+}
+
+#[test]
+fn open_vault_asks_about_the_folder_under_the_cursor_first_then_the_panels_own() {
+    let (mut state, now) = at_home();
+    hover(&mut state, NAME);
+    let effects = crate::actions::perform(&mut state, Action::OpenVault, now);
+    let folders = vec![PathBuf::from(CIPHER), PathBuf::from(HOME)];
+    assert_eq!(effects, vec![Effect::PickVault { side: Side::Left, folders }]);
+    hover(&mut state, NOTES);
+    let effects = crate::actions::perform(&mut state, Action::OpenVault, now);
+    assert_eq!(
+        effects,
+        vec![Effect::PickVault { side: Side::Left, folders: vec![HOME.into()] }],
+        "a file is no folder"
+    );
+}
+
+#[test]
+fn open_vault_inside_the_encrypted_folder_opens_that_folder() {
+    let (mut state, now) = at_home();
+    enter_vault_folder(&mut state, now, locked());
+    let effects = crate::actions::perform(&mut state, Action::OpenVault, now);
+    assert_eq!(effects, vec![Effect::PickVault { side: Side::Left, folders: vec![CIPHER.into()] }]);
+}
+
+#[test]
+fn open_vault_on_folders_that_are_not_vaults_says_so() {
     let (mut state, now) = state();
-    let effects = found(&mut state, now, None);
+    let folders = vec![PathBuf::from(PLAIN), PathBuf::from(HOME)];
+    let effects = update(&mut state, Msg::VaultPicked { side: Side::Left, folders, found: None }, now);
+    assert!(!effects.iter().any(|effect| matches!(effect, Effect::List { .. } | Effect::OpenVault { .. })));
+    assert!(state.overlay.is_none());
+    assert_eq!(state.notice, Some(tr!(vault_not_either, first = "plain", second = "work")));
+    let folders = vec![PathBuf::from(HOME)];
+    update(&mut state, Msg::VaultPicked { side: Side::Left, folders, found: None }, now);
+    assert_eq!(state.notice, Some(tr!(vault_not_one, name = "work")));
+}
+
+#[test]
+fn open_vault_in_results_asks_only_about_the_folder_under_the_cursor() {
+    let (mut state, now) = state();
+    let found = |name: &str, kind| Entry { source: Some(Path::new(HOME).join(name)), ..entry(name, kind) };
+    let source = crate::ResultSource::Collection("saved".into());
+    state.panel_mut(Side::Left).open_results(source.clone(), vec![found(NAME, EntryKind::Dir)], 1);
+    let effects = crate::actions::perform(&mut state, Action::OpenVault, now);
+    assert_eq!(effects, vec![Effect::PickVault { side: Side::Left, folders: vec![CIPHER.into()] }]);
+    state.panel_mut(Side::Left).open_results(source, vec![found(NOTES, EntryKind::File)], 1);
+    let effects = crate::actions::perform(&mut state, Action::OpenVault, now);
+    assert!(effects.is_empty());
+    assert_eq!(state.notice.as_deref(), Some(tr!(vault_pick_folder)));
+}
+
+#[test]
+fn a_locked_vault_picked_to_open_asks_for_its_password_in_a_hidden_field() {
+    let (mut state, now) = state();
+    let effects = picked(&mut state, now, Some(locked()));
     assert!(!effects.iter().any(|effect| matches!(effect, Effect::List { .. } | Effect::OpenVault { .. })));
     let prompt = shown_prompt(&state);
     assert!(prompt.purpose.masked());
@@ -73,7 +268,7 @@ fn a_locked_vault_asks_for_its_password_in_a_hidden_field_and_the_panel_stays() 
 #[test]
 fn typing_the_password_opens_the_vault_and_wipes_the_field() {
     let (mut state, now) = state();
-    found(&mut state, now, None);
+    picked(&mut state, now, Some(locked()));
     let effects = type_text(&mut state, now, SECRET);
     let [Effect::OpenVault { side: Side::Left, cipher, password }] = effects.as_slice() else { panic!("{effects:?}") };
     assert_eq!(cipher, Path::new(CIPHER));
@@ -84,7 +279,7 @@ fn typing_the_password_opens_the_vault_and_wipes_the_field() {
 #[test]
 fn esc_leaves_the_vault_closed_and_an_empty_enter_waits() {
     let (mut state, now) = state();
-    found(&mut state, now, None);
+    picked(&mut state, now, Some(locked()));
     assert!(press(&mut state, now, KeyCode::Enter).is_empty());
     assert!(state.overlay.is_some());
     assert!(press(&mut state, now, KeyCode::Esc).is_empty());
@@ -106,15 +301,16 @@ fn a_wrong_password_asks_again_and_says_so() {
 fn a_vault_asking_while_another_dialog_is_open_says_how_to_open_it() {
     let (mut state, now) = state();
     state.overlay = Some(Overlay::Menu(MenuCursor { menu: 0, item: None }));
-    found(&mut state, now, None);
+    picked(&mut state, now, Some(locked()));
     assert!(matches!(state.overlay, Some(Overlay::Menu(_))));
-    assert_eq!(state.notice.as_deref(), Some(tr!(vault_needs_password, name = NAME).as_str()));
+    let (menu, entry) = (tr!(encryption_menu_title), tr!(vault_open));
+    assert_eq!(state.notice, Some(tr!(vault_needs_password, name = NAME, menu = menu, entry = entry)));
 }
 
 #[test]
-fn an_open_vault_shows_its_files_from_its_top_and_dot_dot_returns_to_its_folder() {
+fn an_open_vault_picked_to_open_shows_its_files_from_its_top_and_dot_dot_returns_to_its_folder() {
     let (mut state, now) = state();
-    let effects = found(&mut state, now, Some(ROOT.into()));
+    let effects = picked(&mut state, now, Some(VaultFolder { cipher: CIPHER.into(), open: Some(ROOT.into()) }));
     assert_eq!(listed(&mut state, now, &effects), Path::new(ROOT));
     assert!(state.overlay.is_none());
     assert!(at_root(&state, Side::Left));
